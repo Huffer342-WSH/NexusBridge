@@ -1,0 +1,140 @@
+{
+  "id": "test-site",
+  "name": "Test Site",
+  "domain": "https://example.invalid",
+  "encoding": "UTF-8",
+  "public": false,
+  "html": {
+    "search": {
+      "paths": [
+        {
+          "path": "torrents.php",
+          "method": "get"
+        }
+      ],
+      "params": {
+        "search": "{keyword}"
+      },
+      "fields": {
+        "selects": [
+          {
+            "name": "spstate",
+            "type": "select",
+            "label": "显示促销种子",
+            "role": "promotion",
+            "options": [
+              { "value": "0", "label": "全部", "filter_value": "all" },
+              { "value": "1", "label": "普通", "filter_value": "normal" },
+              { "value": "2", "label": "免费", "filter_value": "pro_free" }
+            ]
+          }
+        ]
+      }
+    },
+    "category": {},
+    "torrents": {
+      "list": {
+        "selector": "table.torrents > tr:has(\"table.torrentname\")"
+      },
+      "fields": {
+        "id": {
+          "selector": "a[href*=\"details.php?id=\"]",
+          "attribute": "href",
+          "filters": [
+            {
+              "name": "re_search",
+              "args": [
+                "\\d+",
+                0
+              ]
+            }
+          ]
+        },
+        "title_default": {
+          "selector": "a[href*=\"details.php?id=\"]"
+        },
+        "title_optional": {
+          "optional": true,
+          "selector": "a[title][href*=\"details.php?id=\"]",
+          "attribute": "title"
+        },
+        "category": {
+          "selector": "a[href*=\"?cat=\"]",
+          "attribute": "href",
+          "filters": [
+            {
+              "name": "replace",
+              "args": [
+                "?",
+                ""
+              ]
+            },
+            {
+              "name": "querystring",
+              "args": "cat"
+            }
+          ]
+        },
+        "category_name": {
+          "selector": "td:nth-child(1) img",
+          "attributes": ["alt", "title"]
+        },
+        "details": {
+          "selector": "a[href*=\"details.php?id=\"]",
+          "attribute": "href"
+        },
+        "download": {
+          "selector": "a[href*=\"download.php?id=\"]",
+          "attribute": "href"
+        },
+        "cover": {
+          "selector": "table.torrentname img.nexus-lazy-load",
+          "attributes": ["data-src", "src"],
+          "optional": true
+        },
+        "comments": {
+          "selector": "td:nth-child(3)",
+          "optional": true
+        },
+        "date_elapsed": {
+          "selector": "td:nth-child(4) > span",
+          "optional": true
+        },
+        "date_added": {
+          "selector": "td:nth-child(4) > span",
+          "attribute": "title",
+          "optional": true
+        },
+        "size": {
+          "selector": "td:nth-child(5)"
+        },
+        "seeders": {
+          "selector": "td:nth-child(6)"
+        },
+        "leechers": {
+          "selector": "td:nth-child(7)"
+        },
+        "snatches": {
+          "selector": "td:nth-child(8)"
+        },
+        "subtitle": {
+          "selector": "table.torrentname td.embedded:nth-child(2)",
+          "after": "br",
+          "remove": ["a", "img", "font", "span", "div"],
+          "optional": true
+        },
+        "tags": {
+          "selector": "table.torrentname td.embedded:nth-child(2)",
+          "after": "br",
+          "remove": ["a", "img", "font", "span", "div"],
+          "split": "whitespace",
+          "max_length": 32
+        },
+        "tag_ids": {
+          "selector": "table.torrentname td.embedded:nth-child(2) > span[style*=\"background-color\"]"
+        }
+      }
+    }
+  },
+  "detail_page_url": "/details.php?id={tid}"
+}

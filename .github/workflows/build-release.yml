@@ -1,0 +1,134 @@
+name: Build Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      target_job:
+        description: Build job to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux-amd64
+          - linux-arm64
+          - windows-amd64
+      publish_release:
+        description: Create GitHub Release after all build jobs finish
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: Optional release tag. When empty, publishing creates manual-YYYY.MM.DD.RUN_NUMBER.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  WAILS_VERSION: v3.0.0-alpha2.117
+
+jobs:
+  linux-amd64:
+    name: Linux amd64 desktop and WebUI
+    if: ${{ github.event_name == 'push' || inputs.target_job == 'all' || inputs.target_job == 'linux-amd64' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: ${{ !env.ACT }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Build and package Linux amd64
+        run: bash scripts/ci/build-release-linux.sh --arch amd64 --artifact-arch amd64 --install-system-deps
+      - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
+        with:
+          name: nexusbridge-linux-amd64
+          path: |
+            dist/nexusbridge-webui-linux-amd64.tar.gz
+            dist/nexusbridge-desktop-linux-amd64.tar.gz
+          if-no-files-found: error
+
+  linux-arm64:
+    name: Linux arm64 desktop and WebUI
+    if: ${{ github.event_name == 'push' || inputs.target_job == 'all' || inputs.target_job == 'linux-arm64' }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: ${{ !env.ACT }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Build and package Linux arm64
+        run: bash scripts/ci/build-release-linux.sh --arch arm64 --artifact-arch aarch64 --install-system-deps
+      - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
+        with:
+          name: nexusbridge-linux-aarch64
+          path: |
+            dist/nexusbridge-webui-linux-aarch64.tar.gz
+            dist/nexusbridge-desktop-linux-aarch64.tar.gz
+          if-no-files-found: error
+
+  windows-amd64:
+    name: Windows amd64 desktop and WebUI
+    if: ${{ github.event_name == 'push' || inputs.target_job == 'all' || inputs.target_job == 'windows-amd64' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: ${{ !env.ACT }}
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Build and package Windows amd64
+        shell: pwsh
+        run: scripts/ci/build-release-windows.ps1 -Arch amd64 -ArtifactArch amd64
+      - uses: actions/upload-artifact@v7
+        if: ${{ !env.ACT }}
+        with:
+          name: nexusbridge-windows-amd64
+          path: |
+            dist/nexusbridge-webui-windows-amd64.zip
+            dist/nexusbridge-desktop-windows-amd64.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    if: ${{ github.event_name == 'push' || (inputs.target_job == 'all' && inputs.publish_release) }}
+    needs: [linux-amd64, linux-arm64, windows-amd64]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-release.yml
+    with:
+      release_tag: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+      target_sha: ${{ github.sha }}
+      manual_release: ${{ github.event_name == 'workflow_dispatch' }}

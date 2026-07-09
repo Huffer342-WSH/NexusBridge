@@ -1,0 +1,4 @@
+-P ubuntu-24.04=nexusbridge-act-runner:24.04-amd64
+-P ubuntu-24.04-arm=nexusbridge-act-runner:24.04-arm64
+--pull=false
+--reuse

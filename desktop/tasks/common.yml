@@ -1,0 +1,68 @@
+# Wails v3 通用任务只负责 pnpm 前端、绑定和构建资源。
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    internal: true
+    run: once
+    cmds:
+      - go mod tidy
+
+  install:frontend:deps:
+    internal: true
+    run: once
+    dir: webui
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+    generates:
+      - node_modules/**/*
+    cmds:
+      - pnpm install
+
+  generate:bindings:
+    internal: true
+    run: once
+    deps:
+      - task: go:mod:tidy
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - webui/bindings/**/*
+    cmds:
+      - wails3 generate bindings -d webui/bindings -clean=true -ts -i ./desktop
+
+  build:frontend:
+    internal: true
+    run: once
+    dir: webui
+    deps:
+      - task: install:frontend:deps
+      - task: generate:bindings
+    cmds:
+      - pnpm run {{if eq .DEV "true"}}build:dev{{else}}build{{end}}
+
+  dev:frontend:
+    dir: webui
+    deps:
+      - task: install:frontend:deps
+    cmds:
+      - pnpm run dev --port {{.VITE_PORT}} --strictPort
+
+  generate:icons:
+    internal: true
+    run: once
+    dir: desktop/resources
+    sources:
+      - appicon.png
+    generates:
+      - windows/icon.ico
+    cmds:
+      - wails3 generate icons -input appicon.png -windowsfilename windows/icon.ico
+
+  update:build-assets:
+    dir: desktop/resources
+    cmds:
+      - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config wails.yml -dir .

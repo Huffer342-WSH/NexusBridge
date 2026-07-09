@@ -1,0 +1,46 @@
+version: '3'
+
+vars:
+  APP_NAME: "nexusbridge-desktop"
+  BIN_DIR: "bin"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  GOOS: '{{.GOOS | default OS}}'
+includes:
+  common: ./desktop/tasks/common.yml
+  windows: ./desktop/tasks/windows.yml
+  linux: ./desktop/tasks/linux.yml
+
+tasks:
+  build:webui:
+    summary: Builds the WebUI and CLI server for the target platform
+    deps:
+      - task: common:build:frontend
+    cmds:
+      - go build -tags production -trimpath -buildvcs=false -ldflags="-w -s" -o "{{.BIN_DIR}}/{{.WEBUI_BINARY}}" ./cmd/nexusbridge
+    vars:
+      WEBUI_BINARY: 'nexusbridge-webui{{if eq .GOOS "windows"}}.exe{{end}}'
+    env:
+      GOOS: '{{.GOOS}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      CGO_ENABLED: 0
+
+  build:
+    summary: Builds the desktop application for the target platform
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages the desktop application for the target platform
+    cmds:
+      - task: "{{.GOOS}}:package"
+
+  run:
+    summary: Runs the Windows desktop application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./desktop/resources/wails.yml -port {{.VITE_PORT}}

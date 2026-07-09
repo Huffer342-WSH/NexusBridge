@@ -1,0 +1,2283 @@
+openapi: 3.1.0
+info:
+  title: NexusBridge HTTP API
+  version: 0.1.0
+  description: |
+    NexusBridge 后端 HTTP API 契约。当前文件描述已实现接口，前端新需求先写入 docs/api/requests.md。
+servers:
+  - url: http://127.0.0.1:8090
+    description: 本地默认服务
+tags:
+  - name: health
+    description: 健康检查
+  - name: session
+    description: 本地会话
+  - name: sites
+    description: 站点和凭据
+  - name: torrents
+    description: 本地种子缓存和手动下载
+  - name: rules
+    description: 筛选规则
+  - name: subscriptions
+    description: 自动订阅、站点计划和运行记录
+  - name: settings
+    description: 应用设置
+  - name: qbittorrent
+    description: qBittorrent 同步、分类、标签和下载计划
+  - name: organize
+    description: 下载整理
+  - name: rss
+    description: RSS 预留接口
+paths:
+  /api/health:
+    get:
+      tags: [health]
+      summary: 获取服务健康状态
+      responses:
+        "200":
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/session:
+    get:
+      tags: [session]
+      summary: 获取本地会话模式
+      responses:
+        "200":
+          description: 会话状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+  /api/session/login:
+    post:
+      tags: [session]
+      summary: 本地登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/sites:
+    get:
+      tags: [sites]
+      summary: 获取站点列表
+      responses:
+        "200":
+          description: 站点列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Site"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/credential:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    get:
+      tags: [sites]
+      summary: 获取站点凭据状态
+      responses:
+        "200":
+          description: 站点凭据状态，不返回 cookie 明文
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteCredential"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [sites]
+      summary: 保存站点 cookie 和 user-agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteCredential"
+      responses:
+        "200":
+          description: 已保存的凭据状态，不返回 cookie 明文
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteCredential"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/fetch:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    post:
+      tags: [sites]
+      summary: 抓取站点种子列表并写入本地缓存
+      responses:
+        "202":
+          description: 抓取完成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/run-once:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    post:
+      tags: [sites]
+      summary: 抓取站点并执行该站点已启用订阅
+      responses:
+        "202":
+          description: 单次流程完成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchResult"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/schedule:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    get:
+      tags: [sites, subscriptions]
+      summary: 获取站点周期抓取配置
+      responses:
+        "200":
+          description: 已保存配置，或关闭且间隔为 15 分钟的默认配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSchedule"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [sites, subscriptions]
+      summary: 保存站点周期抓取配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteScheduleInput"
+      responses:
+        "200":
+          description: 已保存配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSchedule"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/filter-options:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    get:
+      tags: [sites, rules]
+      summary: 获取单站点规则编辑器的本地筛选选项
+      responses:
+        "200":
+          description: 分类和标签来自已抓取种子，促销来自站点检索定义
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleFilterOptions"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/torrents:
+    get:
+      tags: [torrents]
+      summary: 查询本地种子缓存
+      parameters:
+        - name: site_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 种子列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Torrent"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/qb-status:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 实时刷新单个种子的 qB 状态并写入快照
+      parameters:
+        - name: weak_match
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: qB 状态快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBTorrentStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/qb-control:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    post:
+      tags: [torrents, qbittorrent]
+      summary: 暂停或恢复单个种子的 qB 任务并刷新快照
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QBTorrentControlRequest"
+      responses:
+        "200":
+          description: 操作后的 qB 状态快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBTorrentStatus"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/cover:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    get:
+      tags: [torrents]
+      summary: 使用站点请求规则和凭据代理种子封面图片
+      responses:
+        "200":
+          description: WebP、JPEG、PNG 等封面图片
+          content:
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/download/preview:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    post:
+      tags: [torrents]
+      summary: 预览手动下载标题整理结果
+      responses:
+        "200":
+          description: 下载预览
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadPreview"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/download:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    post:
+      tags: [torrents]
+      summary: 计算并验证 info hash 后发送单个种子到 qBittorrent
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualDownloadRequest"
+      responses:
+        "202":
+          description: 已创建下载任务并执行发送；任务体中的 status 表示实际结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadTask"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/rules:
+    get:
+      tags: [rules]
+      summary: 获取筛选规则
+      responses:
+        "200":
+          description: 规则列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rule"
+        "500":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [rules]
+      summary: 保存筛选规则
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Rule"
+      responses:
+        "200":
+          description: 已保存规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/rules/{rule_name}:
+    parameters:
+      - $ref: "#/components/parameters/RuleName"
+    put:
+      tags: [rules]
+      summary: 更新规则并允许事务级联改名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Rule"
+      responses:
+        "200":
+          description: 已更新规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+        "400":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [rules]
+      summary: 删除未被订阅引用的筛选规则
+      responses:
+        "200":
+          description: 删除结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/rules/preview:
+    post:
+      tags: [rules]
+      summary: 使用未保存草稿分页预览数据库种子
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RulePreviewRequest"
+      responses:
+        "200":
+          description: 只读筛选结果，不抓站、不创建任务且不访问 qB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulePreviewResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/subscriptions:
+    get:
+      tags: [subscriptions]
+      summary: 获取订阅列表
+      responses:
+        "200":
+          description: 按优先级降序、ID 升序排列的订阅列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Subscription"
+        "500":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [subscriptions]
+      summary: 保存订阅
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Subscription"
+      responses:
+        "200":
+          description: 已保存订阅
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/subscriptions/{subscription_id}:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionID"
+    delete:
+      tags: [subscriptions]
+      summary: 删除订阅、保留历史任务并释放未处理候选
+      responses:
+        "200":
+          description: 删除结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/subscriptions/{subscription_id}/preview:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionID"
+    post:
+      tags: [subscriptions]
+      summary: 预览已保存订阅的命中结果和最终下载计划
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 100
+      responses:
+        "200":
+          description: 只读预览结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionPreview"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/subscriptions/{subscription_id}/run-once:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionID"
+    post:
+      tags: [subscriptions]
+      summary: 立即执行一次订阅并遵守订阅配额
+      responses:
+        "202":
+          description: 运行结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubscriptionRun"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/subscriptions/{subscription_id}/candidates:
+    parameters:
+      - $ref: "#/components/parameters/SubscriptionID"
+    get:
+      tags: [subscriptions]
+      summary: 获取订阅候选队列
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [unread, processing, processed, failed]
+      responses:
+        "200":
+          description: 候选列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionCandidate"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/subscription-runs:
+    get:
+      tags: [subscriptions]
+      summary: 获取订阅运行记录
+      parameters:
+        - name: subscription_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 最近运行记录
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionRun"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/settings/qbittorrent:
+    get:
+      tags: [settings]
+      summary: 获取 qBittorrent 配置
+      responses:
+        "200":
+          description: qBittorrent 配置，敏感字段为空
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBittorrentConfig"
+    post:
+      tags: [settings]
+      summary: 保存 qBittorrent 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QBittorrentConfig"
+      responses:
+        "200":
+          description: 已保存配置，敏感字段为空
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBittorrentConfig"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/settings/llm:
+    get:
+      tags: [settings]
+      summary: 获取 LLM 配置
+      responses:
+        "200":
+          description: LLM 配置，API Key 为空
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMConfig"
+    post:
+      tags: [settings]
+      summary: 保存 LLM 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LLMConfig"
+      responses:
+        "200":
+          description: 已保存配置，API Key 为空
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LLMConfig"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/sync:
+    post:
+      tags: [qbittorrent]
+      summary: 同步 qBittorrent 下载状态
+      responses:
+        "200":
+          description: 同步结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBSyncResult"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/qb/poll:
+    get:
+      tags: [qbittorrent]
+      summary: 使用 qB sync/maindata 增量刷新本地种子状态
+      parameters:
+        - name: rid
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: 增量状态和下一响应 ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBPollResult"
+        "502":
+          $ref: "#/components/responses/Error"
+  /api/qb/categories:
+    get:
+      tags: [qbittorrent]
+      summary: 获取 qB 分类快照
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: 分类快照；qB 离线时可返回 stale/error 标记的最近缓存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBCategoriesResult"
+        "502":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [qbittorrent]
+      summary: 创建一个完整 qB 分类名
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QBCategory"
+      responses:
+        "201":
+          description: 创建后重新同步的分类快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBCategoriesResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+  /api/qb/tags:
+    get:
+      tags: [qbittorrent]
+      summary: 获取 qB 标签快照
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: 标签快照；qB 离线时可返回 stale/error 标记的最近缓存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBTagsResult"
+        "502":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [qbittorrent]
+      summary: 创建一个或多个 qB 标签
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: 创建后重新同步的标签快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QBTagsResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+  /api/files/browse:
+    post:
+      tags: [qbittorrent]
+      summary: 浏览本机目录并标记精确匹配的 qB 任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileBrowseRequest"
+      responses:
+        "200":
+          description: 文件系统条目和 qB 连接诊断
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileBrowseResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/preview:
+    post:
+      tags: [qbittorrent]
+      summary: 按完整文件大小集合预览可恢复 torrent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryPreviewRequest"
+      responses:
+        "200":
+          description: 所选检索模式的可恢复候选和站点检索诊断
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryPreview"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/index:
+    get:
+      tags: [qbittorrent]
+      summary: 获取恢复用 torrent 文件大小索引状态
+      responses:
+        "200":
+          description: 大小索引覆盖情况
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TorrentSizeIndexStatus"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/index/rebuild:
+    post:
+      tags: [qbittorrent]
+      summary: 手动重建恢复用 torrent 文件大小索引
+      responses:
+        "200":
+          description: 同步重建后的大小索引状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TorrentSizeIndexStatus"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/scan:
+    post:
+      tags: [qbittorrent]
+      summary: 只读扫描目录中的疑似丢失 qB 任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryScanRequest"
+      responses:
+        "200":
+          description: 有界递归扫描结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryScanResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/batch:
+    post:
+      tags: [qbittorrent]
+      summary: 串行自动恢复扫描阶段唯一确定的 qB 任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryBatchRequest"
+      responses:
+        "202":
+          description: 每个候选的恢复、待处理、失败或跳过状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryBatchResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery:
+    post:
+      tags: [qbittorrent]
+      summary: 从保留目录重建并启动 qB 种子任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryRequest"
+      responses:
+        "202":
+          description: qB 重新校验恢复结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/qb/recovery/{hash}/action:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[a-fA-F0-9]{40}$"
+    post:
+      tags: [qbittorrent]
+      summary: 处理校验失败后保留的恢复任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryActionRequest"
+      responses:
+        "200":
+          description: 启动已有任务或仅删除任务后的结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryActionResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/download-tasks:
+    get:
+      tags: [qbittorrent]
+      summary: 获取下载任务
+      responses:
+        "200":
+          description: 下载任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DownloadTask"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/download-tasks/{task_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    post:
+      tags: [qbittorrent, subscriptions]
+      summary: 使用保存的下载计划快照重试任务
+      responses:
+        "202":
+          description: 重试后的任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadTask"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/downloads/batch/preview:
+    post:
+      tags: [qbittorrent, subscriptions]
+      summary: 只读预览手动批量下载计划
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchDownloadRequest"
+      responses:
+        "200":
+          description: 重新计算的最终计划，不改变持久化状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchDownloadPreview"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/downloads/batch:
+    post:
+      tags: [qbittorrent, subscriptions]
+      summary: 执行手动批量下载
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchDownloadRequest"
+      responses:
+        "202":
+          description: 批量执行结果和计划快照任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchDownloadResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/organize-tasks:
+    get:
+      tags: [organize]
+      summary: 获取整理任务
+      responses:
+        "200":
+          description: 整理任务列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrganizeTask"
+        "500":
+          $ref: "#/components/responses/Error"
+  /api/organize/pending:
+    post:
+      tags: [organize]
+      summary: 处理待整理任务
+      responses:
+        "200":
+          description: 整理处理结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizeResult"
+        "500":
+          $ref: "#/components/responses/Error"
+  /rss/{feed_id}:
+    parameters:
+      - name: feed_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [rss]
+      summary: RSS 预留接口
+      responses:
+        "501":
+          description: 当前未实现
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  parameters:
+    SiteID:
+      name: site_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TorrentID:
+      name: torrent_id
+      in: path
+      required: true
+      schema:
+        type: string
+    RuleName:
+      name: rule_name
+      in: path
+      required: true
+      schema:
+        type: string
+    SubscriptionID:
+      name: subscription_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TaskID:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Error:
+      description: 错误响应
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    DeleteResult:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: boolean
+    Health:
+      type: object
+      required: [status, addr]
+      properties:
+        status:
+          type: string
+        addr:
+          type: string
+    Session:
+      type: object
+      required: [mode, requires_login]
+      properties:
+        mode:
+          type: string
+          enum: [local]
+        requires_login:
+          type: boolean
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    Site:
+      type: object
+      required: [id, name, base_url, has_cookie]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        base_url:
+          type: string
+        user_agent:
+          type: string
+        has_cookie:
+          type: boolean
+    SiteCredential:
+      type: object
+      required: [site_id, base_url, user_agent, has_cookie]
+      properties:
+        site_id:
+          type: string
+        base_url:
+          type: string
+        user_agent:
+          type: string
+        cookie:
+          type: string
+          description: 只允许请求时提交；响应会清空。
+        has_cookie:
+          type: boolean
+    Torrent:
+      type: object
+      required: [id, site_id, title, detail_url, first_seen_at, last_seen_at, source_order, torrent_file_saved]
+      properties:
+        id:
+          type: string
+        site_id:
+          type: string
+        category:
+          type: string
+        category_query:
+          type: string
+        title:
+          type: string
+        detail_url:
+          type: string
+        download_url:
+          type: string
+        cover_url:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        tag_ids:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        detail_title:
+          type: string
+        subtitle:
+          type: string
+        product_url:
+          type: string
+        detail_info_hash:
+          type: string
+        detail_description:
+          type: string
+        detail_raw_text:
+          type: string
+        detail_fetched_at:
+          type: string
+        promotion:
+          type: string
+        promotion_class:
+          type: string
+        promotion_ends_at:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+        seeders:
+          type: integer
+        leechers:
+          type: integer
+        snatches:
+          type: integer
+        comments:
+          type: integer
+        published_at:
+          type: string
+          format: date-time
+        published_text:
+          type: string
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        source_order:
+          type: integer
+          description: 最近一次站点列表抓取中的从上到下序号
+        torrent_file_saved:
+          type: boolean
+        info_hash_v1:
+          type: string
+        info_hash_v2:
+          type: string
+        torrent_file_error:
+          type: string
+        qb_status:
+          $ref: "#/components/schemas/QBTorrentStatus"
+    QBTorrentStatus:
+      type: object
+      required: [available, added, source, fetched_at]
+      properties:
+        available: { type: boolean }
+        added: { type: boolean }
+        source: { type: string }
+        error: { type: string }
+        fetched_at: { type: string, format: date-time }
+        task_id: { type: string }
+        task_status: { type: string }
+        rule_name: { type: string }
+        hash: { type: string }
+        name: { type: string }
+        state: { type: string }
+        progress: { type: number, format: double }
+        category: { type: string }
+        tags: { type: string }
+        save_path: { type: string }
+        content_path: { type: string }
+        download_speed: { type: integer, format: int64 }
+        upload_speed: { type: integer, format: int64 }
+        eta: { type: integer, format: int64 }
+        ratio: { type: number, format: double }
+        size: { type: integer, format: int64 }
+        completed: { type: integer, format: int64 }
+        amount_left: { type: integer, format: int64 }
+    QBTorrentControlRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [start, stop]
+    FetchResult:
+      type: object
+      required: [site_id, status, fetched, inserted, changed]
+      properties:
+        site_id:
+          type: string
+        status:
+          type: string
+        fetched:
+          type: integer
+        inserted:
+          type: integer
+        changed:
+          type: integer
+        matched:
+          type: integer
+        download_sent:
+          type: integer
+        torrent_files_saved:
+          type: integer
+        torrent_files_failed:
+          type: integer
+    Rule:
+      type: object
+      required: [name, site_ids, site_categories, site_tags, subtitle_tags, title_expression, promotions, min_size, max_size, min_seeders, max_seeders, min_leechers, max_leechers, min_snatches, max_snatches, published_within_minutes, sort_by, sort_direction, action]
+      properties:
+        name:
+          type: string
+          description: 大小写不敏感的唯一标识
+        site_ids:
+          type: array
+          items:
+            type: string
+        site_categories:
+          type: array
+          items:
+            type: string
+        site_tags:
+          type: array
+          items:
+            type: string
+        subtitle_tags:
+          type: array
+          items:
+            type: string
+        promotions:
+          type: array
+          items:
+            type: string
+        title_expression:
+          type: string
+          description: 仅匹配主标题，支持 !、&、|、括号和双引号关键词
+        min_size:
+          type: integer
+          format: int64
+        max_size:
+          type: integer
+          format: int64
+        min_seeders:
+          type: integer
+          minimum: 0
+        max_seeders:
+          type: integer
+          minimum: 0
+        min_leechers:
+          type: integer
+          minimum: 0
+        max_leechers:
+          type: integer
+          minimum: 0
+        min_snatches:
+          type: integer
+          minimum: 0
+        max_snatches:
+          type: integer
+          minimum: 0
+        published_within_minutes:
+          type: integer
+          minimum: 0
+        sort_by:
+          type: string
+          enum: [source_order, published_at, size_bytes, seeders, leechers, snatches]
+          default: source_order
+        sort_direction:
+          type: string
+          enum: [asc, desc]
+          default: asc
+        action:
+          type: string
+          enum: [download]
+    RuleReason:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 供前端稳定判断的原因代码
+        field:
+          type: string
+        message:
+          type: string
+    RulePreviewRequest:
+      type: object
+      required: [rule]
+      properties:
+        rule:
+          $ref: "#/components/schemas/Rule"
+        site_id:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+    RulePreviewItem:
+      type: object
+      required: [torrent, matched, reasons, qb_state]
+      properties:
+        torrent:
+          $ref: "#/components/schemas/Torrent"
+        matched:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleReason"
+        qb_state:
+          type: string
+          enum: [added, not_added, unknown]
+          description: 仅根据本地 qB 快照和下载任务记录判断
+    RulePreviewResult:
+      type: object
+      required: [evaluated, matched, items, truncated]
+      properties:
+        evaluated:
+          type: integer
+        matched:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RulePreviewItem"
+        truncated:
+          type: boolean
+    RuleSelectOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+    RuleFilterOptions:
+      type: object
+      required: [site_id, site_categories, site_tags, subtitle_tags, promotions]
+      properties:
+        site_id:
+          type: string
+        site_categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleSelectOption"
+        site_tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleSelectOption"
+        subtitle_tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleSelectOption"
+        promotions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleSelectOption"
+    DownloadOptions:
+      type: object
+      required: [qb_category, save_path_template, qb_tags, filename_template, paused, max_concurrent, daily_limit]
+      properties:
+        qb_category:
+          type: string
+        save_path_template:
+          type: string
+        qb_tags:
+          type: array
+          items:
+            type: string
+        filename_template:
+          type: string
+        paused:
+          type: boolean
+        max_concurrent:
+          type: integer
+          minimum: 0
+          description: 0 表示不限
+        daily_limit:
+          type: integer
+          minimum: 0
+          description: 0 表示不限
+    Subscription:
+      type: object
+      required: [id, name, enabled, rule_name, site_ids, priority, download]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+          default: false
+        rule_name:
+          type: string
+        site_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        priority:
+          type: integer
+        download:
+          $ref: "#/components/schemas/DownloadOptions"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SiteSchedule:
+      type: object
+      required: [enabled, interval_seconds]
+      properties:
+        site_id:
+          type: string
+          readOnly: true
+        enabled:
+          type: boolean
+          default: false
+        interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          multipleOf: 60
+          default: 900
+        last_run_at:
+          type: string
+          format: date-time
+          readOnly: true
+        next_run_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_error:
+          type: string
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+    SiteScheduleInput:
+      type: object
+      required: [enabled, interval_seconds]
+      properties:
+        enabled:
+          type: boolean
+        interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          multipleOf: 60
+          readOnly: true
+    DownloadPlan:
+      type: object
+      required: [category, save_path, tags, rename, paused, reasons]
+      properties:
+        category:
+          type: string
+        save_path:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        rename:
+          type: string
+        original_name:
+          type: string
+        paused:
+          type: boolean
+        auto_tmm:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleReason"
+    SubscriptionPreviewItem:
+      type: object
+      required: [torrent, matched, eligible, reasons, plan]
+      properties:
+        torrent:
+          $ref: "#/components/schemas/Torrent"
+        matched:
+          type: boolean
+        eligible:
+          type: boolean
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuleReason"
+        plan:
+          $ref: "#/components/schemas/DownloadPlan"
+    SubscriptionPreview:
+      type: object
+      required: [subscription_id, evaluated, matched, eligible, items]
+      properties:
+        subscription_id:
+          type: string
+        evaluated:
+          type: integer
+        matched:
+          type: integer
+        eligible:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubscriptionPreviewItem"
+    SubscriptionCandidate:
+      type: object
+      required: [site_id, torrent_id, subscription_id, rule_name, status, source_order, created_at, updated_at]
+      properties:
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+        subscription_id:
+          type: string
+        rule_name:
+          type: string
+        status:
+          type: string
+          enum: [unread, processing, processed, failed]
+        source_order:
+          type: integer
+        reason_code:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SubscriptionRun:
+      type: object
+      required: [id, trigger, status, fetched, inserted, matched, attempted, sent, exists, failed, skipped, started_at]
+      properties:
+        id:
+          type: string
+        subscription_id:
+          type: string
+        site_id:
+          type: string
+        trigger:
+          type: string
+          enum: [scheduled, run-once, manual-batch]
+        status:
+          type: string
+        fetched:
+          type: integer
+        inserted:
+          type: integer
+        matched:
+          type: integer
+        attempted:
+          type: integer
+        sent:
+          type: integer
+        exists:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+    QBCategory:
+      type: object
+      required: [name, save_path]
+      properties:
+        name:
+          type: string
+          description: qB 使用的完整分类字符串，例如 PT/ASMR
+        save_path:
+          type: string
+        path_segments:
+          type: array
+          readOnly: true
+          items:
+            type: string
+        synced_at:
+          type: string
+          format: date-time
+          readOnly: true
+    QBCategoriesResult:
+      type: object
+      required: [items, stale, connected]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QBCategory"
+        stale:
+          type: boolean
+        connected:
+          type: boolean
+        error:
+          type: string
+        synced_at:
+          type: string
+          format: date-time
+    QBTagsResult:
+      type: object
+      required: [items, stale, connected]
+      properties:
+        items:
+          type: array
+          items:
+            type: string
+        stale:
+          type: boolean
+        connected:
+          type: boolean
+        error:
+          type: string
+        synced_at:
+          type: string
+          format: date-time
+    RecoveryPreviewRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        site_ids:
+          type: array
+          items:
+            type: string
+        search_mode:
+          type: string
+          enum: [database, site, database_then_site]
+          default: database_then_site
+        torrent_url:
+          type: string
+          format: uri
+          description: 下载并解析 torrent，要求与所选路径的完整文件大小多重集合一致
+        category:
+          type: string
+    RecoveryRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        site_id:
+          type: string
+          description: 可选站点筛选；站点检索时省略则遍历全部已配置站点
+        torrent_id:
+          type: string
+          description: 多个完整大小集合匹配候选之间的可选消歧字段
+        search_mode:
+          type: string
+          enum: [database, site, database_then_site]
+          default: database_then_site
+        torrent_url:
+          type: string
+          format: uri
+          description: 暂停且跳过初始校验添加，完成大小映射和 renameFile 后强制校验指定 torrent
+        category:
+          type: string
+    RecoveryMatch:
+      type: object
+      required: [torrent, source, original_name, save_path, root_folder, file_count, total_size, match_method, mapping_complete]
+      properties:
+        torrent:
+          $ref: "#/components/schemas/Torrent"
+        source:
+          type: string
+          enum: [database, site_search, url]
+        original_name:
+          type: string
+        save_path:
+          type: string
+        root_folder:
+          type: boolean
+        info_hash_v1:
+          type: string
+        info_hash_v2:
+          type: string
+        file_count:
+          type: integer
+        total_size:
+          type: integer
+          format: int64
+        match_method:
+          type: string
+          enum: [size]
+        mapping_complete:
+          type: boolean
+    TorrentSizeIndexStatus:
+      type: object
+      required: [version, total, indexed, pending, failed]
+      properties:
+        version:
+          type: integer
+        total:
+          type: integer
+        indexed:
+          type: integer
+        pending:
+          type: integer
+        failed:
+          type: integer
+        processed:
+          type: integer
+        last_error:
+          type: string
+    RecoverySearchAttempt:
+      type: object
+      required: [site_id, keyword, status, candidates, files_saved, files_failed]
+      properties:
+        site_id:
+          type: string
+        keyword:
+          type: string
+        status:
+          type: string
+          enum: [ok, failed]
+        candidates:
+          type: integer
+        files_saved:
+          type: integer
+        files_failed:
+          type: integer
+        error:
+          type: string
+    RecoveryPreview:
+      type: object
+      required: [path, folder_name, save_path, source, search_mode, evaluated, matches]
+      properties:
+        path:
+          type: string
+        folder_name:
+          type: string
+        save_path:
+          type: string
+        source:
+          type: string
+          enum: [database, site_search, url, none]
+        search_mode:
+          type: string
+          enum: [database, site, database_then_site, url]
+        category:
+          type: string
+        evaluated:
+          type: integer
+        matches:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryMatch"
+        search_attempts:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoverySearchAttempt"
+    RecoveryResult:
+      type: object
+      required: [path, save_path, match, qb_status, verification_status, recheck_attempts, started, can_start, can_delete]
+      properties:
+        path:
+          type: string
+        save_path:
+          type: string
+        category:
+          type: string
+        match:
+          $ref: "#/components/schemas/RecoveryMatch"
+        qb_status:
+          $ref: "#/components/schemas/QBTorrentStatus"
+        verification_status:
+          type: string
+          enum: [verified, failed, start_failed]
+        verification_error:
+          type: string
+        recheck_attempts:
+          type: integer
+          minimum: 1
+        started:
+          type: boolean
+        can_start:
+          type: boolean
+        can_delete:
+          type: boolean
+    RecoveryActionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [start, delete]
+    RecoveryActionResult:
+      type: object
+      required: [hash, action, deleted]
+      properties:
+        hash:
+          type: string
+        action:
+          type: string
+          enum: [start, delete]
+        deleted:
+          type: boolean
+        qb_status:
+          $ref: "#/components/schemas/QBTorrentStatus"
+    FileBrowseRequest:
+      type: object
+      properties:
+        path:
+          type: string
+    FileQBTask:
+      type: object
+      required: [hash, name, state, content_path]
+      properties:
+        hash:
+          type: string
+        name:
+          type: string
+        state:
+          type: string
+        category:
+          type: string
+        save_path:
+          type: string
+        content_path:
+          type: string
+    FileEntry:
+      type: object
+      required: [name, path, is_dir, qb_tasks]
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        is_dir:
+          type: boolean
+        size:
+          type: integer
+          format: int64
+        modified_at:
+          type: string
+          format: date-time
+        qb_tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileQBTask"
+    FileBrowseResult:
+      type: object
+      required: [path, is_root, qb_connected, entries]
+      properties:
+        path:
+          type: string
+        parent:
+          type: string
+        is_root:
+          type: boolean
+        qb_connected:
+          type: boolean
+        qb_error:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileEntry"
+    RecoveryScanRequest:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+        site_ids:
+          type: array
+          items:
+            type: string
+        search_mode:
+          type: string
+          enum: [database, site, database_then_site]
+          default: database
+        max_depth:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 200
+    RecoveryScanItem:
+      type: object
+      required: [path, name, is_dir, status, preview]
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        is_dir:
+          type: boolean
+        status:
+          type: string
+          enum: [matched, ambiguous, none, error]
+        reason:
+          type: string
+        preview:
+          $ref: "#/components/schemas/RecoveryPreview"
+    RecoveryScanResult:
+      type: object
+      required: [path, evaluated, matched, truncated, items]
+      properties:
+        path:
+          type: string
+        evaluated:
+          type: integer
+        matched:
+          type: integer
+        truncated:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryScanItem"
+    RecoveryBatchItemRequest:
+      type: object
+      required: [path, site_id, torrent_id]
+      properties:
+        path:
+          type: string
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+        category:
+          type: string
+    RecoveryBatchRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RecoveryBatchItemRequest"
+        web_search:
+          type: boolean
+          default: false
+    RecoveryBatchItemResult:
+      type: object
+      required: [path, site_id, torrent_id, status]
+      properties:
+        path:
+          type: string
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+        status:
+          type: string
+          enum: [recovered, needs_attention, failed, skipped]
+        error:
+          type: string
+        result:
+          $ref: "#/components/schemas/RecoveryResult"
+    RecoveryBatchResult:
+      type: object
+      required: [attempted, recovered, needs_attention, failed, skipped, items]
+      properties:
+        attempted:
+          type: integer
+        recovered:
+          type: integer
+        needs_attention:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryBatchItemResult"
+    TorrentKey:
+      type: object
+      required: [site_id, torrent_id]
+      properties:
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+    BatchDownloadRequest:
+      type: object
+      required: [torrents]
+      properties:
+        torrents:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TorrentKey"
+        subscription_id:
+          type: string
+        options:
+          $ref: "#/components/schemas/DownloadOptions"
+      oneOf:
+        - required: [subscription_id]
+        - required: [options]
+    BatchDownloadPreview:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubscriptionPreviewItem"
+    BatchDownloadResult:
+      type: object
+      required: [attempted, sent, exists, failed, skipped, tasks]
+      properties:
+        attempted:
+          type: integer
+        sent:
+          type: integer
+        exists:
+          type: integer
+        failed:
+          type: integer
+        skipped:
+          type: integer
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DownloadTask"
+    QBittorrentConfig:
+      type: object
+      required: [auth_mode, url, api_key, username, user_id, password, category, tags, auto_sync, sync_interval_seconds, inactive_sync_interval_seconds, disconnected_sync_interval_seconds]
+      properties:
+        auth_mode:
+          type: string
+          enum: [uid, api_key]
+        url:
+          type: string
+        api_key:
+          type: string
+          description: 响应中为空；请求为空时保留已保存值。
+        username:
+          type: string
+        user_id:
+          type: string
+        password:
+          type: string
+          description: 响应中为空；请求为空时保留已保存值。
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        auto_sync:
+          type: boolean
+        sync_interval_seconds:
+          type: integer
+          minimum: 2
+          maximum: 60
+        inactive_sync_interval_seconds:
+          type: integer
+          minimum: 10
+          maximum: 300
+        disconnected_sync_interval_seconds:
+          type: integer
+          minimum: 15
+          maximum: 600
+    LLMConfig:
+      type: object
+      required: [base_url, api_key, model]
+      properties:
+        base_url:
+          type: string
+        api_key:
+          type: string
+          description: 响应中为空；请求为空时保留已保存值。
+        model:
+          type: string
+    ManualDownloadRequest:
+      type: object
+      properties:
+        formatted_title:
+          type: string
+    DownloadPreview:
+      type: object
+      required: [site_id, torrent_id, original_title, formatted_title, download_url]
+      properties:
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+        original_title:
+          type: string
+        formatted_title:
+          type: string
+        download_url:
+          type: string
+        llm_response:
+          type: string
+    DownloadTask:
+      type: object
+      required: [id, site_id, torrent_id, rule_name, status, torrent_title, download_url, paused, attempt_count, retry_count, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        site_id:
+          type: string
+        torrent_id:
+          type: string
+        rule_name:
+          type: string
+        subscription_id:
+          type: string
+        trigger:
+          type: string
+        status:
+          type: string
+          description: pending、processing、sent、exists、failed 或 skipped
+        torrent_title:
+          type: string
+        download_url:
+          type: string
+        qb_hash:
+          type: string
+        error:
+          type: string
+        content_path:
+          type: string
+        category:
+          type: string
+        save_path:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        rename:
+          type: string
+        paused:
+          type: boolean
+        reason_code:
+          type: string
+        attempt_count:
+          type: integer
+        retry_count:
+          type: integer
+        last_attempt_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    QBSyncResult:
+      type: object
+      required: [completed, organize_created]
+      properties:
+        completed:
+          type: integer
+        organize_created:
+          type: integer
+        checked: { type: integer }
+        linked: { type: integer }
+        missing: { type: integer }
+        torrent_matched: { type: integer }
+        torrent_updated: { type: integer }
+        torrent_removed: { type: integer }
+        detail_failed: { type: integer }
+    QBTorrentUpdate:
+      type: object
+      required: [site_id, torrent_id, qb_status]
+      properties:
+        site_id: { type: string }
+        torrent_id: { type: string }
+        qb_status:
+          $ref: "#/components/schemas/QBTorrentStatus"
+    QBPollResult:
+      type: object
+      required: [rid, full_update, connected, updated, removed, updates]
+      properties:
+        rid: { type: integer }
+        full_update: { type: boolean }
+        connected: { type: boolean }
+        updated: { type: integer }
+        removed: { type: integer }
+        updates:
+          type: array
+          items:
+            $ref: "#/components/schemas/QBTorrentUpdate"
+    OrganizeTask:
+      type: object
+      required: [id, download_task_id, status, title, source_path, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        download_task_id:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        source_path:
+          type: string
+        relative_dir:
+          type: string
+        filename:
+          type: string
+        target_path:
+          type: string
+        llm_response:
+          type: string
+        confidence:
+          type: number
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    OrganizeResult:
+      type: object
+      required: [processed, failed, dry_run]
+      properties:
+        processed:
+          type: integer
+        failed:
+          type: integer
+        dry_run:
+          type: boolean
