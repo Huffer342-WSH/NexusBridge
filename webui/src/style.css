@@ -1,0 +1,759 @@
+/* 定义 NexusBridge WebUI 的全局布局与响应式样式。 */
+
+:root {
+  color: #111827;
+  background: #f4f6fb;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0) 260px),
+    #f4f6fb;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+h2 {
+  color: #101828;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+h3 {
+  color: #101828;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: transparent;
+}
+
+.desktop-sider {
+  min-height: 100vh;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.sider-brand {
+  padding: 22px 18px 16px;
+}
+
+.side-nav,
+.side-section {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px;
+}
+
+.side-section {
+  margin-top: 22px;
+}
+
+.side-section p {
+  padding: 0 4px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px clamp(16px, 3vw, 28px);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+.brand-block {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon {
+  flex: 0 0 auto;
+  color: #2563eb;
+}
+
+.mobile-brand {
+  display: none;
+}
+
+.page-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.page-title strong {
+  color: #101828;
+  font-size: 18px;
+}
+
+.page-title span,
+.brand-block p,
+.muted {
+  color: #667085;
+  font-size: 13px;
+}
+
+.app-content {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 18px clamp(14px, 3vw, 28px) 34px;
+}
+
+.dialog-alert {
+  margin-bottom: 14px;
+}
+
+.qb-poll-settings {
+  margin-bottom: 16px;
+}
+
+.qb-poll-settings .n-input-number {
+  width: 100%;
+}
+
+.view-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.login-card {
+  width: min(420px, 100%);
+}
+
+.media-toolbar,
+.media-title-row {
+  display: flex;
+	flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.media-filters {
+  min-width: min(560px, 100%);
+}
+
+.media-toolbar-controls {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+  min-width: min(680px, 100%);
+	flex: 1;
+}
+
+.site-filter {
+  width: 210px;
+}
+
+.media-list {
+  display: grid;
+  gap: 12px;
+}
+
+.media-layout-card {
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--media-card-min-width), 100%), 1fr));
+}
+
+.media-layout-card .media-item .n-card-content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-layout-card .media-poster {
+  aspect-ratio: 16 / 9;
+}
+
+.media-layout-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-layout-list .media-item .n-card-content {
+  display: flex;
+  align-items: flex-start;
+}
+
+.media-layout-list .media-poster {
+  flex: 0 0 180px;
+  width: 180px;
+  align-self: start;
+}
+
+.media-layout-list .media-body {
+  flex: 1;
+}
+
+.media-item .n-card-content {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.media-item {
+  position: relative;
+}
+
+.media-layout-card .media-item {
+  overflow: hidden;
+}
+
+.media-poster {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  background: #eef4ff;
+  color: #2563eb;
+}
+
+.media-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-poster > .media-poster-placeholder {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 10px;
+  text-align: center;
+}
+
+.media-poster span {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.media-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.media-title-row h3,
+.media-title-row p {
+  overflow-wrap: anywhere;
+}
+
+.media-title-row > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.torrent-status-control-wrap {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0;
+  box-sizing: border-box;
+  width: 38px;
+  height: 38px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 30%);
+  border-radius: 8px;
+  padding: 3px;
+  background: rgb(37 99 235 / 58%);
+  box-shadow: 0 3px 10px rgb(30 64 175 / 14%);
+  color: rgb(255 255 255 / 88%);
+  backdrop-filter: blur(7px);
+  transition: width 180ms ease, gap 180ms ease, padding 180ms ease, background 180ms ease;
+}
+
+.torrent-status-control-wrap:hover,
+.torrent-status-control-wrap:focus-within {
+  width: min(154px, 100%);
+  gap: 6px;
+  padding: 3px 7px 4px 3px;
+  border-color: rgb(37 99 235 / 22%);
+  background: rgb(255 255 255 / 84%);
+  color: #1d4ed8;
+}
+
+.media-layout-card .torrent-status-control-wrap {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+}
+
+.media-layout-card .list-status-control,
+.media-layout-list .card-status-control {
+  display: none;
+}
+
+.torrent-status-control {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  transition: box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.torrent-status-control:hover:not(:disabled) {
+  background: rgb(255 255 255 / 15%);
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.torrent-status-control:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.torrent-status-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.torrent-status-control.is-idle {
+  border: 0;
+}
+
+.torrent-status-control.is-complete {
+  background: transparent;
+  color: #ffffff;
+}
+
+.torrent-status-control.is-paused {
+  background: transparent;
+  color: #ffffff;
+}
+
+.torrent-status-center {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  max-width: 28px;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.torrent-status-center .n-icon {
+  font-size: 17px;
+}
+
+.torrent-status-copy {
+  display: grid;
+  max-width: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  color: #1d4ed8;
+  line-height: 1.2;
+  transform: translateX(-4px);
+  transition: max-width 180ms ease, opacity 120ms ease, transform 180ms ease;
+}
+
+.torrent-status-control-wrap:hover .torrent-status-copy,
+.torrent-status-control-wrap:focus-within .torrent-status-copy {
+  max-width: 104px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+}
+
+.torrent-status-control-wrap:hover .torrent-status-control,
+.torrent-status-control-wrap:focus-within .torrent-status-control {
+  background: #2563eb;
+}
+
+.torrent-status-control-wrap:hover .torrent-status-control.is-paused,
+.torrent-status-control-wrap:focus-within .torrent-status-control.is-paused {
+  background: #60a5fa;
+}
+
+.torrent-status-copy strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrent-status-copy small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #475569;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.torrent-status-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgb(37 99 235 / 14%);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.torrent-status-control-wrap:hover .torrent-status-progress,
+.torrent-status-control-wrap:focus-within .torrent-status-progress {
+  opacity: 1;
+}
+
+.torrent-status-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2563eb;
+  transition: width 220ms ease;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (hover: none) {
+  .torrent-status-control-wrap {
+    width: min(154px, 100%);
+    gap: 6px;
+    padding: 3px 7px 4px 3px;
+    border-color: rgb(37 99 235 / 22%);
+    background: rgb(255 255 255 / 84%);
+    color: #1d4ed8;
+  }
+
+  .torrent-status-control-wrap .torrent-status-control {
+    background: #2563eb;
+  }
+
+  .torrent-status-control-wrap .torrent-status-control.is-paused {
+    background: #60a5fa;
+  }
+
+  .torrent-status-control-wrap .torrent-status-copy {
+    max-width: 104px;
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+  }
+
+  .torrent-status-control-wrap .torrent-status-progress {
+    opacity: 1;
+  }
+}
+
+.media-title-truncate {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--media-title-lines);
+}
+
+.media-title-scroll {
+  max-height: calc(var(--media-title-lines) * 1.5em);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.media-title-full {
+  overflow: visible;
+}
+
+.media-layout-list .media-title-row h3 {
+  display: block;
+  max-height: none;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.media-quick-settings {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+}
+
+.media-settings-trigger {
+  box-shadow: 0 8px 24px rgb(37 99 235 / 32%);
+}
+
+.media-settings-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.media-settings-panel > div,
+.media-settings-panel label {
+  display: grid;
+  gap: 9px;
+}
+
+.media-layout-buttons {
+  width: 100%;
+}
+
+.media-layout-buttons .n-button {
+  flex: 1;
+}
+
+.media-tags {
+  align-items: center;
+}
+
+.media-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  color: #475467;
+  font-size: 13px;
+}
+
+.media-metrics span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qb-status-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  border-top: 1px solid #e4e7ec;
+  padding-top: 12px;
+}
+
+.qb-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.qb-status-tags {
+  flex-wrap: wrap;
+}
+
+.qb-status-block p {
+  margin: 0;
+}
+
+.settings-page {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-site-card .n-thing {
+  margin-bottom: 12px;
+}
+
+.compact-form .n-form-item,
+.settings-form .n-form-item,
+.dialog-form .n-form-item {
+  margin-bottom: 10px;
+}
+
+.task-item {
+  border: 1px solid #eaecf0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.task-error {
+  margin-top: 8px;
+}
+
+.text-break {
+  overflow-wrap: anywhere;
+}
+
+.download-modal {
+  width: min(720px, calc(100vw - 28px));
+}
+
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .desktop-sider {
+    display: none;
+  }
+
+  .mobile-brand {
+    display: flex;
+  }
+
+  .page-title {
+    display: none;
+  }
+
+  .app-header {
+    position: static;
+    padding-bottom: 10px;
+  }
+
+  .app-content {
+    padding-bottom: 88px;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    border: 1px solid #d0d5dd;
+    border-radius: 14px;
+    padding: 7px;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: 0 14px 40px rgba(15, 23, 42, 0.14);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-bottom-nav button {
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+    border: 0;
+    border-radius: 10px;
+    padding: 7px 4px;
+    color: #667085;
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .mobile-bottom-nav button.active {
+    color: #1d4ed8;
+    background: #eff6ff;
+  }
+}
+
+@media (max-width: 720px) {
+  h1 {
+    font-size: 22px;
+  }
+
+  .app-header {
+    display: grid;
+  }
+
+  .app-header .n-button {
+    width: 100%;
+  }
+
+  .media-toolbar,
+  .media-title-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .media-filters,
+  .media-toolbar-controls,
+  .media-size-control,
+  .site-filter {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .media-toolbar-controls {
+    justify-items: stretch;
+  }
+
+  .media-layout-card,
+  .media-layout-list {
+    grid-template-columns: 1fr;
+  }
+
+  .media-layout-list .media-item .n-card-content {
+    display: flex;
+  }
+
+  .media-layout-list .media-poster {
+    flex-basis: 96px;
+    width: 96px;
+  }
+
+  .media-quick-settings {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .media-layout-card .media-item .n-card-content {
+    grid-template-columns: 1fr;
+  }
+
+  .media-layout-card .media-poster {
+    aspect-ratio: 16 / 8;
+  }
+
+  .media-title-row .n-button {
+    width: 100%;
+  }
+
+  .settings-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

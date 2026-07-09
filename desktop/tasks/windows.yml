@@ -1,0 +1,46 @@
+# Wails v3 Windows 任务负责编译和 NSIS 打包桌面应用。
+version: '3'
+
+includes:
+  common: ./common.yml
+
+tasks:
+  build:
+    deps:
+      - task: common:go:mod:tidy
+      - task: common:build:frontend
+        vars:
+          DEV: '{{.DEV}}'
+      - task: common:generate:icons
+    cmds:
+      - task: generate:syso
+      - go build {{.BUILD_FLAGS}} -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" ./desktop
+      - powershell Remove-Item -ErrorAction SilentlyContinue desktop/*.syso
+    vars:
+      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
+
+  generate:syso:
+    internal: true
+    dir: desktop/resources
+    cmds:
+      - wails3 generate syso -arch {{.ARCH}} -icon windows/icon.ico -manifest windows/wails.exe.manifest -info windows/info.json -out ../wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  package:
+    deps:
+      - task: build
+    dir: desktop/resources/windows/nsis
+    preconditions:
+      - sh: command -v makensis
+        msg: "NSIS makensis is required to package NexusBridge"
+    cmds:
+      - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/desktop/resources/windows/nsis"
+      - makensis -DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
+
+  run:
+    cmds:
+      - '"./{{.BIN_DIR}}/{{.APP_NAME}}.exe"'

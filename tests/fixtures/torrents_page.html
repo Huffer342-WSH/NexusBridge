@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>NexusPHP Fixture</title>
+</head>
+<body>
+  <form name="searchbox" method="get" action="torrents.php">
+    <table>
+      <tr>
+        <td>
+          <a href="torrents.php?cat=410"><img src="pic/category/audio.png" alt="音声" title="音声"></a>
+          <input type="checkbox" name="cat410" value="1">
+        </td>
+        <td>
+          <a href="torrents.php?cat=411"><img src="pic/category/video.png" alt="视频" title="视频"></a>
+          <input type="checkbox" name="cat411" value="1">
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <a href="torrents.php?tag_id=14">禁转</a>
+          <a href="torrents.php?tag_id=8">自购</a>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <a href="torrents.php?source=1">来源 A</a><input type="checkbox" name="source1" value="1">
+          <a href="torrents.php?team=1">字幕 A</a><input type="checkbox" name="team1" value="1">
+        </td>
+      </tr>
+      <tr>
+        <td>存活状态？</td>
+        <td>
+          <select name="incldead">
+            <option value="0">活种</option>
+            <option value="1">包括断种</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>促销状态？</td>
+        <td>
+          <select name="spstate">
+            <option value="0">全部</option>
+            <option value="2">免费</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <input name="size_begin"><input name="size_end">
+          <input name="seeders_begin"><input name="seeders_end">
+          <input name="leechers_begin"><input name="leechers_end">
+          <input name="times_completed_begin"><input name="times_completed_end">
+          <input name="added_begin"><input name="added_end">
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <input name="search" value="">
+          <select name="search_area">
+            <option value="0">标题</option>
+            <option value="1">简介</option>
+          </select>
+          <select name="search_mode">
+            <option value="0">包含</option>
+            <option value="1">精确</option>
+          </select>
+          <a href="torrents.php?search=fixture&search_area=0&search_mode=0">fixture</a>
+        </td>
+      </tr>
+    </table>
+  </form>
+
+  <table class="torrents">
+    <tr>
+      <td><a href="torrents.php?cat=410"><img src="pic/category/audio.png" alt="音声" title="音声"></a></td>
+      <td class="rowfollow">
+        <table class="torrentname">
+          <tr class="sticky-first-level">
+            <td class="embedded">
+              <img src="pic/misc/spinner.svg" data-src="/attachments/fixture-cover.webp" class="nexus-lazy-load">
+            </td>
+            <td class="embedded">
+              <img class="sticky" src="pic/trans.gif" alt="Sticky" title="一级置顶">
+              <a title="Fixture Torrent One" href="details.php?id=43042&amp;hit=1"><b>Fixture Torrent One</b></a>
+              <img class="pro_free" src="pic/trans.gif" alt="Free" onmouseover="domTT_activate(this, event, 'content', '&lt;b&gt;&lt;font class=&quot;free&quot;&gt;免费&lt;/font&gt;&lt;/b&gt;剩余时间：&lt;b&gt;&lt;span title=&quot;2026-07-22 17:18:09&quot;&gt;12天16时&lt;/span&gt;&lt;/b&gt;');">
+              <font color="#0000FF">剩余时间：<span title="2026-07-22 17:18:09">12天16时</span></font><br>
+              <span style="background-color:#ff0000;color:#ffffff" title="">禁转</span>
+              <span style="background-color:#8F77B5;color:#ffffff" title="">自购</span>
+              Fixture description text
+            </td>
+            <td class="embedded">
+              <a href="download.php?id=43042"><img class="download" src="pic/trans.gif" alt="download" title="下载本种"></a>
+              <a id="bookmark1" href="javascript: bookmark(43042,1);"><img class="delbookmark" src="pic/trans.gif" alt="Unbookmarked" title="收藏"></a>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td><a href="details.php?id=43042&amp;hit=1#comments">3</a></td>
+      <td><span title="2026-07-10 12:00:00">1天前</span></td>
+      <td>1.25 GB</td>
+      <td><a href="details.php?id=43042&amp;hit=1&amp;dllist=1#seeders">12</a></td>
+      <td><a href="details.php?id=43042&amp;hit=1&amp;dllist=1#leechers">4</a></td>
+      <td><a href="details.php?id=43042&amp;hit=1&amp;dllist=1#completed">98</a></td>
+    </tr>
+    <tr>
+      <td><a href="torrents.php?cat=411"><img src="pic/category/video.png" alt="视频" title="视频"></a></td>
+      <td class="rowfollow">
+        <table class="torrentname">
+          <tr>
+            <td class="embedded">
+              <img src="pic/misc/spinner.svg" data-src="/attachments/fixture-cover-2.webp" class="nexus-lazy-load">
+            </td>
+            <td class="embedded">
+              <a title="Fixture Torrent Two" href="details.php?id=43043&amp;hit=1"><b>Fixture Torrent Two</b></a>
+              <img class="pro_2up" src="pic/trans.gif" alt="2X">
+              <br>
+              <span style="background-color:#38b03f;color:#ffffff" title="">新作</span>
+              Another fixture description
+            </td>
+            <td class="embedded">
+              <a href="download.php?id=43043"><img class="download" src="pic/trans.gif" alt="download" title="下载本种"></a>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td>0</td>
+      <td><span title="2026-07-09 11:00:00">2天前</span></td>
+      <td>512 MB</td>
+      <td>5</td>
+      <td>1</td>
+      <td>20</td>
+    </tr>
+  </table>
+
+  <div class="nexus-pagination">
+    <span class="current">1</span>
+    <a href="torrents.php?page=1" data-page="1">2</a>
+  </div>
+</body>
+</html>

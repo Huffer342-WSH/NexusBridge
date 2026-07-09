@@ -1,0 +1,126 @@
+name: Build and Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.goarch }} desktop and WebUI
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            artifact_arch: amd64
+            runner: ubuntu-24.04
+          - goarch: arm64
+            artifact_arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Install desktop dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117
+      - name: Build Linux desktop
+        run: wails3 build GOOS=linux ARCH=${{ matrix.goarch }}
+      - name: Build Linux WebUI server
+        run: wails3 task build:webui GOOS=linux ARCH=${{ matrix.goarch }}
+      - name: Package Linux variants
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+        run: |
+          mkdir -p dist/webui/data dist/desktop/data
+          cp bin/nexusbridge-webui dist/webui/
+          cp bin/nexusbridge-desktop dist/desktop/
+          cp data/config.example.json dist/webui/data/
+          cp data/config.example.json dist/desktop/data/
+          cp nexusbridge.bootstrap.example.json dist/webui/
+          cp nexusbridge.bootstrap.example.json dist/desktop/
+          tar -C dist/webui -czf "$GITHUB_WORKSPACE/dist/nexusbridge-webui-linux-${ARTIFACT_ARCH}.tar.gz" .
+          tar -C dist/desktop -czf "$GITHUB_WORKSPACE/dist/nexusbridge-desktop-linux-${ARTIFACT_ARCH}.tar.gz" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nexusbridge-linux-${{ matrix.artifact_arch }}
+          path: |
+            dist/nexusbridge-webui-linux-${{ matrix.artifact_arch }}.tar.gz
+            dist/nexusbridge-desktop-linux-${{ matrix.artifact_arch }}.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows amd64 desktop and WebUI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117
+      - name: Build Windows desktop
+        run: wails3 build GOOS=windows ARCH=amd64
+      - name: Build Windows WebUI server
+        run: wails3 task build:webui GOOS=windows ARCH=amd64
+      - name: Package Windows variants
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/webui/data, dist/desktop/data | Out-Null
+          Copy-Item bin/nexusbridge-webui.exe dist/webui/
+          Copy-Item bin/nexusbridge-desktop.exe dist/desktop/
+          Copy-Item data/config.example.json dist/webui/data/
+          Copy-Item data/config.example.json dist/desktop/data/
+          Copy-Item nexusbridge.bootstrap.example.json dist/webui/
+          Copy-Item nexusbridge.bootstrap.example.json dist/desktop/
+          Compress-Archive -Path dist/webui/* -DestinationPath dist/nexusbridge-webui-windows-amd64.zip
+          Compress-Archive -Path dist/desktop/* -DestinationPath dist/nexusbridge-desktop-windows-amd64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nexusbridge-windows-amd64
+          path: |
+            dist/nexusbridge-webui-windows-amd64.zip
+            dist/nexusbridge-desktop-windows-amd64.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" release-assets/*/* --verify-tag --generate-notes --title "NexusBridge $TAG"

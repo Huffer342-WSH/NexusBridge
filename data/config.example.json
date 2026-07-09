@@ -1,0 +1,44 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8090
+  },
+  "storage": {
+    "path": "nexusbridge.db"
+  },
+  "sites_dir": "sites/html",
+  "logging": {
+    "level": "debug",
+    "file": "logs/nexusbridge.log",
+    "log_sensitive_fetch": false
+  },
+  "auth": {
+    "enabled": false,
+    "username": "",
+    "password": ""
+  },
+  "qbittorrent": {
+    "auth_mode": "uid",
+    "url": "http://127.0.0.1:8080",
+    "api_key": "",
+    "username": "",
+    "user_id": "",
+    "password": "",
+    "category": "nexusbridge",
+    "tags": ["nexusbridge"],
+    "auto_sync": true,
+    "sync_interval_seconds": 3,
+    "inactive_sync_interval_seconds": 30,
+    "disconnected_sync_interval_seconds": 60
+  },
+  "llm": {
+    "base_url": "",
+    "api_key": "",
+    "model": ""
+  },
+  "media_library": {
+    "root": "",
+    "dry_run": true
+  },
+  "rules": []
+}

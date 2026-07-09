@@ -1,0 +1,28 @@
+{
+  "id": "test-site",
+  "name": "Test Site",
+  "domain": "https://example.invalid",
+  "encoding": "UTF-8",
+  "public": false,
+  "html": {
+    "search": {
+      "paths": [
+        {
+          "path": "torrents.php",
+          "method": "get"
+        }
+      ],
+      "params": {
+        "search": "{keyword}"
+      }
+    },
+    "category": {},
+    "torrents": {
+      "list": {
+        "selector": "table.torrents > tr:has(\"table.torrentname\")"
+      },
+      "fields": {}
+    }
+  },
+  "detail_page_url": "/details.php?id={tid}"
+}
