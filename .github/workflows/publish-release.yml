@@ -1,0 +1,145 @@
+name: Publish Release
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Existing version tag or optional explicit tag for a manual release.
+        required: false
+        type: string
+      target_sha:
+        description: Commit SHA used to build the release assets.
+        required: true
+        type: string
+      manual_release:
+        description: Generate a manual tag when no explicit release tag was provided.
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create tag, notes, and GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target_sha }}
+
+      - name: Resolve release metadata
+        id: classify
+        shell: bash
+        env:
+          MANUAL_RELEASE: ${{ inputs.manual_release }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          tag="$REQUESTED_TAG"
+          if [[ -z "$tag" ]]; then
+            if [[ "$MANUAL_RELEASE" != "true" ]]; then
+              echo "A release tag is required for a tag-triggered release." >&2
+              exit 2
+            fi
+            tag="manual-$(TZ=Asia/Shanghai date +'%Y.%m.%d').${GITHUB_RUN_NUMBER}"
+          fi
+
+          if ! git check-ref-format --allow-onelevel "refs/tags/$tag" >/dev/null; then
+            echo "Invalid release tag: $tag" >&2
+            exit 2
+          fi
+          if [[ "$tag" != v* && "$tag" != manual-* ]]; then
+            echo "Release tag must start with v or manual-: $tag" >&2
+            exit 2
+          fi
+
+          prerelease=false
+          if [[ "$tag" == manual-* || "$tag" == v*-* ]]; then
+            prerelease=true
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Create or verify release tag
+        shell: bash
+        env:
+          TAG: ${{ steps.classify.outputs.tag }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags origin
+          target_commit="$(git rev-parse "${TARGET_SHA}^{commit}")"
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            tagged_commit="$(git rev-list -n 1 "refs/tags/$TAG")"
+            if [[ "$tagged_commit" != "$target_commit" ]]; then
+              echo "Tag $TAG points to $tagged_commit, but the artifacts were built from $target_commit." >&2
+              exit 1
+            fi
+          else
+            git tag --annotate "$TAG" "$target_commit" --message "NexusBridge $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+
+      - name: Generate release notes
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.classify.outputs.tag }}
+          PRERELEASE: ${{ steps.classify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          EXTRA_ARGS=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
+
+          npx --yes changelogithub@14.0.0 \
+            --capitalize \
+            --group \
+            --contributors \
+            --name "$RELEASE_TAG" \
+            --to "$RELEASE_TAG" \
+            --output RELEASE_NOTES.md \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.classify.outputs.tag }}
+          PRERELEASE: ${{ steps.classify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          assets=(release-assets/*/*)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release assets found under release-assets." >&2
+            exit 1
+          fi
+          if [[ ! -s RELEASE_NOTES.md ]]; then
+            echo "RELEASE_NOTES.md is missing or empty." >&2
+            exit 1
+          fi
+
+          EXTRA_ARGS=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
+
+          gh release create "$TAG" "${assets[@]}" \
+            --verify-tag \
+            --notes-file RELEASE_NOTES.md \
+            --title "NexusBridge $TAG" \
+            "${EXTRA_ARGS[@]}"

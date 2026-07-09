@@ -1,0 +1,47 @@
+{
+  "id": "nexusphp-search",
+  "name": "NexusPHP 通用搜索框",
+  "form_selector": "form[name=\"searchbox\"]",
+  "fields": {
+    "checkbox": {
+      "selector": "input[type=\"checkbox\"][name]",
+      "name_attribute": "name",
+      "value_attribute": "value",
+      "default_value": "1",
+      "label_sources": ["label_text", "next_link_text", "previous_link_text", "image_alt", "image_title"],
+      "group_heading": "previous_row_without_inputs",
+      "type": "bool",
+      "query": "{{name}}={{value}}"
+    },
+    "select": {
+      "selector": "select[name]",
+      "name_attribute": "name",
+      "label_source": "previous_row_text",
+      "option_selector": "option",
+      "type": "select",
+      "query": "{{name}}={{value}}"
+    },
+    "range": {
+      "begin_suffix": "_begin",
+      "end_suffix": "_end",
+      "label_source": "previous_row_text",
+      "number_type": "number_range",
+      "date_type": "date_range",
+      "query": "{{begin}}={{begin_value}}&{{end}}={{end_value}}"
+    },
+    "keyword": {
+      "selector": "input[name=\"search\"]",
+      "type": "string",
+      "label": "搜索关键字",
+      "query": "search={{value}}"
+    },
+    "tag": {
+      "selector": "a[href*=\"tag_id=\"]",
+      "query_name": "tag_id",
+      "type": "tag",
+      "label": "标签",
+      "exclusive": true,
+      "query": "tag_id={{value}}"
+    }
+  }
+}

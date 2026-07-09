@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "NexusBridge",
+			"FileDescription": "NexusPHP torrent search, qBittorrent sync and media organizer",
+			"LegalCopyright": "Copyright 2026 NexusBridge",
+			"ProductName": "NexusBridge Desktop",
+			"Comments": "NexusBridge Desktop"
+		}
+	}
+}
