@@ -42,7 +42,7 @@ NexusBridge 以共享 Go 服务为核心，CLI、HTTP、WebUI 和桌面端都是
 
 ## 发布结构
 
-开发构建通过缺省 build tag 使用仓库 `data/`。发布构建使用 `production` tag，并优先读取可执行文件旁的 `nexusbridge.bootstrap.json`，否则使用系统用户配置目录。GitHub Actions 为桌面版和 WebUI/CLI 服务版分别构建 Windows amd64、Linux amd64、Linux aarch64，共六个发布包；所有版本都嵌入 WebUI 和内置站点定义。
+开发构建通过缺省 build tag 使用仓库 `data/`。发布构建使用 `production` tag，并优先读取可执行文件旁的 `nexusbridge.bootstrap.json`，否则使用系统用户配置目录。GitHub Actions 手动触发后调用 `scripts/ci/` 下的 Bash/PowerShell 脚本，为桌面版和 WebUI/CLI 服务版分别构建 Windows amd64、Linux amd64、Linux aarch64，共六个发布包；所有版本都嵌入 WebUI 和内置站点定义。调试时可通过 workflow 的 `target_job` 只运行单个平台构建。
 
 桌面入口、Wails Taskfile、平台资源和打包配置都位于 `desktop/`。仓库不使用根 `build/` 保存源码或配置，避免和临时构建产物混淆；实际产物统一写入被忽略的 `bin/` 和工作流临时 `dist/`。
 

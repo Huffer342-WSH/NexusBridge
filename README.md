@@ -159,13 +159,26 @@ pnpm run test:e2e
 
 ## 自动构建与发布
 
-`.github/workflows/build-release.yml` 仅在推送 `v*` 标签时运行，不执行测试或 vet。桌面版使用 `nexusbridge-desktop`，CLI/浏览器服务版使用 `nexusbridge-webui`，两种形态分别生成以下平台产物：
+`.github/workflows/build-release.yml` 仅通过 GitHub Actions 的 `workflow_dispatch` 手动触发，不执行测试或 vet。`target_job` 可选择 `all`、`linux-amd64`、`linux-arm64` 或 `windows-amd64`，用于只调试单个平台构建。桌面版使用 `nexusbridge-desktop`，CLI/浏览器服务版使用 `nexusbridge-webui`，两种形态分别生成以下平台产物：
 
 - Windows amd64
 - Linux amd64
 - Linux aarch64（Go 架构名为 `arm64`）
 
-Linux aarch64 桌面版在原生 arm64 runner 上构建。推送已存在的 `v*` 标签时，工作流会自动创建 GitHub Release 并附加六个压缩包。
+Linux aarch64 桌面版在原生 arm64 runner 上构建。需要发布时，将 `target_job` 设为 `all`、启用 `publish_release`，并通过 `release_tag` 指定已存在的 `v*` 标签；未填写 `release_tag` 时使用手动运行选择的 ref 名称。
+
+GitHub Actions 调用的构建脚本也可以本地自测：
+
+```sh
+bash scripts/ci/build-release-linux.sh --arch amd64 --artifact-arch amd64
+bash scripts/ci/build-release-linux.sh --arch arm64 --artifact-arch aarch64
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/ci/build-release-windows.ps1 -Arch amd64 -ArtifactArch amd64
+```
+
+Linux CI 会额外传入 `--install-system-deps` 安装 GTK4 和 WebKitGTK 6.0 开发库。本地如已安装依赖，可以省略该参数。
 
 ## 更多文档
 
