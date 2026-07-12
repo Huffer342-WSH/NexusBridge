@@ -9,6 +9,24 @@ import (
 	"nexusbridge/internal/parser"
 )
 
+func TestParseTorrentsFromFixtureHTML(t *testing.T) {
+	definition := loadFixtureSiteDefinition(t)
+	body := readFixtureHTML(t)
+
+	parsed, err := parser.ParsePageWithDefinition(body, definition)
+	if err != nil {
+		t.Fatalf("parse fixture page: %v", err)
+	}
+	assertTorrents(t, parsed.Torrents)
+	first := parsed.Torrents[0]
+	if first.ID != 43042 || first.Title != "Fixture Torrent One" {
+		t.Fatalf("expected fixture first torrent id and title: %#v", first)
+	}
+	if first.Category != "音声" || first.CategoryQuery != "cat=410" {
+		t.Fatalf("expected fixture first torrent category: %#v", first)
+	}
+}
+
 func TestParseTorrentsFromFetchedHTML(t *testing.T) {
 	settings := loadTestSettings(t)
 	definition := loadSiteDefinition(t, settings)

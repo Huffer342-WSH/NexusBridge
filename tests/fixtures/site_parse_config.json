@@ -21,7 +21,94 @@
       "list": {
         "selector": "table.torrents > tr:has(\"table.torrentname\")"
       },
-      "fields": {}
+      "fields": {
+        "id": {
+          "selector": "a[href*=\"details.php?id=\"]",
+          "attribute": "href",
+          "filters": [
+            {
+              "name": "re_search",
+              "args": [
+                "\\d+",
+                0
+              ]
+            }
+          ]
+        },
+        "title_default": {
+          "selector": "a[href*=\"details.php?id=\"]"
+        },
+        "title_optional": {
+          "optional": true,
+          "selector": "a[title][href*=\"details.php?id=\"]",
+          "attribute": "title"
+        },
+        "category": {
+          "selector": "a[href*=\"?cat=\"]",
+          "attribute": "href",
+          "filters": [
+            {
+              "name": "replace",
+              "args": [
+                "?",
+                ""
+              ]
+            },
+            {
+              "name": "querystring",
+              "args": "cat"
+            }
+          ]
+        },
+        "category_name": {
+          "selector": "td:nth-child(1) img",
+          "attributes": ["alt", "title"]
+        },
+        "details": {
+          "selector": "a[href*=\"details.php?id=\"]",
+          "attribute": "href"
+        },
+        "download": {
+          "selector": "a[href*=\"download.php?id=\"]",
+          "attribute": "href"
+        },
+        "cover": {
+          "selector": "table.torrentname img.nexus-lazy-load",
+          "attributes": ["data-src", "src"],
+          "optional": true
+        },
+        "comments": {
+          "selector": "td:nth-child(3)",
+          "optional": true
+        },
+        "date_elapsed": {
+          "selector": "td:nth-child(4) > span",
+          "optional": true
+        },
+        "date_added": {
+          "selector": "td:nth-child(4) > span",
+          "attribute": "title",
+          "optional": true
+        },
+        "size": {
+          "selector": "td:nth-child(5)"
+        },
+        "seeders": {
+          "selector": "td:nth-child(6)"
+        },
+        "leechers": {
+          "selector": "td:nth-child(7)"
+        },
+        "snatches": {
+          "selector": "td:nth-child(8)"
+        },
+        "tags": {
+          "selector": "table.torrentname td.embedded:nth-child(2)",
+          "after": "br",
+          "remove": ["a", "img", "font", "span", "div"],
+          "split": "whitespace"
+        }
+      }
     }
   },
   "detail_page_url": "/details.php?id={tid}"

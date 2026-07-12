@@ -3,10 +3,11 @@ package parser
 import "nexusbridge/internal/requestpolicy"
 
 type SiteParseOptions struct {
-	SiteID    string
-	BaseURL   string
-	URL       string
-	Selectors ParseSelectors
+	SiteID        string
+	BaseURL       string
+	URL           string
+	Selectors     ParseSelectors
+	TorrentFields map[string]SiteFieldDefinition
 }
 
 type ParsedPage struct {
@@ -59,6 +60,7 @@ type SiteSearchDefinition struct {
 	Paths  []SiteSearchPath       `json:"paths"`
 	Params map[string]interface{} `json:"params,omitempty"`
 	Batch  map[string]interface{} `json:"batch,omitempty"`
+	Fields SiteSearchFields       `json:"fields,omitempty"`
 }
 
 type SiteSearchPath struct {
@@ -113,12 +115,50 @@ type ParseSelectors struct {
 }
 
 type SearchConfig struct {
-	Categories []SearchOption `json:"categories"`
-	Tags       []SearchOption `json:"tags"`
-	Checkboxes []SearchGroup  `json:"checkboxes"`
-	Selects    []SelectField  `json:"selects"`
-	Ranges     []RangeField   `json:"ranges"`
-	Keyword    KeywordField   `json:"keyword"`
+	Categories []SearchOption   `json:"categories"`
+	Tags       []SearchOption   `json:"tags"`
+	Checkboxes []SearchGroup    `json:"checkboxes"`
+	Selects    []SelectField    `json:"selects"`
+	Ranges     []RangeField     `json:"ranges"`
+	Keyword    KeywordField     `json:"keyword"`
+	Fields     SiteSearchFields `json:"fields,omitempty"`
+}
+
+type SiteSearchFields struct {
+	Checkboxes []SiteSearchCheckboxGroup `json:"checkboxes,omitempty"`
+	Tags       *SiteSearchField          `json:"tags,omitempty"`
+	Selects    []SiteSearchField         `json:"selects,omitempty"`
+	Ranges     []SiteSearchField         `json:"ranges,omitempty"`
+	Keyword    *SiteSearchField          `json:"keyword,omitempty"`
+}
+
+func (fields SiteSearchFields) Empty() bool {
+	return len(fields.Checkboxes) == 0 && fields.Tags == nil && len(fields.Selects) == 0 && len(fields.Ranges) == 0 && fields.Keyword == nil
+}
+
+type SiteSearchCheckboxGroup struct {
+	Name    string                  `json:"name"`
+	Type    string                  `json:"type"`
+	Label   string                  `json:"label"`
+	Options []SiteSearchFieldOption `json:"options"`
+}
+
+type SiteSearchField struct {
+	Name      string                  `json:"name"`
+	Type      string                  `json:"type"`
+	Label     string                  `json:"label"`
+	Query     string                  `json:"query,omitempty"`
+	Begin     string                  `json:"begin,omitempty"`
+	End       string                  `json:"end,omitempty"`
+	Exclusive bool                    `json:"exclusive,omitempty"`
+	Options   []SiteSearchFieldOption `json:"options,omitempty"`
+}
+
+type SiteSearchFieldOption struct {
+	Name  string `json:"name,omitempty"`
+	Value string `json:"value"`
+	Label string `json:"label"`
+	Query string `json:"query,omitempty"`
 }
 
 type SearchGroup struct {

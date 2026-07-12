@@ -167,12 +167,17 @@ WebUI 的 `设置 / LLM` 页面保存 LLM 设置时，如果 API Key 输入框�
 - `encoding`：页面编码。
 - `html.search.paths[]`：浏览或搜索入口路径。
 - `html.search.params`：搜索参数模板。
+- `html.search.fields`：搜索框补完字段，由离线或在线 HTML 解析写入。该字段是对象，包含 `checkboxes`、`selects`、`ranges`、`keyword`、`tags`；checkbox 按分组嵌套，例如分类写在 `checkboxes[].name="cat"` 组内，select/tag 带 `options`，range 带 `begin/end`，`tag_id` 带 `exclusive: true`。
 - `html.category`：分类配置。
 - `html.torrents.list.selector`：种子列表行 selector。
-- `html.torrents.fields`：字段提取规则，当前阶段只保存，后续逐步接入完整 DSL。
+- `html.torrents.fields`：种子列表字段提取规则。解析器会读取 `selector`、`attribute`/`attributes`、`filters`、`remove`、`after` 和 `split` 来提取 ID、标题、分类、链接、发布时间、体积、做种/下载/完成数与标签；未配置的字段会回退到 NexusPHP 默认结构。
+
+内置通用 NexusPHP 搜索框规则会安装到 `sites/html/common/nexusphp_search.json`。该文件只描述如何从 HTML 识别 checkbox、select、range、keyword 和 `tag_id`，不是站点定义，加载站点时会忽略子目录。
+
+字段过滤器当前支持 `re_search`、`replace`、`querystring` 和 `dateparse`。标签类字段可以用 `after` 指定从某个节点之后读取文本，用 `remove` 排除促销、进度条等子节点，再用 `split: "whitespace"` 按空白拆分为多个 tag。
 
 HTML 解析测试使用同一新格式 fixture：`tests/fixtures/site_parse_config.json`。
 
-解析搜索项后，会把结果写入搜索项快照 JSON，默认测试输出为 `data/tests/<site>.updated.json`。
+解析搜索项后，会把结果补写回站点 JSON，默认在线测试输出为 `data/tests/<site>.updated.json`。
 
 

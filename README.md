@@ -184,5 +184,6 @@ Linux CI 会额外传入 `--install-system-deps` 安装 GTK4 和 WebKitGTK 6.0 �
 
 - [架构](docs/architecture.md)
 - [配置](docs/config.md)
+- [HTML 解析配置](docs/parse.md)
 - [HTTP API](docs/api.md)
 - [测试](docs/testing.md)

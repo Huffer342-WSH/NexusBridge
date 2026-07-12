@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	nethtml "golang.org/x/net/html"
 )
 
 var (
@@ -55,7 +56,7 @@ func ParsePage(data []byte, opts SiteParseOptions) (ParsedPage, error) {
 	if form.Length() > 0 {
 		page.SearchConfig = parseSearchConfig(form, baseURL)
 	}
-	page.Torrents = parseTorrents(doc, opts.SiteID, baseURL, selectors)
+	page.Torrents = parseTorrents(doc, opts.SiteID, baseURL, selectors, opts.TorrentFields)
 	page.Pagination = parsePagination(doc, baseURL, selectors)
 	return page, nil
 }
@@ -63,10 +64,11 @@ func ParsePage(data []byte, opts SiteParseOptions) (ParsedPage, error) {
 func ParsePageWithDefinition(data []byte, definition SiteDefinition) (ParsedPage, error) {
 	cfg := SiteConfigFromDefinition(definition)
 	page, err := ParsePage(data, SiteParseOptions{
-		SiteID:    cfg.SiteID,
-		BaseURL:   cfg.BaseURL,
-		URL:       cfg.URL,
-		Selectors: ParseSelectorsFromDefinition(definition),
+		SiteID:        cfg.SiteID,
+		BaseURL:       cfg.BaseURL,
+		URL:           cfg.URL,
+		Selectors:     ParseSelectorsFromDefinition(definition),
+		TorrentFields: definition.HTML.Torrents.Fields,
 	})
 	if err != nil {
 		return ParsedPage{}, err
@@ -202,6 +204,9 @@ func UpdateSiteDefinitionSearchOptions(definition SiteDefinition, page ParsedPag
 			definition.HTML.Search.Params[keywordName] = "{keyword}"
 		}
 	}
+	if !page.SearchConfig.Fields.Empty() {
+		definition.HTML.Search.Fields = page.SearchConfig.Fields
+	}
 	if len(definition.HTML.Category) == 0 || len(page.SearchConfig.Categories) == 0 {
 		return definition
 	}
@@ -270,50 +275,55 @@ func categoryIDFromSearchOption(option SearchOption) string {
 
 func parseSearchConfig(form *goquery.Selection, baseURL string) SearchConfig {
 	cfg := SearchConfig{}
-	cfg.Categories = parseLinkedCheckboxes(form, "cat")
+	checkboxes := parseCheckboxGroups(form)
+	for _, group := range checkboxes {
+		if group.Name == "cat" {
+			cfg.Categories = group.Options
+			continue
+		}
+		cfg.Checkboxes = append(cfg.Checkboxes, group)
+	}
 	cfg.Tags = parseTagLinks(form)
-	cfg.Checkboxes = appendIfOptions(cfg.Checkboxes, "source", "马赛克", parseLinkedCheckboxes(form, "source"))
-	cfg.Checkboxes = appendIfOptions(cfg.Checkboxes, "team", "中文字幕", parseLinkedCheckboxes(form, "team"))
 	cfg.Selects = parseSelectFields(form)
 	cfg.Ranges = parseRangeFields(form)
 	cfg.Keyword = parseKeywordField(form)
+	cfg.Fields = buildSiteSearchFields(cfg)
 	_ = baseURL
 	return cfg
 }
 
-func parseLinkedCheckboxes(root *goquery.Selection, prefix string) []SearchOption {
-	options := []SearchOption{}
-	root.Find(fmt.Sprintf(`input[type="checkbox"][name^="%s"]`, prefix)).Each(func(_ int, input *goquery.Selection) {
+func parseCheckboxGroups(root *goquery.Selection) []SearchGroup {
+	groups := []SearchGroup{}
+	groupByName := map[string]int{}
+	root.Find(`input[type="checkbox"][name]`).Each(func(_ int, input *goquery.Selection) {
 		name, _ := input.Attr("name")
 		value, _ := input.Attr("value")
-		label := ""
-		queryName := name
-		cell := input.Parent()
-		if cell.Is("label") {
-			label = cleanText(cell.Text())
-			cell = cell.Parent()
-		}
-		if label == "" {
-			label = cleanText(input.PrevAllFiltered("a").First().Text())
-		}
-		if label == "" {
-			img := cell.Find("img[alt], img[title]").First()
-			label = attrFirst(img, "alt", "title")
-		}
 		if value == "" {
 			value = "1"
 		}
+		label := checkboxLabel(input)
 		if label != "" {
-			options = append(options, SearchOption{
+			prefix := checkboxPrefix(name)
+			groupLabel := firstNonEmpty(checkboxGroupLabel(input), prefix)
+			option := SearchOption{
 				Name:      name,
 				Value:     value,
 				Label:     label,
-				QueryName: queryName,
-				Query:     queryString(queryName, value),
-			})
+				QueryName: name,
+				Query:     queryString(name, value),
+			}
+			if index, exists := groupByName[prefix]; exists {
+				groups[index].Options = append(groups[index].Options, option)
+				if groups[index].Label == groups[index].Name && groupLabel != "" {
+					groups[index].Label = groupLabel
+				}
+				return
+			}
+			groupByName[prefix] = len(groups)
+			groups = append(groups, SearchGroup{Name: prefix, Label: groupLabel, Options: []SearchOption{option}})
 		}
 	})
-	return options
+	return groups
 }
 
 func parseTagLinks(root *goquery.Selection) []SearchOption {
@@ -362,34 +372,37 @@ func parseSelectFields(root *goquery.Selection) []SelectField {
 }
 
 func parseRangeFields(root *goquery.Selection) []RangeField {
-	pairs := []struct {
-		label string
-		begin string
-		end   string
-		kind  string
-	}{
-		{"体积范围(GB)", "size_begin", "size_end", "number"},
-		{"做种人数范围", "seeders_begin", "seeders_end", "number"},
-		{"下载人数范围", "leechers_begin", "leechers_end", "number"},
-		{"完成次数范围", "times_completed_begin", "times_completed_end", "number"},
-		{"发布时间范围", "added_begin", "added_end", "date"},
-	}
 	fields := []RangeField{}
-	for _, pair := range pairs {
-		if root.Find(fmt.Sprintf(`input[name="%s"]`, pair.begin)).Length() == 0 {
-			continue
+	seen := map[string]struct{}{}
+	root.Find(`input[name$="_begin"]`).Each(func(_ int, beginInput *goquery.Selection) {
+		begin, _ := beginInput.Attr("name")
+		name := strings.TrimSuffix(begin, "_begin")
+		if name == "" {
+			return
 		}
-		if root.Find(fmt.Sprintf(`input[name="%s"]`, pair.end)).Length() == 0 {
-			continue
+		if _, exists := seen[name]; exists {
+			return
+		}
+		end := name + "_end"
+		endInput := root.Find(fmt.Sprintf(`input[name="%s"]`, end)).First()
+		if endInput.Length() == 0 {
+			return
+		}
+		seen[name] = struct{}{}
+		kind := "number"
+		beginType := strings.ToLower(attrFirst(beginInput, "type"))
+		endType := strings.ToLower(attrFirst(endInput, "type"))
+		if beginType == "date" || endType == "date" {
+			kind = "date"
 		}
 		fields = append(fields, RangeField{
-			Name:  strings.TrimSuffix(pair.begin, "_begin"),
-			Label: pair.label,
-			Begin: pair.begin,
-			End:   pair.end,
-			Kind:  pair.kind,
+			Name:  name,
+			Label: firstNonEmpty(rangeLabel(beginInput), name),
+			Begin: begin,
+			End:   end,
+			Kind:  kind,
 		})
-	}
+	})
 	return fields
 }
 
@@ -435,7 +448,174 @@ func optionsForSelect(sel *goquery.Selection) []SearchOption {
 	return options
 }
 
-func parseTorrents(doc *goquery.Document, siteID, baseURL string, selectors ParseSelectors) []TorrentEntry {
+func buildSiteSearchFields(cfg SearchConfig) SiteSearchFields {
+	fields := SiteSearchFields{}
+	if len(cfg.Categories) > 0 {
+		fields.Checkboxes = append(fields.Checkboxes, checkboxGroupField(SearchGroup{
+			Name:    "cat",
+			Label:   "分类",
+			Options: cfg.Categories,
+		}))
+	}
+	for _, group := range cfg.Checkboxes {
+		fields.Checkboxes = append(fields.Checkboxes, checkboxGroupField(group))
+	}
+	if len(cfg.Tags) > 0 {
+		field := SiteSearchField{
+			Name:      "tag_id",
+			Type:      "tag",
+			Label:     "标签",
+			Query:     "tag_id={{value}}",
+			Exclusive: true,
+		}
+		for _, option := range cfg.Tags {
+			field.Options = append(field.Options, SiteSearchFieldOption{
+				Value: option.Value,
+				Label: option.Label,
+				Query: option.Query,
+			})
+		}
+		fields.Tags = &field
+	}
+	for _, selectField := range cfg.Selects {
+		field := SiteSearchField{
+			Name:  selectField.Name,
+			Type:  "select",
+			Label: firstNonEmpty(selectField.Label, selectField.Name),
+			Query: queryTemplateForName(selectField.Name),
+		}
+		for _, option := range selectField.Options {
+			field.Options = append(field.Options, SiteSearchFieldOption{
+				Value: option.Value,
+				Label: option.Label,
+				Query: option.Query,
+			})
+		}
+		fields.Selects = append(fields.Selects, field)
+	}
+	for _, rangeField := range cfg.Ranges {
+		fieldType := "number_range"
+		if rangeField.Kind == "date" {
+			fieldType = "date_range"
+		}
+		fields.Ranges = append(fields.Ranges, SiteSearchField{
+			Name:  rangeField.Name,
+			Type:  fieldType,
+			Label: firstNonEmpty(rangeField.Label, rangeField.Name),
+			Begin: rangeField.Begin,
+			End:   rangeField.End,
+			Query: rangeField.Begin + "={{begin}}&" + rangeField.End + "={{end}}",
+		})
+	}
+	if cfg.Keyword.Name != "" {
+		fields.Keyword = &SiteSearchField{
+			Name:  cfg.Keyword.Name,
+			Type:  "string",
+			Label: "搜索关键字",
+			Query: queryTemplateForName(cfg.Keyword.Name),
+		}
+	}
+	return fields
+}
+
+func checkboxGroupField(group SearchGroup) SiteSearchCheckboxGroup {
+	field := SiteSearchCheckboxGroup{
+		Name:  group.Name,
+		Type:  "bool",
+		Label: firstNonEmpty(group.Label, group.Name),
+	}
+	for _, option := range group.Options {
+		field.Options = append(field.Options, SiteSearchFieldOption{
+			Name:  option.Name,
+			Value: option.Value,
+			Label: option.Label,
+			Query: option.Query,
+		})
+	}
+	return field
+}
+
+func queryTemplateForName(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return ""
+	}
+	return name + "={{value}}"
+}
+
+func checkboxLabel(input *goquery.Selection) string {
+	cell := input.Parent()
+	if cell.Is("label") {
+		if label := cleanText(cell.Text()); label != "" {
+			return label
+		}
+		cell = cell.Parent()
+	}
+	if label := cleanText(input.NextFiltered("a").First().Text()); label != "" {
+		return label
+	}
+	if label := cleanText(input.PrevAllFiltered("a").First().Text()); label != "" {
+		return label
+	}
+	if label := cleanText(input.Parent().Find("a").First().Text()); label != "" {
+		return label
+	}
+	return attrFirst(cell.Find("img[alt], img[title]").First(), "alt", "title")
+}
+
+func checkboxGroupLabel(input *goquery.Selection) string {
+	cell := input.Closest("td")
+	row := cell.Parent()
+	if label := previousSearchHeading(row); label != "" {
+		return label
+	}
+	name, _ := input.Attr("name")
+	switch checkboxPrefix(name) {
+	case "cat":
+		return "分类"
+	default:
+		return ""
+	}
+}
+
+func previousSearchHeading(row *goquery.Selection) string {
+	for prev := row.Prev(); prev.Length() > 0; prev = prev.Prev() {
+		if prev.Find("input, select, textarea").Length() > 0 {
+			continue
+		}
+		label := cleanText(prev.Text())
+		if label != "" && len([]rune(label)) <= 32 {
+			return strings.TrimSuffix(strings.TrimSuffix(label, "？"), ":")
+		}
+	}
+	return ""
+}
+
+func checkboxPrefix(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	prefix := regexp.MustCompile(`^[A-Za-z_]+`).FindString(name)
+	if prefix == "" {
+		return name
+	}
+	return strings.TrimSuffix(prefix, "_")
+}
+
+func rangeLabel(input *goquery.Selection) string {
+	row := input.Closest("tr")
+	if label := previousSearchHeading(row); label != "" {
+		return label
+	}
+	text := cleanText(input.Parent().Text())
+	text = strings.TrimSpace(strings.Trim(text, "~"))
+	if text != "" && !strings.Contains(text, "{{") {
+		return text
+	}
+	return ""
+}
+
+func parseTorrents(doc *goquery.Document, siteID, baseURL string, selectors ParseSelectors, fields map[string]SiteFieldDefinition) []TorrentEntry {
 	torrents := []TorrentEntry{}
 	rows := doc.Find(selectors.TorrentRows)
 	if rows.Length() == 0 {
@@ -450,7 +630,7 @@ func parseTorrents(doc *goquery.Document, siteID, baseURL string, selectors Pars
 		if nameTable.Length() == 0 {
 			return
 		}
-		torrent := parseTorrentRow(row, nameTable, siteID, baseURL)
+		torrent := parseTorrentRow(row, nameTable, siteID, baseURL, fields)
 		if torrent.ID != 0 {
 			torrents = append(torrents, torrent)
 		}
@@ -459,31 +639,49 @@ func parseTorrents(doc *goquery.Document, siteID, baseURL string, selectors Pars
 	return torrents
 }
 
-func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string) TorrentEntry {
+func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string, fields map[string]SiteFieldDefinition) TorrentEntry {
 	cells := row.ChildrenFiltered("td")
 	titleLink := nameTable.Find(`a[href*="details.php"]`).First()
 	detailHref, _ := titleLink.Attr("href")
 	downloadHref, _ := nameTable.Find(`a[href*="download.php"]`).First().Attr("href")
 	cover := attrFirst(nameTable.Find("img.nexus-lazy-load").First(), "data-src", "src")
+	fieldValues := extractTorrentFieldValues(row, fields)
+	id := parseInt(firstNonEmpty(fieldValues["id"], strconv.Itoa(intFromQuery(detailHref, "id"))))
+	category := firstNonEmpty(fieldValues["category_name"], attrFirst(cells.Eq(0).Find("img").First(), "alt", "title"))
+	categoryQuery := firstNonEmpty(fieldValues["category_query"], hrefQuery(cells.Eq(0).Find("a").First()))
+	if categoryQuery == "" && fieldValues["category"] != "" {
+		categoryQuery = queryString("cat", fieldValues["category"])
+	}
+	title := firstNonEmpty(fieldValues["title"], fieldValues["title_optional"], fieldValues["title_default"], attrFirst(titleLink, "title"))
+	detailHref = firstNonEmpty(fieldValues["details"], fieldValues["detail"], detailHref)
+	downloadHref = firstNonEmpty(fieldValues["download"], downloadHref)
+	cover = firstNonEmpty(fieldValues["cover"], cover)
+	publishedAt := firstNonEmpty(fieldValues["published_at"], fieldValues["date_added"], attrFirst(cells.Eq(3).Find("span").First(), "title"))
+	publishedText := firstNonEmpty(fieldValues["published_text"], fieldValues["date_elapsed"], cleanText(cells.Eq(3).Text()))
+	sizeText := firstNonEmpty(fieldValues["size"], cleanText(cells.Eq(4).Text()))
+	seeders := parseInt(firstNonEmpty(fieldValues["seeders"], cleanText(cells.Eq(5).Text())))
+	leechers := parseInt(firstNonEmpty(fieldValues["leechers"], cleanText(cells.Eq(6).Text())))
+	snatches := parseInt(firstNonEmpty(fieldValues["snatches"], fieldValues["grabs"], cleanText(cells.Eq(7).Text())))
+	comments := parseInt(firstNonEmpty(fieldValues["comments"], cleanText(cells.Eq(2).Text())))
 
 	torrent := TorrentEntry{
 		SiteID:        siteID,
-		ID:            intFromQuery(detailHref, "id"),
-		Category:      attrFirst(cells.Eq(0).Find("img").First(), "alt", "title"),
-		CategoryQuery: hrefQuery(cells.Eq(0).Find("a").First()),
-		Title:         attrFirst(titleLink, "title"),
+		ID:            id,
+		Category:      category,
+		CategoryQuery: categoryQuery,
+		Title:         title,
 		DetailHref:    html.UnescapeString(detailHref),
 		DetailURL:     absoluteURL(baseURL, detailHref),
 		DownloadHref:  html.UnescapeString(downloadHref),
 		DownloadURL:   absoluteURL(baseURL, downloadHref),
 		CoverURL:      absoluteURL(baseURL, cover),
-		Comments:      parseInt(cleanText(cells.Eq(2).Text())),
-		PublishedAt:   attrFirst(cells.Eq(3).Find("span").First(), "title"),
-		PublishedText: cleanText(cells.Eq(3).Text()),
-		SizeText:      cleanText(cells.Eq(4).Text()),
-		Seeders:       parseInt(cleanText(cells.Eq(5).Text())),
-		Leechers:      parseInt(cleanText(cells.Eq(6).Text())),
-		Snatches:      parseInt(cleanText(cells.Eq(7).Text())),
+		Comments:      comments,
+		PublishedAt:   publishedAt,
+		PublishedText: publishedText,
+		SizeText:      sizeText,
+		Seeders:       seeders,
+		Leechers:      leechers,
+		Snatches:      snatches,
 		StickyLevel:   nameTable.Find("img.sticky").Length(),
 		Bookmarked:    nameTable.Find("img.bookmark, img.delbookmark").Length() > 0,
 	}
@@ -492,12 +690,11 @@ func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string) 
 	}
 	torrent.SizeBytes = parseSizeBytes(torrent.SizeText)
 
-	nameTable.Find(`span[style*="background-color"]`).Each(func(_ int, span *goquery.Selection) {
-		tag := cleanText(span.Text())
-		if tag != "" {
-			torrent.Tags = append(torrent.Tags, tag)
-		}
-	})
+	torrent.Tags = firstNonEmptyStrings(
+		extractTorrentFieldList(row, fields, "tags"),
+		extractTorrentFieldList(row, fields, "labels"),
+		coloredSpanTags(nameTable),
+	)
 
 	pro := nameTable.Find(`img[class*="pro_"]`).First()
 	torrent.PromotionClass, _ = pro.Attr("class")
@@ -521,6 +718,341 @@ func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string) 
 	return torrent
 }
 
+// extractTorrentFieldValues 按站点字段规则提取种子行的标量字段。
+func extractTorrentFieldValues(row *goquery.Selection, fields map[string]SiteFieldDefinition) map[string]string {
+	values := map[string]string{}
+	for name := range fields {
+		value := extractTorrentFieldString(row, fields, name)
+		if value != "" {
+			values[name] = value
+		}
+	}
+	return values
+}
+
+// extractTorrentFieldString 按字段名读取种子行中的一个字符串值。
+func extractTorrentFieldString(row *goquery.Selection, fields map[string]SiteFieldDefinition, name string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	rule, ok := fields[name]
+	if !ok {
+		return ""
+	}
+	value := fieldValue(row, rule)
+	return applyFieldFilters(value, rule)
+}
+
+// extractTorrentFieldList 按字段名读取种子行中的字符串数组。
+func extractTorrentFieldList(row *goquery.Selection, fields map[string]SiteFieldDefinition, name string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	rule, ok := fields[name]
+	if !ok {
+		return nil
+	}
+	split := strings.ToLower(fieldString(rule, "split"))
+	if split != "" {
+		return splitFieldList(extractTorrentFieldString(row, fields, name), split)
+	}
+	values := []string{}
+	fieldSelections(row, rule).Each(func(_ int, sel *goquery.Selection) {
+		value := applyFieldFilters(fieldText(sel, rule), rule)
+		if value != "" {
+			values = append(values, value)
+		}
+	})
+	return uniqueNonEmpty(values)
+}
+
+// fieldValue 提取字段规则命中的第一个值。
+func fieldValue(row *goquery.Selection, rule SiteFieldDefinition) string {
+	selection := fieldSelections(row, rule).First()
+	if selection.Length() == 0 {
+		return fieldString(rule, "default_value")
+	}
+	value := fieldText(selection, rule)
+	if value == "" {
+		value = fieldString(rule, "default_value")
+	}
+	return value
+}
+
+// fieldSelections 返回字段规则匹配的节点集合。
+func fieldSelections(row *goquery.Selection, rule SiteFieldDefinition) *goquery.Selection {
+	selector := fieldString(rule, "selector")
+	if strings.TrimSpace(selector) == "" {
+		return &goquery.Selection{}
+	}
+	if row.Is(selector) {
+		return row.Filter(selector)
+	}
+	return row.Find(selector)
+}
+
+// fieldText 从节点中读取属性或文本。
+func fieldText(sel *goquery.Selection, rule SiteFieldDefinition) string {
+	attributes := fieldStringSlice(rule, "attributes")
+	if attribute := fieldString(rule, "attribute"); attribute != "" {
+		attributes = append([]string{attribute}, attributes...)
+	}
+	if len(attributes) > 0 {
+		return attrFirst(sel, attributes...)
+	}
+	source := sel.Clone()
+	removeSelectors(source, fieldStringSlice(rule, "remove"))
+	if after := firstNonEmpty(fieldString(rule, "after"), fieldString(rule, "after_selector")); after != "" {
+		return cleanText(textAfterFirstSelector(source, after))
+	}
+	return cleanText(source.Text())
+}
+
+// removeSelectors 从字段节点副本中移除不参与文本提取的子节点。
+func removeSelectors(sel *goquery.Selection, selectors []string) {
+	for _, selector := range selectors {
+		selector = strings.TrimSpace(selector)
+		if selector != "" {
+			sel.Find(selector).Remove()
+		}
+	}
+}
+
+// applyFieldFilters 执行站点字段规则中声明的简单文本过滤器。
+func applyFieldFilters(value string, rule SiteFieldDefinition) string {
+	value = strings.TrimSpace(html.UnescapeString(value))
+	for _, filter := range fieldFilters(rule) {
+		name := strings.ToLower(fieldString(filter, "name"))
+		switch name {
+		case "re_search":
+			value = applyRegexSearch(value, filter["args"])
+		case "replace":
+			value = applyReplaceFilter(value, filter["args"])
+		case "querystring":
+			value = applyQueryStringFilter(value, filter["args"])
+		case "dateparse":
+			value = cleanText(value)
+		default:
+			value = cleanText(value)
+		}
+	}
+	return cleanText(value)
+}
+
+// fieldFilters 读取字段规则中的 filters 数组。
+func fieldFilters(rule SiteFieldDefinition) []SiteFieldDefinition {
+	raw, ok := rule["filters"]
+	if !ok {
+		return nil
+	}
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	filters := make([]SiteFieldDefinition, 0, len(items))
+	for _, item := range items {
+		if filter, ok := item.(map[string]interface{}); ok {
+			filters = append(filters, SiteFieldDefinition(filter))
+		}
+	}
+	return filters
+}
+
+// applyRegexSearch 执行 re_search 过滤器。
+func applyRegexSearch(value string, args interface{}) string {
+	items, ok := args.([]interface{})
+	if !ok || len(items) == 0 {
+		return value
+	}
+	pattern := fmt.Sprint(items[0])
+	index := 0
+	if len(items) > 1 {
+		index = intFromAny(items[1])
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return value
+	}
+	matches := re.FindStringSubmatch(value)
+	if len(matches) == 0 || index < 0 || index >= len(matches) {
+		return ""
+	}
+	return matches[index]
+}
+
+// applyReplaceFilter 执行 replace 过滤器。
+func applyReplaceFilter(value string, args interface{}) string {
+	items, ok := args.([]interface{})
+	if !ok || len(items) < 2 {
+		return value
+	}
+	return strings.ReplaceAll(value, fmt.Sprint(items[0]), fmt.Sprint(items[1]))
+}
+
+// applyQueryStringFilter 执行 querystring 过滤器。
+func applyQueryStringFilter(value string, args interface{}) string {
+	key := strings.TrimSpace(fmt.Sprint(args))
+	if items, ok := args.([]interface{}); ok && len(items) > 0 {
+		key = strings.TrimSpace(fmt.Sprint(items[0]))
+	}
+	if key == "" {
+		return value
+	}
+	parsed, err := url.Parse(html.UnescapeString(value))
+	if err == nil {
+		if queryValue := parsed.Query().Get(key); queryValue != "" {
+			return queryValue
+		}
+	}
+	query, err := url.ParseQuery(strings.TrimPrefix(value, "?"))
+	if err != nil {
+		return ""
+	}
+	return query.Get(key)
+}
+
+// splitFieldList 将字段字符串拆分为标签数组。
+func splitFieldList(value, mode string) []string {
+	switch mode {
+	case "space", "spaces", "field", "fields", "whitespace":
+		return uniqueNonEmpty(strings.Fields(value))
+	case "comma", ",":
+		return uniqueNonEmpty(strings.Split(value, ","))
+	default:
+		return uniqueNonEmpty([]string{value})
+	}
+}
+
+// textAfterFirstSelector 读取第一个匹配节点之后的文本。
+func textAfterFirstSelector(sel *goquery.Selection, selector string) string {
+	var builder strings.Builder
+	found := false
+	for _, node := range sel.Nodes {
+		collectTextAfterSelector(node, selector, &found, &builder)
+	}
+	return builder.String()
+}
+
+// collectTextAfterSelector 按文档顺序收集匹配节点之后的文本节点。
+func collectTextAfterSelector(node *nethtml.Node, selector string, found *bool, builder *strings.Builder) {
+	if node == nil {
+		return
+	}
+	if node.Type == nethtml.ElementNode && nodeMatchesSelector(node, selector) {
+		*found = true
+		return
+	}
+	if *found && node.Type == nethtml.TextNode {
+		builder.WriteString(node.Data)
+		builder.WriteString(" ")
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		collectTextAfterSelector(child, selector, found, builder)
+	}
+}
+
+// nodeMatchesSelector 判断 HTML 节点是否匹配 CSS selector。
+func nodeMatchesSelector(node *nethtml.Node, selector string) bool {
+	doc := goquery.NewDocumentFromNode(node)
+	return doc.Selection.Is(selector)
+}
+
+// fieldString 读取字段规则中的字符串值。
+func fieldString(rule SiteFieldDefinition, key string) string {
+	value, ok := rule[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+// fieldStringSlice 读取字段规则中的字符串数组。
+func fieldStringSlice(rule SiteFieldDefinition, key string) []string {
+	value, ok := rule[key]
+	if !ok || value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case []interface{}:
+		items := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
+				items = append(items, text)
+			}
+		}
+		return items
+	case string:
+		parts := strings.Split(typed, ",")
+		items := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if text := strings.TrimSpace(part); text != "" {
+				items = append(items, text)
+			}
+		}
+		return items
+	default:
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			return nil
+		}
+		return []string{text}
+	}
+}
+
+// intFromAny 将 JSON 数字转换为 int。
+func intFromAny(value interface{}) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case int64:
+		return int(typed)
+	case float64:
+		return int(typed)
+	default:
+		return parseInt(fmt.Sprint(value))
+	}
+}
+
+// coloredSpanTags 读取旧版彩色 span 标签。
+func coloredSpanTags(nameTable *goquery.Selection) []string {
+	tags := []string{}
+	nameTable.Find(`span[style*="background-color"]`).Each(func(_ int, span *goquery.Selection) {
+		if tag := cleanText(span.Text()); tag != "" {
+			tags = append(tags, tag)
+		}
+	})
+	return uniqueNonEmpty(tags)
+}
+
+// firstNonEmptyStrings 返回第一个非空字符串数组。
+func firstNonEmptyStrings(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+// uniqueNonEmpty 去重并保留原始顺序。
+func uniqueNonEmpty(values []string) []string {
+	seen := map[string]struct{}{}
+	result := []string{}
+	for _, value := range values {
+		value = cleanText(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func parsePagination(doc *goquery.Document, baseURL string, selectors ParseSelectors) Pagination {
 	pagination := Pagination{}
 	pager := doc.Find(selectors.Pagination).First()
@@ -536,13 +1068,6 @@ func parsePagination(doc *goquery.Document, baseURL string, selectors ParseSelec
 		})
 	})
 	return pagination
-}
-
-func appendIfOptions(groups []SearchGroup, name, label string, options []SearchOption) []SearchGroup {
-	if len(options) == 0 {
-		return groups
-	}
-	return append(groups, SearchGroup{Name: name, Label: label, Options: options})
 }
 
 func labelBefore(sel *goquery.Selection) string {

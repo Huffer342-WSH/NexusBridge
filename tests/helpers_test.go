@@ -129,6 +129,26 @@ func loadSiteDefinition(t *testing.T, settings testSettings) parser.SiteDefiniti
 	return parser.SiteDefinition{}
 }
 
+func loadFixtureSiteDefinition(t *testing.T) parser.SiteDefinition {
+	t.Helper()
+
+	definition, err := parser.LoadSiteDefinition(filepath.Join("fixtures", "site_parse_config.json"))
+	if err != nil {
+		t.Fatalf("load fixture site definition: %v", err)
+	}
+	return definition
+}
+
+func readFixtureHTML(t *testing.T) []byte {
+	t.Helper()
+
+	body, err := os.ReadFile(filepath.Join("fixtures", "torrents_page.html"))
+	if err != nil {
+		t.Fatalf("read fixture html: %v", err)
+	}
+	return body
+}
+
 func fetchConfiguredHTMLFromDB(t *testing.T, ctx context.Context, settings testSettings, definition parser.SiteDefinition) []byte {
 	t.Helper()
 

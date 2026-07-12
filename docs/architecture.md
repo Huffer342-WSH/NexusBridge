@@ -13,7 +13,7 @@ NexusBridge 以共享 Go 服务为核心，CLI、HTTP、WebUI 和桌面端都是
 - `internal/core` 放领域模型、服务接口和 MVP 应用服务；torrent 文件补齐、qB 配置与发送、qB hash 同步分别放在独立文件中，避免把下载器编排继续堆叠在 `app.go`。
 - `internal/requestpolicy` 负责严格域名后缀匹配、Cookie 白名单选择和缺失项描述；`internal/core/site_requests.go` 统一加载站点凭据并编排搜索页、详情、torrent 文件和封面请求。
 - `internal/fetcher` 只负责构造和执行 HTTP 请求；动态 Cookie 策略会在初始请求及每次重定向前重新解析，且日志不输出 Cookie 值。
-- `internal/parser` 负责加载新格式站点定义、解析 NexusPHP `torrents.php` 和详情页 HTML，输出站点搜索配置、种子列表结构体和详情页字段；该包不依赖 HTTP、SQLite、CLI 或 WebUI。
+- `internal/parser` 负责加载新格式站点定义、按 NexusPHP 通用搜索框规则补完 `html.search.fields`，并按 `html.torrents.fields` 字段规则解析 NexusPHP `torrents.php` 和详情页 HTML；该包不依赖 HTTP、SQLite、CLI 或 WebUI。
 - 站点定义正式来源是 `sites_dir` 目录，格式统一为 `id/name/domain/html` 顶层结构，不再支持旧 `site_config/selectors/search_config` 站点 JSON。
 - `internal/qbittorrent` 分层封装 qBittorrent：`client.go` 负责连接、认证和通用 HTTP 请求，`torrents.go` 对应原生 torrent WebAPI，`sync.go` 封装 `sync/maindata` 增量协议，`transfer.go` 负责 info hash 与添加协调。core 的增量同步只合并列表变化，全量同步继续负责 properties、完成检测和整理任务。
 - `internal/llm` 封装 OpenAI-compatible Chat Completions 调用，用于下载前标题整理、cosplay 视频信息提取和下载完成后的媒体库路径建议。

@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-//go:embed sites/*.json
+//go:embed sites/*.json sites/*/*.json
 var siteAssets embed.FS
 
 // Sites 返回以内置站点文件为根的只读文件系统。
