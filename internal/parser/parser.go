@@ -94,6 +94,8 @@ func ParseTorrentDetail(data []byte, opts TorrentDetailParseOptions) (TorrentDet
 		DetailURL:     detailURL,
 		DetailTitle:   firstNonEmpty(cleanText(doc.Find("h1#top").First().Text()), cleanText(doc.Find("h1").First().Text()), cleanPageTitle(doc.Find("title").First().Text())),
 		Subtitle:      findDetailValueByLabels(doc, []string{"副标题", "小标题", "subtitle", "sub title"}),
+		ProductURL:    absoluteURL(baseURL, findDetailProductURL(doc)),
+		InfoHash:      findDetailInfoHash(doc),
 		DetailRawText: cleanText(doc.Find("body").Text()),
 	}
 	detail.DetailDescription = firstNonEmpty(
@@ -109,6 +111,34 @@ func ParseTorrentDetail(data []byte, opts TorrentDetailParseOptions) (TorrentDet
 	return detail, nil
 }
 
+// findDetailProductURL 从详情页读取商品链接。
+func findDetailProductURL(doc *goquery.Document) string {
+	if value := firstNonEmpty(
+		findDetailHrefByLabels(doc, []string{"商品链接", "商店链接", "商品地址", "product url", "product link"}),
+		attrFirst(doc.Find(`a[href^="http"]:contains("dl.getchu"), a[href^="http"]:contains("dlsite"), a[href^="http"]:contains("www.dlsite")`).First(), "href"),
+	); value != "" {
+		return value
+	}
+	return ""
+}
+
+// findDetailInfoHash 从详情页读取站点展示的 torrent hash。
+func findDetailInfoHash(doc *goquery.Document) string {
+	text := firstNonEmpty(
+		findDetailValueByLabels(doc, []string{"种子文件", "Hash码", "Hash", "info hash"}),
+		cleanText(doc.Find("body").Text()),
+	)
+	match := regexp.MustCompile(`(?i)(?:Hash码|Hash|info hash)\s*[:：]?\s*([a-f0-9]{40})`).FindStringSubmatch(text)
+	if len(match) == 2 {
+		return strings.ToLower(match[1])
+	}
+	match = regexp.MustCompile(`(?i)\b([a-f0-9]{40})\b`).FindStringSubmatch(text)
+	if len(match) == 2 {
+		return strings.ToLower(match[1])
+	}
+	return ""
+}
+
 // findDetailValueByLabels 从详情页表格中按标签读取字段。
 func findDetailValueByLabels(doc *goquery.Document, labels []string) string {
 	var value string
@@ -121,6 +151,26 @@ func findDetailValueByLabels(doc *goquery.Document, labels []string) string {
 		for _, candidate := range labels {
 			if labelMatches(label, candidate) {
 				value = cleanText(cells.Eq(1).Text())
+				return false
+			}
+		}
+		return true
+	})
+	return value
+}
+
+// findDetailHrefByLabels 从详情页表格中按标签读取首个链接。
+func findDetailHrefByLabels(doc *goquery.Document, labels []string) string {
+	var value string
+	doc.Find("tr").EachWithBreak(func(_ int, row *goquery.Selection) bool {
+		cells := row.ChildrenFiltered("td, th")
+		if cells.Length() < 2 {
+			return true
+		}
+		label := normalizeDetailLabel(cleanText(cells.First().Text()))
+		for _, candidate := range labels {
+			if labelMatches(label, candidate) {
+				value = attrFirst(cells.Eq(1).Find("a[href]").First(), "href")
 				return false
 			}
 		}
@@ -678,6 +728,8 @@ func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string, 
 		Comments:      comments,
 		PublishedAt:   publishedAt,
 		PublishedText: publishedText,
+		Subtitle:      fieldValues["subtitle"],
+		Description:   fieldValues["description"],
 		SizeText:      sizeText,
 		Seeders:       seeders,
 		Leechers:      leechers,
@@ -690,8 +742,9 @@ func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string, 
 	}
 	torrent.SizeBytes = parseSizeBytes(torrent.SizeText)
 
-	torrent.Tags = firstNonEmptyStrings(
-		extractTorrentFieldList(row, fields, "tags"),
+	torrent.Tags = extractTorrentFieldList(row, fields, "tags")
+	torrent.TagIDs = firstNonEmptyStrings(
+		extractTorrentFieldList(row, fields, "tag_ids"),
 		extractTorrentFieldList(row, fields, "labels"),
 		coloredSpanTags(nameTable),
 	)
@@ -711,10 +764,6 @@ func parseTorrentRow(row, nameTable *goquery.Selection, siteID, baseURL string, 
 		torrent.PromotionEndsAt = attrFirst(timeSpan, "title")
 		torrent.PromotionRemaining = cleanText(timeSpan.Text())
 	}
-
-	descriptionSource := nameTable.Find("td.embedded").Eq(1).Clone()
-	descriptionSource.Find("a, img, font, span, div").Remove()
-	torrent.Description = cleanText(descriptionSource.Text())
 	return torrent
 }
 
@@ -754,7 +803,7 @@ func extractTorrentFieldList(row *goquery.Selection, fields map[string]SiteField
 	}
 	split := strings.ToLower(fieldString(rule, "split"))
 	if split != "" {
-		return splitFieldList(extractTorrentFieldString(row, fields, name), split)
+		return filterFieldList(splitFieldList(extractTorrentFieldString(row, fields, name), split), rule)
 	}
 	values := []string{}
 	fieldSelections(row, rule).Each(func(_ int, sel *goquery.Selection) {
@@ -763,7 +812,7 @@ func extractTorrentFieldList(row *goquery.Selection, fields map[string]SiteField
 			values = append(values, value)
 		}
 	})
-	return uniqueNonEmpty(values)
+	return filterFieldList(values, rule)
 }
 
 // fieldValue 提取字段规则命中的第一个值。
@@ -923,6 +972,23 @@ func splitFieldList(value, mode string) []string {
 	}
 }
 
+// filterFieldList 按字段规则过滤列表值。
+func filterFieldList(values []string, rule SiteFieldDefinition) []string {
+	maxLength := firstPositiveInt(fieldInt(rule, "max_length"), fieldInt(rule, "max_length_runes"), fieldInt(rule, "max_tag_length"))
+	if maxLength <= 0 {
+		return uniqueNonEmpty(values)
+	}
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		value = cleanText(value)
+		if value == "" || len([]rune(value)) > maxLength {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return uniqueNonEmpty(filtered)
+}
+
 // textAfterFirstSelector 读取第一个匹配节点之后的文本。
 func textAfterFirstSelector(sel *goquery.Selection, selector string) string {
 	var builder strings.Builder
@@ -964,6 +1030,15 @@ func fieldString(rule SiteFieldDefinition, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+// fieldInt 读取字段规则中的整数值。
+func fieldInt(rule SiteFieldDefinition, key string) int {
+	value, ok := rule[key]
+	if !ok || value == nil {
+		return 0
+	}
+	return intFromAny(value)
 }
 
 // fieldStringSlice 读取字段规则中的字符串数组。
@@ -1011,6 +1086,16 @@ func intFromAny(value interface{}) int {
 	default:
 		return parseInt(fmt.Sprint(value))
 	}
+}
+
+// firstPositiveInt 返回第一个正整数。
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 // coloredSpanTags 读取旧版彩色 span 标签。

@@ -62,7 +62,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/torrents`
 
-返回 SQLite 中的种子元数据、torrent 文件保存状态、v1/v2 hash 和最近一次持久化的 `qb_status`；不会返回 torrent BLOB，普通请求不会访问 qB。
+返回 SQLite 中的种子元数据、列表页副标题、从副标题拆出的 `tags`、官方站点标签 `tag_ids`、按需详情页字段（商品链接、详情页 hash、简介）、torrent 文件保存状态、v1/v2 hash 和最近一次持久化的 `qb_status`；不会返回 torrent BLOB，普通请求不会访问 qB。
 
 预留查询参数：
 

@@ -29,9 +29,12 @@ type Torrent struct {
 	DownloadURL       string           `json:"download_url,omitempty"`
 	CoverURL          string           `json:"cover_url,omitempty"`
 	Tags              []string         `json:"tags,omitempty"`
+	TagIDs            []string         `json:"tag_ids,omitempty"`
 	Description       string           `json:"description,omitempty"`
 	DetailTitle       string           `json:"detail_title,omitempty"`
 	Subtitle          string           `json:"subtitle,omitempty"`
+	ProductURL        string           `json:"product_url,omitempty"`
+	DetailInfoHash    string           `json:"detail_info_hash,omitempty"`
 	DetailDescription string           `json:"detail_description,omitempty"`
 	DetailRawText     string           `json:"detail_raw_text,omitempty"`
 	DetailFetchedAt   string           `json:"detail_fetched_at,omitempty"`

@@ -170,11 +170,11 @@ WebUI 的 `设置 / LLM` 页面保存 LLM 设置时，如果 API Key 输入框�
 - `html.search.fields`：搜索框补完字段，由离线或在线 HTML 解析写入。该字段是对象，包含 `checkboxes`、`selects`、`ranges`、`keyword`、`tags`；checkbox 按分组嵌套，例如分类写在 `checkboxes[].name="cat"` 组内，select/tag 带 `options`，range 带 `begin/end`，`tag_id` 带 `exclusive: true`。
 - `html.category`：分类配置。
 - `html.torrents.list.selector`：种子列表行 selector。
-- `html.torrents.fields`：种子列表字段提取规则。解析器会读取 `selector`、`attribute`/`attributes`、`filters`、`remove`、`after` 和 `split` 来提取 ID、标题、分类、链接、发布时间、体积、做种/下载/完成数与标签；未配置的字段会回退到 NexusPHP 默认结构。
+- `html.torrents.fields`：种子列表字段提取规则。解析器会读取 `selector`、`attribute`/`attributes`、`filters`、`remove`、`after` 和 `split` 来提取 ID、标题、分类、链接、副标题、发布时间、体积、做种/下载/完成数与标签；未配置的字段会回退到 NexusPHP 默认结构。
 
 内置通用 NexusPHP 搜索框规则会安装到 `sites/html/common/nexusphp_search.json`。该文件只描述如何从 HTML 识别 checkbox、select、range、keyword 和 `tag_id`，不是站点定义，加载站点时会忽略子目录。
 
-字段过滤器当前支持 `re_search`、`replace`、`querystring` 和 `dateparse`。标签类字段可以用 `after` 指定从某个节点之后读取文本，用 `remove` 排除促销、进度条等子节点，再用 `split: "whitespace"` 按空白拆分为多个 tag。
+字段过滤器当前支持 `re_search`、`replace`、`querystring` 和 `dateparse`。KamePT 这类列表页中，`tags` 可由副标题文本通过 `after`、`remove`、`split: "whitespace"` 拆出，并用 `max_length` 限制单个 tag 长度；官方彩色 `span` 标签应写入 `tag_ids`，避免和副标题拆词混用。
 
 HTML 解析测试使用同一新格式 fixture：`tests/fixtures/site_parse_config.json`。
 

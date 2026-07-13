@@ -578,7 +578,7 @@
           ],
           "selector": "a[href*=\"details.php?id=\"]"
         },
-        "labels": {
+        "tag_ids": {
           "selector": "td.embedded \u003e span[style*=\"background-color\"]"
         },
         "leechers": {
@@ -593,8 +593,21 @@
         "snatches": {
           "selector": "td:nth-child(8)"
         },
+        "subtitle": {
+          "after": "br",
+          "remove": [
+            "a",
+            "img",
+            "font",
+            "span",
+            "div"
+          ],
+          "selector": "table.torrentname td.embedded:nth-child(2)",
+          "optional": true
+        },
         "tags": {
           "after": "br",
+          "max_length": 32,
           "remove": [
             "a",
             "img",

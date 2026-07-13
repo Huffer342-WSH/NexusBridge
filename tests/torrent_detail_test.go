@@ -16,7 +16,44 @@ import (
 	"nexusbridge/internal/storage"
 )
 
-func TestTorrentDetail(t *testing.T) {
+func TestParseTorrentDetailFromFixtureHTML(t *testing.T) {
+	body := []byte(`<!doctype html>
+<html>
+<head><title>Fixture Detail :: Test Site</title></head>
+<body>
+<h1>Fixture Detail Title</h1>
+<table>
+  <tr><td class="rowhead">副标题</td><td class="rowfollow">Fixture subtitle</td></tr>
+  <tr><td class="rowhead">商品链接</td><td class="rowfollow"><a href="https://example.com/product/RJ000001">Product</a></td></tr>
+  <tr><td class="rowhead">Hash码</td><td class="rowfollow">0123456789abcdef0123456789abcdef01234567</td></tr>
+  <tr><td class="rowhead">简介</td><td class="rowfollow"><div id="kdescr">Fixture detail description</div></td></tr>
+</table>
+</body>
+</html>`)
+	detail, err := parser.ParseTorrentDetail(body, parser.TorrentDetailParseOptions{
+		SiteID:    "test-site",
+		TorrentID: "43042",
+		BaseURL:   "https://example.invalid",
+		URL:       "/details.php?id=43042",
+	})
+	if err != nil {
+		t.Fatalf("parse fixture detail: %v", err)
+	}
+	if detail.DetailTitle != "Fixture Detail Title" || detail.Subtitle != "Fixture subtitle" {
+		t.Fatalf("expected detail title and subtitle: %#v", detail)
+	}
+	if detail.ProductURL != "https://example.com/product/RJ000001" {
+		t.Fatalf("expected product url: %#v", detail)
+	}
+	if detail.InfoHash != "0123456789abcdef0123456789abcdef01234567" {
+		t.Fatalf("expected detail info hash: %#v", detail)
+	}
+	if detail.DetailDescription != "Fixture detail description" {
+		t.Fatalf("expected detail description: %#v", detail)
+	}
+}
+
+func TestParseTorrentDetailFromFetchedHTML(t *testing.T) {
 	settings := loadTestSettings(t)
 	definition := loadSiteDefinition(t, settings)
 
@@ -54,6 +91,7 @@ func TestTorrentDetail(t *testing.T) {
 	}
 	assertTorrents(t, parsed.Torrents)
 	first := parsed.Torrents[0]
+	logJSON(t, "first parsed torrent before detail", first)
 	record := storage.TorrentRecord{
 		SiteID:      first.SiteID,
 		TorrentID:   strconv.Itoa(first.ID),
@@ -63,6 +101,8 @@ func TestTorrentDetail(t *testing.T) {
 		DownloadURL: first.DownloadURL,
 		CoverURL:    first.CoverURL,
 		Tags:        first.Tags,
+		TagIDs:      first.TagIDs,
+		Subtitle:    first.Subtitle,
 		Description: first.Description,
 		Seeders:     first.Seeders,
 		Leechers:    first.Leechers,
@@ -102,8 +142,21 @@ func TestTorrentDetail(t *testing.T) {
 	if torrent.Subtitle == "" && torrent.DetailDescription == "" {
 		t.Fatalf("expected subtitle or detail description from real detail page, got %#v", torrent)
 	}
-	t.Logf("fetched detail for %s/%s: title=%q subtitle=%q description_len=%d raw_len=%d",
-		torrent.SiteID, torrent.ID, torrent.DetailTitle, torrent.Subtitle, len(torrent.DetailDescription), len(torrent.DetailRawText))
+	if torrent.ProductURL == "" || torrent.DetailInfoHash == "" {
+		t.Fatalf("expected product url and detail info hash from real detail page, got %#v", torrent)
+	}
+	logJSON(t, "torrent after detail fetch", torrent)
+	t.Logf("fetched detail for %s/%s: title=%q subtitle=%q product_url=%q detail_info_hash=%q description_len=%d raw_len=%d",
+		torrent.SiteID, torrent.ID, torrent.DetailTitle, torrent.Subtitle, torrent.ProductURL, torrent.DetailInfoHash, len(torrent.DetailDescription), len(torrent.DetailRawText))
+}
+
+func logJSON(t *testing.T, label string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal %s: %v", label, err)
+	}
+	t.Logf("%s:\n%s", label, data)
 }
 
 func writeSiteDefinition(t *testing.T, dir string, definition parser.SiteDefinition) {

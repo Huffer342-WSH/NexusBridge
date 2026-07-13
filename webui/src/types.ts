@@ -36,7 +36,15 @@ export type Torrent = {
   download_url?: string;
   cover_url?: string;
   tags?: string[];
+  tag_ids?: string[];
   description?: string;
+  detail_title?: string;
+  subtitle?: string;
+  product_url?: string;
+  detail_info_hash?: string;
+  detail_description?: string;
+  detail_raw_text?: string;
+  detail_fetched_at?: string;
   promotion?: string;
   promotion_ends_at?: string;
   size_bytes?: number;

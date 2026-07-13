@@ -579,11 +579,19 @@ components:
           type: array
           items:
             type: string
+        tag_ids:
+          type: array
+          items:
+            type: string
         description:
           type: string
         detail_title:
           type: string
         subtitle:
+          type: string
+        product_url:
+          type: string
+        detail_info_hash:
           type: string
         detail_description:
           type: string

@@ -31,6 +31,8 @@ type TorrentDetail struct {
 	DetailURL         string `json:"detail_url"`
 	DetailTitle       string `json:"detail_title"`
 	Subtitle          string `json:"subtitle"`
+	ProductURL        string `json:"product_url"`
+	InfoHash          string `json:"info_hash"`
 	DetailDescription string `json:"detail_description"`
 	DetailRawText     string `json:"detail_raw_text"`
 }
@@ -222,10 +224,12 @@ type TorrentEntry struct {
 	DownloadURL        string   `json:"download_url"`
 	CoverURL           string   `json:"cover_url"`
 	Tags               []string `json:"tags"`
+	TagIDs             []string `json:"tag_ids"`
 	Promotion          string   `json:"promotion"`
 	PromotionClass     string   `json:"promotion_class"`
 	PromotionEndsAt    string   `json:"promotion_ends_at"`
 	PromotionRemaining string   `json:"promotion_remaining"`
+	Subtitle           string   `json:"subtitle"`
 	Description        string   `json:"description"`
 	SizeText           string   `json:"size_text"`
 	SizeBytes          int64    `json:"size_bytes"`

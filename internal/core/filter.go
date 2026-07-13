@@ -18,7 +18,7 @@ func MatchRule(rule Rule, torrent Torrent) RuleMatch {
 	if len(rule.Tags) > 0 {
 		matched := false
 		for _, tag := range rule.Tags {
-			if containsFold(torrent.Tags, tag) {
+			if containsFold(torrent.Tags, tag) || containsFold(torrent.TagIDs, tag) {
 				matched = true
 				break
 			}
@@ -27,7 +27,7 @@ func MatchRule(rule Rule, torrent Torrent) RuleMatch {
 			return RuleMatch{Rule: rule, Torrent: torrent, Matched: false, Reason: "tag not included"}
 		}
 	}
-	title := strings.ToLower(torrent.Title + " " + torrent.Description)
+	title := strings.ToLower(torrent.Title + " " + torrent.Subtitle + " " + torrent.Description + " " + torrent.DetailDescription)
 	if rule.Include != "" && !strings.Contains(title, strings.ToLower(rule.Include)) {
 		return RuleMatch{Rule: rule, Torrent: torrent, Matched: false, Reason: fmt.Sprintf("include %q not matched", rule.Include)}
 	}

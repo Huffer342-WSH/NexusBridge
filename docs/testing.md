@@ -24,14 +24,17 @@ go test ./tests -run TestParseSearchConfigFromFetchedHTML -v
 
 说明：
 
-- `TestParseTorrentsFromFixtureHTML` 使用本地 HTML 和站点 JSON 验证种子列表解析，不访问网络。
+- `TestParseTorrentsFromFixtureHTML` 使用本地 HTML 和站点 JSON 验证种子列表解析，不访问网络，并在日志中打印结构体 JSON。
+- `TestParseTorrentsFromSavedKamePTHTML` 使用 `data/tests/torrents_page.html` 和内置 KamePT JSON 验证完整保存页；文件不存在时跳过。
 - `TestParseTorrentsFromFetchedHTML` 是在线版本，从真实页面解析当前页种子并在日志中打印结构体 JSON。
 - 种子字段规则来自站点 JSON 的 `html.torrents.fields`；未配置字段会回退到 NexusPHP 默认结构。
+- 列表页 `<br>` 后的文本归入 `subtitle`，并按空白拆分为 `tags`；彩色 `span` 归入 `tag_ids`；`description` 留给详情页简介。subtitle 拆出来的 tag 会按站点 JSON 的长度上限过滤，避免整段文本误入 tags。
 
 指令：
 
 ```sh
 go test ./tests -run TestParseTorrentsFromFixtureHTML -v
+go test ./tests -run TestParseTorrentsFromSavedKamePTHTML -v
 go test ./tests -run TestParseTorrentsFromFetchedHTML -v
 ```
 
@@ -39,15 +42,12 @@ go test ./tests -run TestParseTorrentsFromFetchedHTML -v
 
 说明：
 
-- `TestParseTorrentDetailAllowsMissingOptional` 验证详情页缺少可选字段时仍能解析基础标题。
-- `TestFakeTorrentDetailFetchAndPersist` 使用 fake 站点验证详情页抓取、cookie/user-agent、解析和 SQLite 持久化。
-- `TestTorrentDetail` 是真实站点详情页测试，先抓取列表页第一条种子，再抓取并持久化详情字段。
+- `TestParseTorrentDetailFromFetchedHTML` 是真实站点详情页测试，先打印列表页第一条种子的解析结果，再抓取、持久化并打印详情补充后的结果。
 
 指令：
 
 ```sh
-go test ./tests -run "TestParseTorrentDetail|TestFakeTorrentDetail" -v
-go test ./tests -run TestTorrentDetail -v
+go test ./tests -run TestParseTorrentDetailFromFetchedHTML -v
 ```
 
 ### 解析 torrent 文件

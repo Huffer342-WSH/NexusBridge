@@ -102,11 +102,21 @@
         "snatches": {
           "selector": "td:nth-child(8)"
         },
+        "subtitle": {
+          "selector": "table.torrentname td.embedded:nth-child(2)",
+          "after": "br",
+          "remove": ["a", "img", "font", "span", "div"],
+          "optional": true
+        },
         "tags": {
           "selector": "table.torrentname td.embedded:nth-child(2)",
           "after": "br",
           "remove": ["a", "img", "font", "span", "div"],
-          "split": "whitespace"
+          "split": "whitespace",
+          "max_length": 32
+        },
+        "tag_ids": {
+          "selector": "table.torrentname td.embedded:nth-child(2) > span[style*=\"background-color\"]"
         }
       }
     }

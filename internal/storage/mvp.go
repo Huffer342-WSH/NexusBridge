@@ -28,6 +28,7 @@ type TorrentRecord struct {
 	DownloadURL        string
 	CoverURL           string
 	Tags               []string
+	TagIDs             []string
 	Promotion          string
 	PromotionClass     string
 	PromotionEndsAt    string
@@ -35,6 +36,8 @@ type TorrentRecord struct {
 	Description        string
 	DetailTitle        string
 	Subtitle           string
+	ProductURL         string
+	DetailInfoHash     string
 	DetailDescription  string
 	DetailRawText      string
 	DetailFetchedAt    string
@@ -158,7 +161,7 @@ func (s *SQLiteStore) UpsertTorrents(ctx context.Context, records []TorrentRecor
 		}
 		existingSig := ""
 		err := tx.QueryRowContext(ctx, `
-SELECT title || '|' || category || '|' || download_url || '|' || tags_json || '|' || promotion || '|' ||
+SELECT title || '|' || category || '|' || download_url || '|' || tags_json || '|' || tag_ids_json || '|' || promotion || '|' || subtitle || '|' ||
        size_bytes || '|' || seeders || '|' || leechers || '|' || snatches
 FROM torrents WHERE site_id = ? AND torrent_id = ?
 `, record.SiteID, record.TorrentID).Scan(&existingSig)
@@ -170,12 +173,18 @@ FROM torrents WHERE site_id = ? AND torrent_id = ?
 		if err != nil {
 			return result, err
 		}
+		tagIDsJSON, err := json.Marshal(record.TagIDs)
+		if err != nil {
+			return result, err
+		}
 		newSig := strings.Join([]string{
 			record.Title,
 			record.Category,
 			record.DownloadURL,
 			string(tagsJSON),
+			string(tagIDsJSON),
 			record.Promotion,
+			record.Subtitle,
 			strconv.FormatInt(record.SizeBytes, 10),
 			strconv.Itoa(record.Seeders),
 			strconv.Itoa(record.Leechers),
@@ -188,10 +197,10 @@ FROM torrents WHERE site_id = ? AND torrent_id = ?
 		_, err = tx.ExecContext(ctx, `
 INSERT INTO torrents (
 	site_id, torrent_id, title, category, category_query, detail_url, download_url, cover_url,
-	tags_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
-	size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
+	tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
+	subtitle, size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
 	sticky_level, bookmarked, first_seen_at, last_seen_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	title = excluded.title,
 	category = excluded.category,
@@ -200,11 +209,13 @@ ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	download_url = excluded.download_url,
 	cover_url = excluded.cover_url,
 	tags_json = excluded.tags_json,
+	tag_ids_json = excluded.tag_ids_json,
 	promotion = excluded.promotion,
 	promotion_class = excluded.promotion_class,
 	promotion_ends_at = excluded.promotion_ends_at,
 	promotion_remaining = excluded.promotion_remaining,
 	description = excluded.description,
+	subtitle = COALESCE(NULLIF(excluded.subtitle, ''), subtitle),
 	size_text = excluded.size_text,
 	size_bytes = excluded.size_bytes,
 	seeders = excluded.seeders,
@@ -218,8 +229,8 @@ ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	last_seen_at = CURRENT_TIMESTAMP,
 	updated_at = CURRENT_TIMESTAMP
 `, record.SiteID, record.TorrentID, record.Title, record.Category, record.CategoryQuery, record.DetailURL, record.DownloadURL,
-			record.CoverURL, string(tagsJSON), record.Promotion, record.PromotionClass, record.PromotionEndsAt,
-			record.PromotionRemaining, record.Description, record.SizeText, record.SizeBytes, record.Seeders,
+			record.CoverURL, string(tagsJSON), string(tagIDsJSON), record.Promotion, record.PromotionClass, record.PromotionEndsAt,
+			record.PromotionRemaining, record.Description, record.Subtitle, record.SizeText, record.SizeBytes, record.Seeders,
 			record.Leechers, record.Snatches, record.Comments, record.PublishedAt, record.PublishedText,
 			record.StickyLevel, boolInt(record.Bookmarked))
 		if err != nil {
@@ -248,8 +259,8 @@ func (s *SQLiteStore) ListTorrents(ctx context.Context, query TorrentListQuery) 
 	args = append(args, limit, query.Offset)
 	rows, err := s.db.QueryContext(ctx, `
 SELECT site_id, torrent_id, title, category, category_query, detail_url, download_url, cover_url,
-       tags_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
-       detail_title, subtitle, detail_description, detail_raw_text, detail_fetched_at,
+       tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
+       detail_title, subtitle, product_url, detail_info_hash, detail_description, detail_raw_text, detail_fetched_at,
        size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
        sticky_level, bookmarked, first_seen_at, last_seen_at
 FROM torrents
@@ -265,19 +276,20 @@ LIMIT ? OFFSET ?
 	records := []TorrentRecord{}
 	for rows.Next() {
 		var record TorrentRecord
-		var tagsJSON string
+		var tagsJSON, tagIDsJSON string
 		var bookmarked int
 		var firstSeen, lastSeen string
 		if err := rows.Scan(&record.SiteID, &record.TorrentID, &record.Title, &record.Category, &record.CategoryQuery,
-			&record.DetailURL, &record.DownloadURL, &record.CoverURL, &tagsJSON, &record.Promotion,
+			&record.DetailURL, &record.DownloadURL, &record.CoverURL, &tagsJSON, &tagIDsJSON, &record.Promotion,
 			&record.PromotionClass, &record.PromotionEndsAt, &record.PromotionRemaining, &record.Description,
-			&record.DetailTitle, &record.Subtitle, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
+			&record.DetailTitle, &record.Subtitle, &record.ProductURL, &record.DetailInfoHash, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
 			&record.SizeText, &record.SizeBytes, &record.Seeders, &record.Leechers, &record.Snatches,
 			&record.Comments, &record.PublishedAt, &record.PublishedText, &record.StickyLevel, &bookmarked,
 			&firstSeen, &lastSeen); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(tagsJSON), &record.Tags)
+		_ = json.Unmarshal([]byte(tagIDsJSON), &record.TagIDs)
 		record.Bookmarked = bookmarked != 0
 		record.FirstSeenAt = parseDBTime(firstSeen)
 		record.LastSeenAt = parseDBTime(lastSeen)
@@ -289,21 +301,21 @@ LIMIT ? OFFSET ?
 // GetTorrent 按站点和种子 ID 读取单条种子。
 func (s *SQLiteStore) GetTorrent(ctx context.Context, siteID, torrentID string) (TorrentRecord, bool, error) {
 	var record TorrentRecord
-	var tagsJSON string
+	var tagsJSON, tagIDsJSON string
 	var bookmarked int
 	var firstSeen, lastSeen string
 	err := s.db.QueryRowContext(ctx, `
 SELECT site_id, torrent_id, title, category, category_query, detail_url, download_url, cover_url,
-       tags_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
-       detail_title, subtitle, detail_description, detail_raw_text, detail_fetched_at,
+       tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
+       detail_title, subtitle, product_url, detail_info_hash, detail_description, detail_raw_text, detail_fetched_at,
        size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
        sticky_level, bookmarked, first_seen_at, last_seen_at
 FROM torrents
 WHERE site_id = ? AND torrent_id = ?
 	`, siteID, torrentID).Scan(&record.SiteID, &record.TorrentID, &record.Title, &record.Category, &record.CategoryQuery,
-		&record.DetailURL, &record.DownloadURL, &record.CoverURL, &tagsJSON, &record.Promotion,
+		&record.DetailURL, &record.DownloadURL, &record.CoverURL, &tagsJSON, &tagIDsJSON, &record.Promotion,
 		&record.PromotionClass, &record.PromotionEndsAt, &record.PromotionRemaining, &record.Description,
-		&record.DetailTitle, &record.Subtitle, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
+		&record.DetailTitle, &record.Subtitle, &record.ProductURL, &record.DetailInfoHash, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
 		&record.SizeText, &record.SizeBytes, &record.Seeders, &record.Leechers, &record.Snatches,
 		&record.Comments, &record.PublishedAt, &record.PublishedText, &record.StickyLevel, &bookmarked,
 		&firstSeen, &lastSeen)
@@ -314,6 +326,7 @@ WHERE site_id = ? AND torrent_id = ?
 		return TorrentRecord{}, false, err
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &record.Tags)
+	_ = json.Unmarshal([]byte(tagIDsJSON), &record.TagIDs)
 	record.Bookmarked = bookmarked != 0
 	record.FirstSeenAt = parseDBTime(firstSeen)
 	record.LastSeenAt = parseDBTime(lastSeen)
@@ -324,9 +337,9 @@ WHERE site_id = ? AND torrent_id = ?
 func (s *SQLiteStore) UpdateTorrentDetail(ctx context.Context, record TorrentRecord) error {
 	_, err := s.db.ExecContext(ctx, `
 UPDATE torrents
-SET detail_title = ?, subtitle = ?, detail_description = ?, detail_raw_text = ?, detail_fetched_at = ?, updated_at = CURRENT_TIMESTAMP
+SET detail_title = ?, subtitle = ?, product_url = ?, detail_info_hash = ?, detail_description = ?, detail_raw_text = ?, detail_fetched_at = ?, updated_at = CURRENT_TIMESTAMP
 WHERE site_id = ? AND torrent_id = ?
-`, record.DetailTitle, record.Subtitle, record.DetailDescription, record.DetailRawText, record.DetailFetchedAt,
+`, record.DetailTitle, record.Subtitle, record.ProductURL, record.DetailInfoHash, record.DetailDescription, record.DetailRawText, record.DetailFetchedAt,
 		record.SiteID, record.TorrentID)
 	return err
 }
