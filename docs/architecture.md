@@ -1,65 +1,136 @@
-# 架构说明
+# 架构与文件导航
 
-NexusBridge 以共享 Go 服务为核心，CLI、HTTP、WebUI 和桌面端都是薄适配层。
+本文只说明源码职责和模块依赖。业务流程按需查看[站点](modules/site.md)、[订阅](modules/subscriptions.md)和[任务恢复](modules/recovery.md)。API、配置和测试分别见 `api.md`、`config.md`、`testing.md`。
 
-## 后端
+```mermaid
+flowchart LR
+    UI[WebUI / CLI / Desktop] --> Server[server / desktop adapter]
+    Server --> Core[core services]
+    Core --> Storage[(SQLite storage)]
+    Core --> Site[request policy / fetcher / parser]
+    Core --> QB[qBittorrent client]
+    Core --> LLM[LLM / organizer]
+```
 
-- `cmd/nexusbridge` 是 CLI 入口。
-- `desktop` 是 Wails v3 桌面入口，只组装窗口、托盘与嵌入资源。
-- `internal/cli` 负责 Cobra 命令和进程级行为。
-- `internal/config` 负责加载和校验 JSON 配置。
-- `internal/runtimeconfig` 统一解析开发/测试数据目录、正式版用户目录、可执行文件旁引导配置和配置内相对路径。
-- `internal/builtin` 嵌入首装站点定义；`webui/assets_production.go` 仅在正式构建中嵌入 WebUI，`assets_development.go` 让开发和测试不依赖 `dist`；`desktop/assets.go` 嵌入桌面图标。
-- `internal/core` 放领域模型、服务接口和 MVP 应用服务。`FilterRule` 只负责数据库种子筛选与排序，`Subscription` 引用规则并保存站点、优先级、qB 下载计划和配额；torrent 文件补齐、下载计划、订阅调度、qB 分类标签、hash 同步、文件浏览和保留目录恢复分别放在独立文件中，避免把下载器编排继续堆叠在 `app.go`。
-- `internal/requestpolicy` 负责严格域名后缀匹配、Cookie 白名单选择和缺失项描述；`internal/core/site_requests.go` 统一加载站点凭据并编排搜索页、详情、torrent 文件和封面请求。
-- `internal/fetcher` 只负责构造和执行 HTTP 请求；动态 Cookie 策略会在初始请求及每次重定向前重新解析，且日志不输出 Cookie 值。
-- `internal/parser` 负责加载新格式站点定义、按 NexusPHP 通用搜索框规则补完 `html.search.fields`，并按 `html.torrents.fields` 字段规则解析 NexusPHP `torrents.php` 和详情页 HTML；该包不依赖 HTTP、SQLite、CLI 或 WebUI。
-- 站点定义正式来源是 `sites_dir` 目录，格式统一为 `id/name/domain/html` 顶层结构，不再支持旧 `site_config/selectors/search_config` 站点 JSON。
-- `internal/qbittorrent` 分层封装 qBittorrent：`client.go` 负责连接、认证和通用 HTTP 请求，`torrents.go` 对应原生 torrent/category/tag WebAPI，`sync.go` 封装 `sync/maindata` 增量协议，`transfer.go` 负责 metainfo 原始名称、文件结构、v1/v2 hash 与添加协调。core 的增量同步只合并列表变化，全量同步继续负责 properties、完成检测和整理任务。
-- `internal/llm` 封装 OpenAI-compatible Chat Completions 调用，用于下载前标题整理、cosplay 视频信息提取和下载完成后的媒体库路径建议。
-- `internal/organizer` 校验 LLM 输出的相对路径，并执行 dry-run 或硬链接。
-- `internal/server` 暴露本地 HTTP API、RSS 端点，并支持嵌入 WebUI 或开发期静态目录。
-- `internal/desktop` 负责共享 core/server 生命周期与 Wails HTTP 适配；数据目录策略由 `internal/runtimeconfig` 提供，不重复实现业务接口。
-- `internal/storage` 负责 SQLite 连接、cookie、种子列表、torrent BLOB/hash/原始名称、qB 分类标签和任务状态快照、筛选规则、订阅、站点计划、独占候选、运行记录、下载任务、整理任务和应用设置。SQLite 固定使用 WAL，并通过 modernc DSN 为连接池中的每条连接设置锁等待超时；连接池有界，正常短写事务只会让并发写入等待，调度读取不会被阻塞。规则以名称作为大小写不敏感的自然键；本次模型调整采用全库重建，不承载旧规则表兼容。`torrent_files` 与各类 qB 快照独立于列表元数据，普通列表查询不会读取 BLOB。
+依赖只朝图中箭头方向扩展：适配层不复制 core 业务流程，parser 不依赖网络、数据库或 UI。
 
-核心服务不能依赖 CLI、WebUI 或桌面端代码。
+## 入口、运行与构建
 
-## 订阅闭环
+| 文件 | 职责 |
+| --- | --- |
+| `cmd/nexusbridge/main.go` | WebUI/CLI 服务版进程入口。 |
+| `internal/cli/root.go` | Cobra 命令、参数和进程生命周期。 |
+| `internal/server/server.go` | HTTP 路由、JSON 适配和静态 WebUI 服务。 |
+| `desktop/main.go` | Wails 窗口、托盘和单实例入口。 |
+| `desktop/assets.go` | 嵌入桌面图标资源。 |
+| `internal/desktop/runtime.go` | 共享 core/server 生命周期与 Wails HTTP 中间件。 |
+| `internal/runtimeconfig/runtime.go` | 数据目录、配置文件和内置站点准备。 |
+| `internal/runtimeconfig/mode_development.go` | 开发构建模式标记。 |
+| `internal/runtimeconfig/mode_production.go` | 正式构建模式标记。 |
+| `webui/assets_development.go` | 开发时读取本地 dist 或返回提示页。 |
+| `webui/assets_production.go` | 正式构建时嵌入 WebUI dist。 |
+| `go.mod`、`go.sum` | Go 模块声明和依赖锁定。 |
+| `Taskfile.yml` | WebUI/CLI 与桌面构建任务入口。 |
+| `desktop/tasks/common.yml` | Wails 共用前端构建任务。 |
+| `desktop/tasks/linux.yml` | Linux 桌面构建与打包任务。 |
+| `desktop/tasks/windows.yml` | Windows 桌面构建与打包任务。 |
+| `desktop/resources/wails.yml` | Wails 应用元数据和开发配置。 |
+| `desktop/resources/windows/info.json` | Windows 可执行文件版本资源。 |
+| `desktop/resources/windows/wails.exe.manifest` | Windows 可执行文件 manifest。 |
+| `desktop/resources/windows/nsis/project.nsi` | NSIS 安装器入口。 |
+| `desktop/resources/windows/nsis/wails_tools.nsh` | NSIS 共用辅助函数。 |
+| `desktop/resources/appicon.png`、`windows/icon.ico` | 桌面应用图标。 |
+| `.github/workflows/build-release.yml` | 多平台构建编排。 |
+| `.github/workflows/publish-release.yml` | 构建产物发布为 GitHub Release。 |
+| `scripts/ci/build-release-linux.sh` | Linux 发布包构建脚本。 |
+| `scripts/ci/build-release-windows.ps1` | Windows 发布包构建脚本。 |
+| `scripts/ci/run-act.ps1` | Windows 本地 act 入口。 |
+| `scripts/ci/act-runner.Dockerfile` | act 使用的 Linux ARM64 runner 镜像。 |
 
-常驻 WebUI/CLI 服务版和桌面版显式启动最小站点调度器；`fetch`、`run-once` 等 CLI 单次命令不会启动常驻后台任务。站点计划相互独立且默认关闭，同站点使用防重入控制。每次到期执行按以下边界推进：
+## Core 业务层
 
-1. 抓取一次站点，按页面顺序 upsert；`inserted` 记录与 `subscription_ingest_queue` 在同一事务写入，只有完成首次订阅匹配后才确认删除队列记录，进程中断不会丢失新种子。
-2. 下载并解析缺失的 torrent BLOB、hash 和原始 `info.name`。
-3. 按 `priority DESC, id ASC` 评估该站点已启用订阅；首个命中的订阅写入唯一候选，后续订阅不再评估所有权。
-4. 合并该订阅此前因配额或 qB 前置条件不足而保留的 `unread` 候选，按规则排序处理。
-5. 原子领取下载任务，保存最终计划和运行统计；context 取消时停止后续处理。
+| 文件 | 职责 |
+| --- | --- |
+| `internal/core/app.go` | 组装共享应用服务、站点目录和通用业务入口。 |
+| `internal/core/models.go` | 跨适配层使用的领域模型。 |
+| `internal/core/services.go` | core 对外服务接口。 |
+| `internal/core/memory.go` | 无持久化场景使用的内存目录实现。 |
+| `internal/core/filter.go` | 筛选规则匹配、排序和拒绝原因。 |
+| `internal/core/title_expression.go` | 标题布尔表达式解析与匹配。 |
+| `internal/core/rule_options.go` | 从本地数据生成规则可选项。 |
+| `internal/core/download_plan.go` | 渲染 qB 保存路径、分类、标签和名称计划。 |
+| `internal/core/subscriptions.go` | 规则、订阅、候选和站点计划的管理与预览。 |
+| `internal/core/subscription_execution.go` | 执行订阅候选领取、配额判断和发送。 |
+| `internal/core/batch_download.go` | 手动批量下载的预览与执行。 |
+| `internal/core/scheduler.go` | 站点计划调度、防重入和取消。 |
+| `internal/core/torrent_files.go` | 下载、解析并持久化 torrent 文件。 |
+| `internal/core/site_requests.go` | 统一站点凭据、Cookie 策略和 HTTP 请求入口。 |
+| `internal/core/covers.go` | 受站点凭据保护的封面代理。 |
+| `internal/core/qb.go` | qB 配置、客户端缓存、发送和兼容状态查询。 |
+| `internal/core/qb_catalog.go` | qB 分类与标签缓存管理。 |
+| `internal/core/qb_sync.go` | qB 全量同步与完成任务处理。 |
+| `internal/core/qb_poll.go` | qB 增量同步并更新本地快照。 |
+| `internal/core/file_manager.go` | 文件浏览、qB 归属标记和恢复候选扫描。 |
+| `internal/core/recovery.go` | 恢复匹配、qB 路径映射、校验和启动。 |
+| `internal/core/recovery_batch.go` | 串行执行唯一恢复候选。 |
+| `internal/core/torrent_size_index.go` | 恢复用文件大小索引状态与重建。 |
 
-候选所有权、下载任务幂等键和进程内 v1 hash 锁分别阻止低优先级回退、同规则重放及不同入口同时添加相同 hash。订阅改换规则/站点或被删除时，未完成候选会在 SQLite 事务内重新写入 ingest 队列，再按当前优先级重新匹配；启动时会恢复中断的候选与任务领取。所有已保存规则都可被订阅引用；规则改名在事务内级联订阅、候选和下载任务引用。草稿规则预览完全在 SQLite 上计算，不进入闭环。站点 `/fetch` 始终只抓取，站点和订阅 `/run-once` 才执行订阅。保留目录恢复同样由 core 编排，支持数据库、站点网页、数据库优先和直接 URL 四种候选来源；URL 私站识别复用 `request_rules` 与统一 Cookie 请求入口。四种来源最终都比较完整文件大小多重集合；SQLite `torrent_file_size_index` 以 `(file_size, site_id, torrent_id)` 倒排到候选并用出现次数、文件总数和总大小确认集合相等，避免逐次解析全部 BLOB。站点搜索先用展示总大小的容差减少 torrent 文件下载，最终判断不使用展示值。旧 BLOB 只在用户手动重建时补齐，之后 torrent BLOB 的保存、覆盖和删除在同一事务中维护索引；手动重建基于原 BLOB 乐观更新，避免覆盖并发保存的新索引。恢复状态机按“最终目录暂停且跳过初始校验添加、只在 qB 中用 `renameFile` 映射现有磁盘结构、设置分类、重试触发强制校验、确认暂停且完整、开始做种”执行；校验失败保留唯一暂停任务，后续操作只控制或删除该 hash，不重新添加。当前不做 piece SHA1 预校验。文件管理器以 `save_path` 到 `content_path` 的第一段作为唯一内容根，并标记其全部后代；递归扫描复用同一边界且保持只读。
+## 基础设施
 
-下载计划是纯确定性渲染：只使用缓存的站点/种子/规则/订阅字段，不调用 LLM。显式 save path 会让 qB add 使用 `autoTMM=false`；未配置路径时只提交 category。qB 分类以 `PT/ASMR` 这类完整字符串保存与发送，`/` 拆分仅用于 WebUI 展示。分类必须事先存在，计划标签可在发送前创建。纯 v2 torrent 仍因缺少当前精确协调路径而明确失败。
+| 文件 | 职责 |
+| --- | --- |
+| `internal/config/config.go` | JSON 配置结构、默认值和校验。 |
+| `internal/logging/logging.go` | 终端与文件日志初始化。 |
+| `internal/builtin/assets.go` | 嵌入内置站点定义。 |
+| `internal/builtin/sites/kamept.json` | 内置 KamePT 站点定义。 |
+| `internal/builtin/sites/common/nexusphp_search.json` | 内置 NexusPHP 搜索表单解析规则。 |
+| `internal/requestpolicy/policy.go` | 域名规则和 Cookie 白名单决策。 |
+| `internal/fetcher/fetcher.go` | HTTP 请求、重定向和 curl 输入解析。 |
+| `internal/parser/definitions.go` | 站点定义加载与规范化。 |
+| `internal/parser/parser.go` | 搜索表单、列表页和详情页 HTML 解析。 |
+| `internal/parser/types.go` | 站点定义与解析结果类型。 |
+| `internal/qbittorrent/client.go` | qB 连接、认证和基础 HTTP 请求。 |
+| `internal/qbittorrent/torrents.go` | torrent、分类、标签和文件重命名 API。 |
+| `internal/qbittorrent/sync.go` | qB `sync/maindata` 协议。 |
+| `internal/qbittorrent/transfer.go` | torrent 元数据、hash 和添加结果校验。 |
+| `internal/storage/sqlite.go` | SQLite 连接、迁移、WAL 和连接池。 |
+| `internal/storage/mvp.go` | 种子、规则、下载任务、整理任务和通用设置。 |
+| `internal/storage/subscriptions.go` | 订阅、候选、运行记录和站点计划。 |
+| `internal/storage/torrent_files.go` | torrent BLOB、hash 和文件大小索引。 |
+| `internal/storage/qb_snapshots.go` | qB 任务状态快照。 |
+| `internal/storage/qb_config.go` | qB 分类、标签及同步状态缓存。 |
+| `internal/storage/cookies.go` | 站点作用域 Cookie。 |
+| `internal/storage/credentials.go` | 站点凭据元数据与 Cookie 状态。 |
+| `internal/llm/client.go` | OpenAI-compatible Chat Completions 客户端。 |
+| `internal/organizer/organizer.go` | 校验整理建议并创建媒体硬链接。 |
 
-## 前端
+## WebUI
 
-`webui/` 是 Vue/Vite/TypeScript 前端，使用 Naive UI 作为组件库。浏览器 WebUI 和 Wails 桌面端共用这一套前端代码。
-
-组件通过 `src/api.ts` 和主服务通信，避免在多个组件中散落 HTTP 调用。浏览器模式由 Go HTTP Server 提供这些路由，桌面模式由 Wails AssetServer Middleware 将相同路径直接交给同一个 Handler，因此组件不需要桌面专用传输。`src/utils/runtime.ts` 只隔离打开外部链接等桌面能力，并在 Wails 环境中按需加载 runtime，避免影响普通浏览器。WebUI 可以根据 `/api/session` 返回值展示登录界面；默认本地模式不要求登录。
-
-当前 WebUI 是应用壳结构：桌面端使用左侧导航，移动端使用五项底部导航。顶层页面分为媒体、文件、订阅、任务、设置；设置下再分站点、LLM、qBittorrent 三个子页面。文件页负责本机路径导航、qB 归属标记、右键恢复弹窗和只读丢失任务扫描；实际恢复仍必须逐项确认。订阅页集中管理筛选规则、数据库预览、订阅、站点周期、qB 分类/标签快照、未读候选和最近运行。规则区在宽屏使用规则列表、编辑器、自动草稿预览三栏布局；站点分类和两类标签来自本地种子集合，促销来自站点检索定义，预览仅使用本地 qB 快照/任务。qB 分类值按 `/` 生成展示树但提交完整原值。媒体页默认汇总所有站点缓存的种子，也可以在前端按 `site_id` 切换到单站点视图。展示偏好拆分到独立 composable 与浮动快捷设置组件；设置默认值、范围和步长由 composable 或 `src/config` 的只读元数据统一提供，组件不重复硬编码。通用显示格式放在 `src/utils`。qB 轮询 composable 根据连接、页面和可见性选择频率。卡片状态控件挂载在封面容器内部，以图片作为定位和裁剪边界，默认折叠为图标并在 hover/focus 时展开；列表模式使用右侧的独立控件，避免复用绝对定位。触屏设备始终展开。全局操作结果由悬浮消息展示。
-
-站点设置页提供每站点 cookie/user-agent 保存、抓取和 `run-once` 操作；检索完成后自动补齐缺失的 torrent BLOB/hash。站点定义的 `request_rules` 可按目标域后缀从当前站点 scope 中选择跨主机 Cookie，未命中规则时禁止跨域转发。媒体页通过显式同步按 hash 更新 qB 快照，展示状态、进度、分类、标签和路径，并提供快捷展示设置与 WebUI 入口。远程封面经统一请求入口获取，由 server 同源返回并限制为图片响应。手动下载仍先生成标题预览，再复用数据库 torrent 文件发送 qB。
-
-## 桌面端
-
-桌面端使用固定版本 Wails v3 `v3.0.0-alpha2.117`。入口位于 `desktop/main.go`，只负责创建窗口、托盘和嵌入 WebUI；`internal/desktop` 创建唯一的 `core.App`。Wails Middleware 仅拦截 `/api`、`/rss`，其余请求继续交给生产静态资源或开发期 Vite Handler，不开放本地端口。
-
-桌面应用使用 Wails 单实例锁。启动后由共享 core 使用桌面生命周期 context 运行站点调度器；关闭窗口时取消关闭事件并隐藏到托盘，后台计划继续运行。托盘“显示主窗口”负责恢复和聚焦，“完全退出”触发应用关闭并依次取消后台 context、停止调度、关闭 SQLite 和日志。桌面二进制固定命名为 `nexusbridge-desktop`，WebUI/CLI 服务二进制命名为 `nexusbridge-webui`。
-
-## 发布结构
-
-开发构建通过缺省 build tag 使用仓库 `data/`。发布构建使用 `production` tag，并优先读取可执行文件旁的 `nexusbridge.bootstrap.json`，否则使用系统用户配置目录。`.github/workflows/build-release.yml` 只负责编排构建，并调用 `scripts/ci/` 下的 Bash/PowerShell 脚本，为桌面版和 WebUI/CLI 服务版分别构建 Windows amd64、Linux amd64、Linux aarch64，共六个发布包；所有版本都嵌入 WebUI 和内置站点定义。调试时可通过 workflow 的 `target_job` 只运行单个平台构建。
-
-发布编排位于独立的可复用 workflow `.github/workflows/publish-release.yml`。推送 `v*` tag 会在全平台构建成功后发布正式版本；手动全量构建显式启用发布时，空 `release_tag` 会按 `Asia/Shanghai` 日期生成 `manual-YYYY.MM.DD.<run_number>` tag 并标记为 prerelease。发布 workflow 校验 tag 与构建 commit 一致、下载同一 workflow run 的 artifacts、通过 `changelogithub` 生成 `RELEASE_NOTES.md`，最后调用 GitHub CLI 创建 GitHub Release。单平台调试构建不进入发布流程。
-
-桌面入口、Wails Taskfile、平台资源和打包配置都位于 `desktop/`。仓库不使用根 `build/` 保存源码或配置，避免和临时构建产物混淆；实际产物统一写入被忽略的 `bin/` 和工作流临时 `dist/`。
-
-WebUI/CLI 服务版通过根 Taskfile 的 `build:webui` 任务统一构建。该任务先调用共享前端任务，再按 `GOOS`、`ARCH` 生成 `nexusbridge-webui`，GitHub Release 与本地构建使用同一入口。
+| 文件 | 职责 |
+| --- | --- |
+| `webui/src/main.ts` | Vue 应用启动。 |
+| `webui/src/App.vue` | 应用壳、导航、共享状态和全局操作。 |
+| `webui/src/api.ts` | 后端 HTTP 调用统一入口。 |
+| `webui/src/types.ts` | 前端共享 API 和领域类型。 |
+| `webui/src/style.css` | 全局布局和主题样式。 |
+| `webui/src/env.d.ts` | Vite 与 Vue 类型声明。 |
+| `webui/src/components/MediaView.vue` | 媒体列表、筛选和 qB 状态展示。 |
+| `webui/src/components/MediaQuickSettings.vue` | 媒体布局快捷设置。 |
+| `webui/src/components/TorrentStatusControl.vue` | 单任务下载、暂停和恢复控件。 |
+| `webui/src/components/FileManagerView.vue` | 文件浏览、恢复预览和批量恢复。 |
+| `webui/src/components/SubscriptionsView.vue` | 规则、订阅、计划和批量下载工作区。 |
+| `webui/src/components/TasksView.vue` | 下载与整理任务列表。 |
+| `webui/src/components/SettingsSites.vue` | 站点凭据和抓取操作。 |
+| `webui/src/components/SettingsQB.vue` | qB 连接与轮询设置。 |
+| `webui/src/components/SettingsLLM.vue` | LLM 连接设置。 |
+| `webui/src/composables/useMediaDisplaySettings.ts` | 本地持久化媒体显示偏好。 |
+| `webui/src/composables/useQBStatusPolling.ts` | 按连接和页面状态轮询 qB。 |
+| `webui/src/config/qbittorrent.ts` | qB 前端默认配置。 |
+| `webui/src/utils/format.ts` | 字节大小和速度格式化。 |
+| `webui/src/utils/runtime.ts` | 浏览器与 Wails 运行时差异。 |
+| `webui/index.html` | Vite HTML 入口。 |
+| `webui/package.json` | 前端依赖和命令。 |
+| `webui/pnpm-lock.yaml`、`pnpm-workspace.yaml` | pnpm 依赖锁与工作区定义。 |
+| `webui/tsconfig.json` | TypeScript 编译配置。 |
+| `webui/vite.config.ts` | Vite 开发服务和构建配置。 |
+| `webui/playwright.config.ts` | WebUI 端到端测试运行配置。 |

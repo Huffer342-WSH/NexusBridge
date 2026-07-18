@@ -291,5 +291,3 @@ docker run --rm --platform linux/arm64 ubuntu:24.04 uname -m
 - [HTTP API](docs/api.md)
 - [OpenAPI 定义](docs/api/openapi.yaml)
 - [测试说明](docs/testing.md)
-- [种子列表解析](docs/parse_torrents.md)
-- [搜索表单解析](docs/parse_search.md)
