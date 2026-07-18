@@ -35,6 +35,8 @@ NexusBridge 是一个面向 NexusPHP 站点和 qBittorrent 的跨平台管理工
 
 > 当前站点恢复会合并最多 5 个名称变体的第一页结果，并先按站点展示总大小的容差缩小 torrent 文件下载范围；多页检索与搜索记录持久化尚待完成。
 
+完整流程、分类路径继承和失败处理见 [qB 任务恢复文档](docs/modules/recovery.md)。版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 面向用户：安装与使用
 
 ### 选择版本

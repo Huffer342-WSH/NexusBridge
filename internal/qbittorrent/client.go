@@ -61,6 +61,30 @@ func (c *Client) Test(ctx context.Context) error {
 	return checkStatus(resp, "webapiVersion")
 }
 
+// GetDefaultSavePath 返回 qBittorrent 的全局默认保存目录。
+func (c *Client) GetDefaultSavePath(ctx context.Context) (string, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/api/v2/app/defaultSavePath", nil, "")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if err := checkStatus(resp, "app/defaultSavePath"); err != nil {
+		return "", err
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read qbittorrent app/defaultSavePath response: %w", err)
+	}
+	value := strings.TrimSpace(string(body))
+	if strings.HasPrefix(value, "\"") {
+		var decoded string
+		if err := json.Unmarshal(body, &decoded); err == nil {
+			value = strings.TrimSpace(decoded)
+		}
+	}
+	return value, nil
+}
+
 // Login 使用 qBittorrent 原生账号密码登录接口获取 SID cookie。
 func (c *Client) Login(ctx context.Context) error {
 	c.authMu.Lock()

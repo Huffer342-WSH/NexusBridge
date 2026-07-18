@@ -224,7 +224,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 接收 `{ "path": "D:/Downloads/example", "site_ids": ["kamept"], "search_mode": "database_then_site" }`。`site_ids` 可选；`search_mode` 支持仅数据库 `database`、仅站点网页 `site` 和数据库未命中再查站点 `database_then_site`，省略时使用最后一种。`path` 可以是 NexusBridge 可直接读取的完整数据目录或单个文件。三种检索来源以及直接 URL 最终都要求目标的完整文件大小多重集合与 torrent 一致，文件数量和重复大小次数也必须相同。数据库通过大小倒排索引只读取可能匹配的 BLOB；站点网页模式合并最多 5 个完整名称、去扩展名、括号标题和分词变体的第一页结果，站点展示总大小按 5%（最少 1 MiB）容差预筛 torrent 下载候选，最终仍以 torrent 内精确文件大小为准。
 
-也可传入 `{ "path": "D:/Downloads/example", "torrent_url": "https://tracker.example/download.php?id=123", "site_ids": ["kamept"] }`。URL 模式跳过数据库和搜索页；指定站点时 URL 必须命中该站主域名或 `request_rules`，未指定时自动从全部站点中选择最长匹配。私站 URL 复用统一站点请求入口和 Cookie 白名单策略；未匹配任何站点的 HTTP(S) URL 才使用无 Cookie 请求。路径和文件名只用于优先建立同尺寸文件映射；无名称线索时使用稳定的一一映射，最终由 qB 强制校验确认内容。响应中的 `match_method` 为 `size`，`mapping_complete=true` 表示全部 torrent 文件均已映射。`category` 来自显式覆盖，或 `save_path` 与 qB 分类保存目录的精确匹配。预览不调用 qB 写接口。
+也可传入 `{ "path": "D:/Downloads/example", "torrent_url": "https://tracker.example/download.php?id=123", "site_ids": ["kamept"] }`。URL 模式跳过数据库和搜索页；指定站点时 URL 必须命中该站主域名或 `request_rules`，未指定时自动从全部站点中选择最长匹配。私站 URL 复用统一站点请求入口和 Cookie 白名单策略；未匹配任何站点的 HTTP(S) URL 才使用无 Cookie 请求。路径和文件名只用于优先建立同尺寸文件映射；无名称线索时使用稳定的一一映射，最终由 qB 强制校验确认内容。响应中的 `match_method` 为 `size`，`mapping_complete=true` 表示全部 torrent 文件均已映射。`category` 来自显式覆盖，或 `save_path` 与 qB 分类有效保存路径的精确匹配；空分类路径会继承最近的非空父分类路径，没有可继承父路径时使用 qB `defaultSavePath`，并追加剩余分类层级。预览不调用 qB 写接口。
 
 `GET /api/qb/recovery/index`
 

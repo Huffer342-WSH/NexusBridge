@@ -29,9 +29,13 @@ func TestQBittorrentClientReadRealAPI(t *testing.T) {
 	if err := client.Test(t.Context()); err != nil {
 		t.Fatalf("test qbittorrent api: %v", err)
 	}
-	if _, err := client.GetCategories(t.Context()); err != nil {
+
+	categories, err := client.GetCategories(t.Context())
+	if err != nil {
 		t.Fatalf("get categories: %v", err)
 	}
+	logJSON(t, "qBittorrent torrent categories", categories)
+
 	if _, err := client.GetTags(t.Context()); err != nil {
 		t.Fatalf("get tags: %v", err)
 	}
