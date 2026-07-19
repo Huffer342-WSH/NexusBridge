@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"nexusbridge/internal/config"
+	"nexusbridge/internal/core/covercache"
 	"nexusbridge/internal/fetcher"
 	"nexusbridge/internal/llm"
 	"nexusbridge/internal/organizer"
@@ -30,6 +32,7 @@ type App struct {
 	qbCached           *qbittorrent.Client
 	qbCacheKey         string
 	cache              map[string]Torrent
+	coverCache         *covercache.Service
 	sites              map[string]runtimeSite
 	siteIDs            []string
 	automationOnce     sync.Once
@@ -69,6 +72,12 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
 		hashLocks: map[string]*contextMutex{},
 	}
+	coverCache, err := covercache.New(store, coverDownloader{app: app}, filepath.Join(filepath.Dir(cfg.Storage.Path), "covers"))
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	app.coverCache = coverCache
 	if err := app.applyNetworkConfig(ctx); err != nil {
 		_ = store.Close()
 		return nil, err

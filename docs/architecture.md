@@ -69,7 +69,8 @@ flowchart LR
 | `internal/core/scheduler.go` | 站点计划调度、防重入和取消。 |
 | `internal/core/torrent_files.go` | 下载、解析并持久化 torrent 文件。 |
 | `internal/core/site_requests.go` | 统一站点凭据、Cookie 策略和 HTTP 请求入口。 |
-| `internal/core/covers.go` | 受站点凭据保护的封面代理。 |
+| `internal/core/covers.go` | 封面缓存入口和受站点凭据保护的下载适配。 |
+| `internal/core/covercache/` | 封面本地文件缓存、状态机和并发控制。 |
 | `internal/core/qb.go` | qB 配置、客户端缓存、发送和兼容状态查询。 |
 | `internal/core/qb_catalog.go` | qB 分类与标签缓存管理。 |
 | `internal/core/qb_sync.go` | qB 全量同步与完成任务处理。 |
@@ -101,6 +102,7 @@ flowchart LR
 | `internal/storage/mvp.go` | 种子、规则、下载任务、整理任务和通用设置。 |
 | `internal/storage/subscriptions.go` | 订阅、候选、运行记录和站点计划。 |
 | `internal/storage/torrent_files.go` | torrent BLOB、hash 和文件大小索引。 |
+| `internal/storage/cover_cache.go` | 封面缓存路径、内容摘要和下载状态。 |
 | `internal/storage/qb_snapshots.go` | qB 任务状态快照。 |
 | `internal/storage/qb_config.go` | qB 分类、标签及同步状态缓存。 |
 | `internal/storage/cookies.go` | 站点作用域 Cookie。 |

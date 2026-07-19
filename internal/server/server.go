@@ -323,18 +323,24 @@ func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, torrents)
 }
 
-// handleTorrentCover 代理返回需要站点凭据或 Referer 的封面图片。
+// handleTorrentCover 返回持久缓存中的封面图片并支持浏览器条件请求。
 func (s *Server) handleTorrentCover(w http.ResponseWriter, r *http.Request) {
 	cover, err := s.torrents.FetchTorrentCover(r.Context(), chi.URLParam(r, "site_id"), chi.URLParam(r, "torrent_id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	file, err := os.Open(cover.Path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	defer file.Close()
 	w.Header().Set("Content-Type", cover.ContentType)
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("ETag", `"`+cover.SHA256+`"`)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(cover.Data)
+	http.ServeContent(w, r, filepath.Base(cover.Path), cover.ModTime, file)
 }
 
 // handleTorrentQBStatus 返回单个本地种子的 qBittorrent 实时状态。

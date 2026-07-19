@@ -128,6 +128,25 @@ CREATE TABLE IF NOT EXISTS torrents (
 	PRIMARY KEY (site_id, torrent_id)
 );
 
+CREATE TABLE IF NOT EXISTS cover_cache (
+	site_id TEXT NOT NULL,
+	torrent_id TEXT NOT NULL,
+	source_url TEXT NOT NULL,
+	local_path TEXT NOT NULL DEFAULT '',
+	mime_type TEXT NOT NULL DEFAULT '',
+	file_size INTEGER NOT NULL DEFAULT 0,
+	sha256 TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL DEFAULT 'pending',
+	last_error TEXT NOT NULL DEFAULT '',
+	last_success_at TEXT NOT NULL DEFAULT '',
+	last_failed_at TEXT NOT NULL DEFAULT '',
+	fail_count INTEGER NOT NULL DEFAULT 0,
+	attempt_version INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (site_id, torrent_id)
+);
+
 CREATE TABLE IF NOT EXISTS torrent_files (
 	site_id TEXT NOT NULL,
 	torrent_id TEXT NOT NULL,
@@ -375,6 +394,9 @@ CREATE INDEX IF NOT EXISTS idx_torrent_qb_snapshots_hash ON torrent_qb_snapshots
 			{"size_index_version", "INTEGER NOT NULL DEFAULT 0"},
 			{"size_indexed_at", "TEXT NOT NULL DEFAULT ''"},
 			{"size_index_error", "TEXT NOT NULL DEFAULT ''"},
+		},
+		"cover_cache": {
+			{"attempt_version", "INTEGER NOT NULL DEFAULT 0"},
 		},
 		"download_tasks": {
 			{"subscription_id", "TEXT NOT NULL DEFAULT ''"},
