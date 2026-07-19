@@ -98,7 +98,7 @@ docker compose -f docker/compose.yaml up -d
 docker compose -f docker/compose.yaml logs -f nexusbridge
 ```
 
-默认端口为 mihomo 代理 `7890`、mihomo WebUI `9090`、qB WebUI `8080`、NexusBridge `8090`、BT `6881/tcp+udp`。qB 首次启动生成的 `admin` 临时密码会出现在容器日志中；登录后应立即修改。配置目录结构、mihomo 控制器安全设置和多架构构建方法见 [Docker 说明](docker/README.md)。
+默认端口为 mihomo 代理 `7890`、mihomo WebUI `9090`、qB WebUI `8080`、NexusBridge `8090`、BT `16881/tcp+udp`。qB 首次启动生成的 `admin` 临时密码会出现在容器日志中；登录后应立即修改。配置目录结构、mihomo 控制器安全设置和多架构构建方法见 [Docker 说明](docker/README.md)。
 
 ### 数据目录与配置
 

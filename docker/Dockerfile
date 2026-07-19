@@ -107,5 +107,5 @@ RUN chmod 0755 \
 ENV NEXUSBRIDGE_DATA_DIR=/config/nexusbridge \
     NEXUSBRIDGE_MIHOMO_CONFIG_DIR=/config/mihomo
 
-EXPOSE 6881/tcp 6881/udp 7890/tcp 8080/tcp 8090/tcp 9090/tcp
+EXPOSE 16881/tcp 16881/udp 7890/tcp 8080/tcp 8090/tcp 9090/tcp
 VOLUME ["/config", "/downloads"]

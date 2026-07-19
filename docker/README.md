@@ -21,7 +21,7 @@ docker compose -f docker/compose.yaml logs -f nexusbridge
 | mihomo | 9090/tcp | WebUI / External Controller |
 | qBittorrent | 8080/tcp | WebUI |
 | NexusBridge | 8090/tcp | WebUI/API |
-| qBittorrent | 6881/tcp、6881/udp | BT 传入连接 |
+| qBittorrent | 16881/tcp、16881/udp | BT 传入连接 |
 
 mihomo 控制器默认监听 `0.0.0.0:9090`，Compose 会发布 `9090:9090`，WebUI 可通过 `http://主机地址:9090/ui` 访问。默认模板中的 `secret` 为空，将端口暴露给其他主机前，必须在 `/config/mihomo/config.yaml` 中设置非空 `secret` 并重启容器。
 
