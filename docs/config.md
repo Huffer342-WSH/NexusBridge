@@ -28,6 +28,7 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 - `sites_dir`：`sites/html`
 - `logging.level`：`info`
 - `auth.enabled`：`false`
+- `network.mode`：`system`
 
 示例：
 
@@ -66,6 +67,11 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
     "api_key": "",
     "model": ""
   },
+  "network": {
+    "mode": "system",
+    "proxy_url": "",
+    "no_proxy": "localhost\n127.*\n192.168.*"
+  },
   "media_library": {
     "root": "",
     "dry_run": true
@@ -85,6 +91,18 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 `logging.log_sensitive_fetch=true` 时可输出额外请求头用于调试，但 `Cookie` 始终脱敏且只记录名称，不会输出值。正式发布或共享日志前仍建议改为 `false`。
 
 默认示例把日志文件写入数据目录下的 `logs/nexusbridge.log`。
+
+## 网络代理
+
+`network` 只通过标准环境变量控制应用的 HTTP 访问，不会替换或修改任何 HTTP 客户端、Transport 或调用点。qBittorrent WebUI 也使用默认客户端，其地址会自动追加到 `NO_PROXY`。
+
+- `network.mode`：`system`、`manual` 或 `direct`，默认 `system`。
+- `network.proxy_url`：仅在 `manual` 时必填；支持 `http://`、`https://` 和 `socks5://`，省略协议时按 HTTP 代理处理。
+- `network.no_proxy`：一行一个直连规则；可使用 `127.*`、`192.168.*` 等 IPv4 通配符以及 `*.example.com` 域名通配符。
+
+系统代理会恢复进程启动时继承的 `HTTP_PROXY`、`HTTPS_PROXY` 环境变量；手动代理会写入这两个变量，直连模式会清除它们。所有模式都会将 `network.no_proxy` 转换为 Go 标准库支持的 `NO_PROXY` 格式，并追加 qBittorrent WebUI 的主机地址。保存时界面可用“恢复默认 NO_PROXY”载入常用局域网、Steam、Bilibili 和本地域名规则。
+
+WebUI 的 `设置 / 网络代理` 页面保存到 SQLite，优先级高于主配置。应用启动时会先写入环境变量，再由 Go 标准 HTTP 客户端读取。Go 标准库会缓存环境代理决策，因此运行中保存设置后必须重启 NexusBridge 才能可靠生效。
 
 ## 抓取凭据
 

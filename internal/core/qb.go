@@ -100,6 +100,9 @@ func (a *App) SaveQBittorrentConfig(ctx context.Context, cfg config.QBittorrentC
 	if err := a.store.SaveSetting(ctx, storage.QBittorrentSettingKey, cfg); err != nil {
 		return config.QBittorrentConfig{}, err
 	}
+	if err := a.applyNetworkConfig(ctx); err != nil {
+		return config.QBittorrentConfig{}, err
+	}
 	a.qbMu.Lock()
 	a.qbCached, a.qbCacheKey = nil, ""
 	a.qbMu.Unlock()

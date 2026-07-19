@@ -6,6 +6,9 @@
 
 ### Added
 
+- 新增网络代理设置，支持系统代理、手动代理和直连模式。
+  - 通过标准 `HTTP_PROXY`、`HTTPS_PROXY` 与 `NO_PROXY` 环境变量统一配置，不改动现有 HTTP 客户端。
+  - 可逐行维护 NO_PROXY 规则、恢复内置局域网与常用域名默认项，并自动将 qBittorrent WebUI 地址加入直连列表。
 - 新增同时运行 qBittorrent-nox、NexusBridge 和 Mihomo 的一体化 Docker 镜像，支持 `linux/amd64` 与 `linux/arm64`。
   - 三个应用的配置统一持久化到 `/config`，并保留 qBittorrent 首次启动临时密码日志。
   - 镜像预置 MetaCubeXD、GeoIP、GeoSite、Country MMDB 和 ASN MMDB，并提供 `nano` 修改容器内配置。

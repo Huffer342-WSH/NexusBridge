@@ -194,6 +194,14 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 保存 OpenAI-compatible LLM 配置，字段包括 `base_url`、`api_key`、`model`。如果 `api_key` 为空，服务端会保留数据库中已有值。
 
+`GET /api/settings/network`
+
+返回网络代理设置。
+
+`POST /api/settings/network`
+
+保存 `{ "mode": "system|manual|direct", "proxy_url": "...", "no_proxy": "每行一项" }`。`manual` 模式必须提供 `http://`、`https://` 或 `socks5://` 代理地址。服务会写入标准代理环境变量，并将 qBittorrent 地址自动追加到 `NO_PROXY`；保存后需重启进程。
+
 `GET /api/settings/mihomo?config_dir={directory}`
 
 读取已保存或指定目录的 `config.yaml`，返回 Provider 名称和 `has_url`，不返回完整订阅 URL。

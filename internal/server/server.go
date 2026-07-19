@@ -44,6 +44,8 @@ type settingsService interface {
 	SaveQBittorrentConfig(ctx context.Context, cfg config.QBittorrentConfig) (config.QBittorrentConfig, error)
 	GetLLMConfig(ctx context.Context) config.LLMConfig
 	SaveLLMConfig(ctx context.Context, cfg config.LLMConfig) (config.LLMConfig, error)
+	GetNetworkConfig(ctx context.Context) config.NetworkConfig
+	SaveNetworkConfig(ctx context.Context, cfg config.NetworkConfig) (config.NetworkConfig, error)
 	GetMihomoSettings(ctx context.Context, configDir string) (mihomo.Settings, error)
 	SaveMihomoConfigDir(ctx context.Context, configDir string) (mihomo.Settings, error)
 	AddMihomoProvider(ctx context.Context, request mihomo.AddProviderRequest) (mihomo.Settings, error)
@@ -158,6 +160,8 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/api/settings/qbittorrent", s.handleSaveQBittorrent)
 	r.Get("/api/settings/llm", s.handleGetLLM)
 	r.Post("/api/settings/llm", s.handleSaveLLM)
+	r.Get("/api/settings/network", s.handleGetNetwork)
+	r.Post("/api/settings/network", s.handleSaveNetwork)
 	r.Get("/api/settings/mihomo", s.handleGetMihomo)
 	r.Post("/api/settings/mihomo/directory", s.handleSaveMihomoDirectory)
 	r.Post("/api/settings/mihomo/providers", s.handleAddMihomoProvider)
@@ -829,6 +833,26 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saved.APIKey = ""
+	writeJSON(w, http.StatusOK, saved)
+}
+
+// handleGetNetwork 返回网络代理设置。
+func (s *Server) handleGetNetwork(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.settings.GetNetworkConfig(r.Context()))
+}
+
+// handleSaveNetwork 保存网络代理设置。
+func (s *Server) handleSaveNetwork(w http.ResponseWriter, r *http.Request) {
+	var cfg config.NetworkConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	saved, err := s.settings.SaveNetworkConfig(r.Context(), cfg)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, saved)
 }
 

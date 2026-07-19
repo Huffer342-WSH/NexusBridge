@@ -69,6 +69,10 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
 		hashLocks: map[string]*contextMutex{},
 	}
+	if err := app.applyNetworkConfig(ctx); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	if err := store.RecoverInterruptedSubscriptionWork(ctx); err != nil {
 		_ = store.Close()
 		return nil, err

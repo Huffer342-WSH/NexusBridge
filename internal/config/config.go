@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"nexusbridge/internal/network"
 )
 
 const (
@@ -33,6 +35,7 @@ type Config struct {
 	Auth         AuthConfig         `json:"auth"`
 	QBittorrent  QBittorrentConfig  `json:"qbittorrent"`
 	LLM          LLMConfig          `json:"llm"`
+	Network      NetworkConfig      `json:"network"`
 	MediaLibrary MediaLibraryConfig `json:"media_library"`
 	Rules        []RuleConfig       `json:"rules"`
 }
@@ -77,6 +80,13 @@ type LLMConfig struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
 	Model   string `json:"model"`
+}
+
+// NetworkConfig 描述全部出站 HTTP 请求使用的代理方式。
+type NetworkConfig struct {
+	Mode     string `json:"mode"`
+	ProxyURL string `json:"proxy_url"`
+	NoProxy  string `json:"no_proxy"`
 }
 
 type MediaLibraryConfig struct {
@@ -127,7 +137,8 @@ func Default() Config {
 			InactiveSyncIntervalSeconds:     defaultQBInactiveSyncIntervalSeconds,
 			DisconnectedSyncIntervalSeconds: defaultQBDisconnectedSyncIntervalSeconds,
 		},
-		Rules: []RuleConfig{},
+		Network: NetworkConfig{Mode: network.ProxyModeSystem, NoProxy: network.DefaultNoProxy},
+		Rules:   []RuleConfig{},
 	}
 }
 
@@ -166,6 +177,12 @@ func applyDefaults(cfg *Config) {
 	}
 	if strings.TrimSpace(cfg.Logging.Level) == "" {
 		cfg.Logging.Level = "info"
+	}
+	cfg.Network.Mode = network.NormalizeProxyMode(cfg.Network.Mode)
+	if strings.TrimSpace(cfg.Network.NoProxy) == "" {
+		cfg.Network.NoProxy = network.DefaultNoProxy
+	} else {
+		cfg.Network.NoProxy = network.NormalizeNoProxyLines(cfg.Network.NoProxy)
 	}
 	if cfg.QBittorrent.Tags == nil {
 		cfg.QBittorrent.Tags = []string{}
@@ -255,6 +272,9 @@ func (cfg Config) Validate() error {
 		if _, err := url.ParseRequestURI(cfg.LLM.BaseURL); err != nil {
 			return fmt.Errorf("llm.base_url is invalid: %w", err)
 		}
+	}
+	if err := network.ValidateProxyConfig(cfg.Network.Mode, cfg.Network.ProxyURL); err != nil {
+		return err
 	}
 	seenRules := map[string]struct{}{}
 	for _, rule := range cfg.Rules {

@@ -610,6 +610,35 @@ paths:
                 $ref: "#/components/schemas/LLMConfig"
         "400":
           $ref: "#/components/responses/Error"
+  /api/settings/network:
+    get:
+      tags: [settings]
+      summary: 获取网络代理设置
+      responses:
+        "200":
+          description: 网络代理设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkConfig"
+    post:
+      tags: [settings]
+      summary: 保存网络代理设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NetworkConfig"
+      responses:
+        "200":
+          description: 已保存网络代理设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkConfig"
+        "400":
+          $ref: "#/components/responses/Error"
   /api/settings/mihomo:
     get:
       tags: [settings]
@@ -2180,6 +2209,19 @@ components:
           description: 响应中为空；请求为空时保留已保存值。
         model:
           type: string
+    NetworkConfig:
+      type: object
+      required: [mode, proxy_url, no_proxy]
+      properties:
+        mode:
+          type: string
+          enum: [system, manual, direct]
+        proxy_url:
+          type: string
+          description: 仅 manual 模式必填，支持 http、https 和 socks5 代理。
+        no_proxy:
+          type: string
+          description: 一行一个直连规则；保存时转换为标准 NO_PROXY 格式。
     MihomoProvider:
       type: object
       required: [name, has_url]

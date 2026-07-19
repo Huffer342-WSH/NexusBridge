@@ -5,17 +5,18 @@ import type {
 	BatchDownloadRequest,
 	BatchDownloadResult,
 	DeletedResult,
-  DownloadTask,
-  DownloadPreview,
+	DownloadTask,
+	DownloadPreview,
 	FilterRule,
 	FileBrowseResult,
-  FetchResult,
-  Health,
-  LLMConfig,
+	FetchResult,
+	Health,
+	LLMConfig,
+	NetworkConfig,
 	MihomoProviderCreateRequest,
 	MihomoSettings,
-  OrganizeTask,
-  QBittorrentConfig,
+	OrganizeTask,
+	QBittorrentConfig,
 	QBSyncResult,
 	QBPollResult,
 	QBCategoriesResult,
@@ -34,72 +35,72 @@ import type {
 	RulePreviewRequest,
 	RulePreviewResult,
 	RuleFilterOptions,
-  Session,
-  Site,
-  SiteCredential,
+	Session,
+	Site,
+	SiteCredential,
 	SiteSchedule,
 	SiteScheduleInput,
 	Subscription,
 	SubscriptionCandidate,
 	SubscriptionPreview,
 	SubscriptionRun,
-  Torrent,
+	Torrent,
 } from './types';
 
 /** 发送 API 请求并统一解析错误响应。 */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  });
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.clone().json()) as { error?: string };
-      if (body.error) {
-        detail = body.error;
-      }
-    } catch {
-      const text = await response.text();
-      if (text.trim()) {
-        detail = text.trim();
-      }
-    }
-    throw new Error(detail);
-  }
+	const response = await fetch(path, {
+		headers: {
+			'Content-Type': 'application/json',
+			...(init?.headers ?? {}),
+		},
+		...init,
+	});
+	if (!response.ok) {
+		let detail = `${response.status} ${response.statusText}`;
+		try {
+			const body = (await response.clone().json()) as { error?: string };
+			if (body.error) {
+				detail = body.error;
+			}
+		} catch {
+			const text = await response.text();
+			if (text.trim()) {
+				detail = text.trim();
+			}
+		}
+		throw new Error(detail);
+	}
 	if (response.status === 204) {
 		return undefined as T;
 	}
-  return response.json() as Promise<T>;
+	return response.json() as Promise<T>;
 }
 
 export const api = {
-  session: () => request<Session>('/api/session'),
-  login: (username: string, password: string) =>
-    request<{ token: string }>('/api/session/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password }),
-    }),
-  health: () => request<Health>('/api/health'),
-  sites: () => request<Site[]>('/api/sites'),
-  getSiteCredential: (siteID: string) => request<SiteCredential>(`/api/sites/${siteID}/credential`),
-  saveSiteCredential: (siteID: string, credential: SiteCredential) =>
-    request<SiteCredential>(`/api/sites/${siteID}/credential`, {
-      method: 'POST',
-      body: JSON.stringify(credential),
-    }),
-  torrents: () => request<Torrent[]>('/api/torrents'),
-  fetchSite: (siteID: string) =>
-    request<FetchResult>(`/api/sites/${siteID}/fetch`, {
-      method: 'POST',
-    }),
-  runOnce: (siteID: string) =>
-    request<FetchResult>(`/api/sites/${siteID}/run-once`, {
-      method: 'POST',
-    }),
+	session: () => request<Session>('/api/session'),
+	login: (username: string, password: string) =>
+		request<{ token: string }>('/api/session/login', {
+			method: 'POST',
+			body: JSON.stringify({ username, password }),
+		}),
+	health: () => request<Health>('/api/health'),
+	sites: () => request<Site[]>('/api/sites'),
+	getSiteCredential: (siteID: string) => request<SiteCredential>(`/api/sites/${siteID}/credential`),
+	saveSiteCredential: (siteID: string, credential: SiteCredential) =>
+		request<SiteCredential>(`/api/sites/${siteID}/credential`, {
+			method: 'POST',
+			body: JSON.stringify(credential),
+		}),
+	torrents: () => request<Torrent[]>('/api/torrents'),
+	fetchSite: (siteID: string) =>
+		request<FetchResult>(`/api/sites/${siteID}/fetch`, {
+			method: 'POST',
+		}),
+	runOnce: (siteID: string) =>
+		request<FetchResult>(`/api/sites/${siteID}/run-once`, {
+			method: 'POST',
+		}),
 	getRules: () => request<FilterRule[]>('/api/rules'),
 	getRuleFilterOptions: (siteID: string) =>
 		request<RuleFilterOptions>(`/api/sites/${encodeURIComponent(siteID)}/filter-options`),
@@ -203,18 +204,24 @@ export const api = {
 		}),
 	retryDownloadTask: (taskID: string) =>
 		request<DownloadTask>(`/api/download-tasks/${encodeURIComponent(taskID)}/retry`, { method: 'POST' }),
-  getQBittorrent: () => request<QBittorrentConfig>('/api/settings/qbittorrent'),
-  saveQBittorrent: (config: QBittorrentConfig) =>
-    request<QBittorrentConfig>('/api/settings/qbittorrent', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    }),
-  getLLM: () => request<LLMConfig>('/api/settings/llm'),
-  saveLLM: (config: LLMConfig) =>
-    request<LLMConfig>('/api/settings/llm', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    }),
+	getQBittorrent: () => request<QBittorrentConfig>('/api/settings/qbittorrent'),
+	saveQBittorrent: (config: QBittorrentConfig) =>
+		request<QBittorrentConfig>('/api/settings/qbittorrent', {
+			method: 'POST',
+			body: JSON.stringify(config),
+		}),
+	getLLM: () => request<LLMConfig>('/api/settings/llm'),
+	saveLLM: (config: LLMConfig) =>
+		request<LLMConfig>('/api/settings/llm', {
+			method: 'POST',
+			body: JSON.stringify(config),
+		}),
+	getNetwork: () => request<NetworkConfig>('/api/settings/network'),
+	saveNetwork: (config: NetworkConfig) =>
+		request<NetworkConfig>('/api/settings/network', {
+			method: 'POST',
+			body: JSON.stringify(config),
+		}),
 	getMihomo: (configDir?: string) =>
 		request<MihomoSettings>(`/api/settings/mihomo${configDir ? `?config_dir=${encodeURIComponent(configDir)}` : ''}`),
 	saveMihomoDirectory: (configDir: string) =>
@@ -227,15 +234,15 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(provider),
 		}),
-  previewTorrentDownload: (siteID: string, torrentID: string) =>
-    request<DownloadPreview>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/download/preview`, {
-      method: 'POST',
-    }),
-  sendTorrentDownload: (siteID: string, torrentID: string, formattedTitle: string) =>
-    request<DownloadTask>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/download`, {
-      method: 'POST',
-      body: JSON.stringify({ formatted_title: formattedTitle }),
-    }),
+	previewTorrentDownload: (siteID: string, torrentID: string) =>
+		request<DownloadPreview>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/download/preview`, {
+			method: 'POST',
+		}),
+	sendTorrentDownload: (siteID: string, torrentID: string, formattedTitle: string) =>
+		request<DownloadTask>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/download`, {
+			method: 'POST',
+			body: JSON.stringify({ formatted_title: formattedTitle }),
+		}),
 	torrentQBStatus: (siteID: string, torrentID: string) =>
 		request<QBTorrentStatus>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/qb-status`),
 	controlTorrentQB: (siteID: string, torrentID: string, action: 'start' | 'stop') =>
@@ -245,8 +252,8 @@ export const api = {
 		}),
 	syncQB: () => request<QBSyncResult>('/api/qb/sync', { method: 'POST' }),
 	pollQB: (rid: number) => request<QBPollResult>(`/api/qb/poll?rid=${Math.max(0, Math.trunc(rid))}`),
-  downloadTasks: () => request<DownloadTask[]>('/api/download-tasks'),
-  organizeTasks: () => request<OrganizeTask[]>('/api/organize-tasks'),
-  organizePending: () =>
-    request<{ processed: number; failed: number; dry_run: boolean }>('/api/organize/pending', { method: 'POST' }),
+	downloadTasks: () => request<DownloadTask[]>('/api/download-tasks'),
+	organizeTasks: () => request<OrganizeTask[]>('/api/organize-tasks'),
+	organizePending: () =>
+		request<{ processed: number; failed: number; dry_run: boolean }>('/api/organize/pending', { method: 'POST' }),
 };

@@ -17,6 +17,7 @@ const (
 	defaultTorrentListLimit = 100
 	QBittorrentSettingKey   = "qbittorrent"
 	LLMSettingKey           = "llm"
+	NetworkSettingKey       = "network"
 	// MihomoSettingKey 是 Mihomo 配置目录偏好的存储键。
 	MihomoSettingKey = "mihomo"
 )

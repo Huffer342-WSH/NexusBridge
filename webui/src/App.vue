@@ -27,6 +27,7 @@ import { createDefaultQBittorrentConfig } from './config/qbittorrent';
 import MediaView from './components/MediaView.vue';
 import SettingsLLM from './components/SettingsLLM.vue';
 import SettingsMihomo from './components/SettingsMihomo.vue';
+import SettingsNetwork from './components/SettingsNetwork.vue';
 import SettingsQB from './components/SettingsQB.vue';
 import SettingsSites from './components/SettingsSites.vue';
 import TasksView from './components/TasksView.vue';
@@ -36,16 +37,17 @@ import type {
   DownloadTask,
   Health,
   LLMConfig,
+  NetworkConfig,
   OrganizeTask,
   QBittorrentConfig,
   Session,
   Site,
   Torrent,
-	QBPollResult,
+  QBPollResult,
 } from './types';
 
 type PageKey = 'media' | 'files' | 'subscriptions' | 'tasks' | 'settings';
-type SettingsPageKey = 'sites' | 'llm' | 'qbittorrent' | 'mihomo';
+type SettingsPageKey = 'sites' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
 const SubscriptionsView = defineAsyncComponent(() => import('./components/SubscriptionsView.vue'));
@@ -68,7 +70,7 @@ const themeOverrides: GlobalThemeOverrides = {
 
 const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload }> = [
   { key: 'media', label: '媒体', icon: CloudDownload },
-	{ key: 'files', label: '文件', icon: FolderOpen },
+  { key: 'files', label: '文件', icon: FolderOpen },
   { key: 'subscriptions', label: '订阅', icon: BellRing },
   { key: 'tasks', label: '任务', icon: FolderKanban },
   { key: 'settings', label: '设置', icon: Settings },
@@ -76,6 +78,7 @@ const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload 
 
 const settingsItems: Array<{ key: SettingsPageKey; label: string; icon: typeof KeyRound }> = [
   { key: 'sites', label: '站点', icon: KeyRound },
+  { key: 'network', label: '网络代理', icon: Network },
   { key: 'llm', label: 'LLM', icon: Bot },
   { key: 'qbittorrent', label: 'qBittorrent', icon: Database },
   { key: 'mihomo', label: 'Mihomo', icon: Network },
@@ -98,6 +101,7 @@ const llmConfig = ref<LLMConfig>({
   api_key: '',
   model: '',
 });
+const networkConfig = ref<NetworkConfig>({ mode: 'system', proxy_url: '', no_proxy: '' });
 const qbTagsText = ref('');
 const downloadPreview = ref<DownloadPreview | null>(null);
 const downloadDialogOpen = ref(false);
@@ -124,9 +128,9 @@ const currentTitle = computed(() => {
   if (activePage.value === 'subscriptions') {
     return '订阅与筛选';
   }
-	if (activePage.value === 'files') {
-		return '文件与恢复';
-	}
+  if (activePage.value === 'files') {
+    return '文件与恢复';
+  }
   if (activePage.value === 'tasks') {
     return '任务';
   }
@@ -136,29 +140,29 @@ const currentTitle = computed(() => {
 
 /** 将 qB 增量结果合并到当前媒体列表。 */
 function applyQBPollResult(result: QBPollResult) {
-	const torrentsByKey = new Map(torrents.value.map((torrent) => [`${torrent.site_id}:${torrent.id}`, torrent]));
-	for (const update of result.updates) {
-		const key = `${update.site_id}:${update.torrent_id}`;
-		if ((qbOptimisticUntil.get(key) ?? 0) > Date.now()) continue;
-		const torrent = torrentsByKey.get(key);
-		if (torrent) torrent.qb_status = update.qb_status;
-	}
+  const torrentsByKey = new Map(torrents.value.map((torrent) => [`${torrent.site_id}:${torrent.id}`, torrent]));
+  for (const update of result.updates) {
+    const key = `${update.site_id}:${update.torrent_id}`;
+    if ((qbOptimisticUntil.get(key) ?? 0) > Date.now()) continue;
+    const torrent = torrentsByKey.get(key);
+    if (torrent) torrent.qb_status = update.qb_status;
+  }
 }
 
 const {
-	connected: qbConnected,
-	polling: qbPolling,
-	trigger: triggerQBPoll,
+  connected: qbConnected,
+  polling: qbPolling,
+  trigger: triggerQBPoll,
 } = useQBStatusPolling({
-	config: qbConfig,
-	isForeground: () => loggedIn.value && activePage.value === 'media',
-	applyResult: applyQBPollResult,
+  config: qbConfig,
+  isForeground: () => loggedIn.value && activePage.value === 'media',
+  applyResult: applyQBPollResult,
 });
 
 watch(message, (value) => {
-	if (!value) return;
-	floatingMessage.info(value, { duration: 3200, closable: true });
-	message.value = '';
+  if (!value) return;
+  floatingMessage.info(value, { duration: 3200, closable: true });
+  message.value = '';
 });
 
 /** 切换主导航页面。 */
@@ -191,6 +195,11 @@ function updateLLMConfig(patch: Partial<LLMConfig>) {
   llmConfig.value = { ...llmConfig.value, ...patch };
 }
 
+/** 更新网络代理配置草稿。 */
+function updateNetworkConfig(patch: Partial<NetworkConfig>) {
+  networkConfig.value = { ...networkConfig.value, ...patch };
+}
+
 /** 刷新后端健康状态、设置和数据库快照。 */
 async function refresh(clearMessage = true) {
   loading.value = true;
@@ -203,9 +212,10 @@ async function refresh(clearMessage = true) {
       api.sites(),
       api.torrents(),
     ]);
-    const [qbData, llmData, downloadData, organizeData] = await Promise.all([
+    const [qbData, llmData, networkData, downloadData, organizeData] = await Promise.all([
       api.getQBittorrent(),
       api.getLLM(),
+      api.getNetwork(),
       api.downloadTasks(),
       api.organizeTasks(),
     ]);
@@ -222,6 +232,7 @@ async function refresh(clearMessage = true) {
     qbConfig.value = { ...qbData, auth_mode: qbData.auth_mode ?? 'uid' };
     qbTagsText.value = qbData.tags?.join(', ') ?? '';
     llmConfig.value = llmData;
+    networkConfig.value = networkData;
     downloadTasks.value = downloadData;
     organizeTasks.value = organizeData;
   } catch (error) {
@@ -328,6 +339,18 @@ async function saveLLM() {
   }
 }
 
+/** 保存网络代理配置。 */
+async function saveNetwork() {
+  message.value = '';
+  try {
+    const saved = await api.saveNetwork(networkConfig.value);
+    networkConfig.value = saved;
+    message.value = '网络代理设置已保存';
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '保存网络代理设置失败';
+  }
+}
+
 /** 打开种子标题整理和下载确认弹窗。 */
 async function openDownloadDialog(torrent: Torrent) {
   downloadDialogOpen.value = true;
@@ -377,7 +400,7 @@ async function sendDownload() {
     message.value = `Download task ${task.status}: ${task.torrent_title}`;
     downloadDialogOpen.value = false;
     await refresh(false);
-	triggerQBPoll(true);
+    triggerQBPoll(true);
   } catch (error) {
     downloadDialogError.value = error instanceof Error ? error.message : 'Failed to send download';
   } finally {
@@ -387,65 +410,65 @@ async function sendDownload() {
 
 /** 显式同步 qB 状态并刷新媒体卡片快照。 */
 async function syncQBittorrent() {
-	message.value = '';
-	qbSyncing.value = true;
-	try {
-		const result = await api.syncQB();
-		message.value = `qB 同步：匹配 ${result.torrent_matched ?? 0}，更新 ${result.torrent_updated ?? 0}，移除 ${result.torrent_removed ?? 0}，完成 ${result.completed}`;
-		await refresh(false);
-		triggerQBPoll(true);
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : 'qB sync failed';
-	} finally {
-		qbSyncing.value = false;
-	}
+  message.value = '';
+  qbSyncing.value = true;
+  try {
+    const result = await api.syncQB();
+    message.value = `qB 同步：匹配 ${result.torrent_matched ?? 0}，更新 ${result.torrent_updated ?? 0}，移除 ${result.torrent_removed ?? 0}，完成 ${result.completed}`;
+    await refresh(false);
+    triggerQBPoll(true);
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : 'qB sync failed';
+  } finally {
+    qbSyncing.value = false;
+  }
 }
 
 /** 控制单个 qB 任务暂停或恢复并刷新媒体快照。 */
 async function controlTorrentQB(torrent: Torrent, action: 'start' | 'stop') {
-	const key = `${torrent.site_id}:${torrent.id}`;
-	qbActioning.value = key;
-	message.value = '';
-	try {
-		const status = await api.controlTorrentQB(torrent.site_id, torrent.id, action);
-		const completed = (status.progress ?? torrent.qb_status?.progress ?? 0) >= 1;
-		status.state = action === 'stop' ? (completed ? 'stoppedUP' : 'stoppedDL') : (completed ? 'uploading' : 'downloading');
-		if (action === 'stop') {
-			status.download_speed = 0;
-			status.upload_speed = 0;
-		}
-		status.fetched_at = new Date().toISOString();
-		message.value = action === 'stop' ? 'qB 任务已暂停' : 'qB 任务已恢复';
-		torrent.qb_status = status;
-		const optimisticUntil = Date.now() + qbOptimisticUpdateDelayMs;
-		qbOptimisticUntil.set(key, optimisticUntil);
-		window.setTimeout(() => {
-			if (qbOptimisticUntil.get(key) !== optimisticUntil) return;
-			qbOptimisticUntil.delete(key);
-			triggerQBPoll();
-		}, qbOptimisticUpdateDelayMs);
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : 'qB control failed';
-	} finally {
-		qbActioning.value = '';
-	}
+  const key = `${torrent.site_id}:${torrent.id}`;
+  qbActioning.value = key;
+  message.value = '';
+  try {
+    const status = await api.controlTorrentQB(torrent.site_id, torrent.id, action);
+    const completed = (status.progress ?? torrent.qb_status?.progress ?? 0) >= 1;
+    status.state = action === 'stop' ? (completed ? 'stoppedUP' : 'stoppedDL') : (completed ? 'uploading' : 'downloading');
+    if (action === 'stop') {
+      status.download_speed = 0;
+      status.upload_speed = 0;
+    }
+    status.fetched_at = new Date().toISOString();
+    message.value = action === 'stop' ? 'qB 任务已暂停' : 'qB 任务已恢复';
+    torrent.qb_status = status;
+    const optimisticUntil = Date.now() + qbOptimisticUpdateDelayMs;
+    qbOptimisticUntil.set(key, optimisticUntil);
+    window.setTimeout(() => {
+      if (qbOptimisticUntil.get(key) !== optimisticUntil) return;
+      qbOptimisticUntil.delete(key);
+      triggerQBPoll();
+    }, qbOptimisticUpdateDelayMs);
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : 'qB control failed';
+  } finally {
+    qbActioning.value = '';
+  }
 }
 
 /** 使用浏览器或桌面系统默认浏览器打开 qBittorrent WebUI。 */
 async function openQBittorrent() {
-	let target = qbConfig.value.url.trim();
-	if (!target) {
-		message.value = '请先配置 qBittorrent WebUI URL';
-		return;
-	}
-	if (!target.includes('://')) {
-		target = `http://${target}`;
-	}
-	try {
-		await openExternalURL(target);
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : '无法打开 qBittorrent WebUI';
-	}
+  let target = qbConfig.value.url.trim();
+  if (!target) {
+    message.value = '请先配置 qBittorrent WebUI URL';
+    return;
+  }
+  if (!target.includes('://')) {
+    target = `http://${target}`;
+  }
+  try {
+    await openExternalURL(target);
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '无法打开 qBittorrent WebUI';
+  }
 }
 
 /** 处理数据库中的待整理任务。 */
@@ -476,233 +499,157 @@ onMounted(async () => {
 
 <template>
   <NConfigProvider :theme-overrides="themeOverrides">
-      <NGlobalStyle />
-      <NLayout class="app-shell" has-sider>
-        <NLayoutSider class="desktop-sider" bordered :width="248">
-          <div class="brand-block sider-brand">
-            <NIcon :component="Database" size="28" class="brand-icon" />
+   <NGlobalStyle />
+    <NLayout class="app-shell" has-sider>
+      <NLayoutSider class="desktop-sider" bordered :width="248">
+        <div class="brand-block sider-brand">
+          <NIcon :component="Database" size="28" class="brand-icon" />
+          <div>
+            <h1>NexusBridge</h1>
+            <p>Local PT bridge</p>
+          </div>
+        </div>
+
+      <nav class="side-nav">
+         <NButton v-for="item in navItems" :key="item.key" :type="activePage === item.key ? 'primary' : 'default'"
+            :secondary="activePage !== item.key" block @click="selectPage(item.key)">
+            <template #icon>
+              <NIcon :component="item.icon" />
+            </template>
+            {{ item.label }}
+          </NButton>
+        </nav>
+
+      <div class="side-section">
+          <p>设置</p>
+         <NButton v-for="item in settingsItems" :key="item.key"
+            :type="activePage === 'settings' && activeSettingsPage === item.key ? 'primary' : 'default'"
+           :secondary="activePage !== 'settings' || activeSettingsPage !== item.key" block
+            @click="selectSettingsPage(item.key)">
+            <template #icon>
+              <NIcon :component="item.icon" />
+            </template>
+            {{ item.label }}
+          </NButton>
+        </div>
+      </NLayoutSider>
+
+    <NLayout>
+        <NLayoutHeader class="app-header" bordered>
+          <div class="brand-block mobile-brand">
+            <NIcon :component="Database" size="26" class="brand-icon" />
             <div>
               <h1>NexusBridge</h1>
-              <p>Local PT bridge</p>
+              <p>{{ currentTitle }}</p>
             </div>
           </div>
-
-          <nav class="side-nav">
-            <NButton
-              v-for="item in navItems"
-              :key="item.key"
-              :type="activePage === item.key ? 'primary' : 'default'"
-              :secondary="activePage !== item.key"
-              block
-              @click="selectPage(item.key)"
-            >
-              <template #icon>
-                <NIcon :component="item.icon" />
-              </template>
-              {{ item.label }}
-            </NButton>
-          </nav>
-
-          <div class="side-section">
-            <p>设置</p>
-            <NButton
-              v-for="item in settingsItems"
-              :key="item.key"
-              :type="activePage === 'settings' && activeSettingsPage === item.key ? 'primary' : 'default'"
-              :secondary="activePage !== 'settings' || activeSettingsPage !== item.key"
-              block
-              @click="selectSettingsPage(item.key)"
-            >
-              <template #icon>
-                <NIcon :component="item.icon" />
-              </template>
-              {{ item.label }}
-            </NButton>
+          <div class="page-title">
+            <strong>{{ currentTitle }}</strong>
+            <span>{{ health?.addr ?? '0.0.0.0:8090' }}</span>
           </div>
-        </NLayoutSider>
-
-        <NLayout>
-          <NLayoutHeader class="app-header" bordered>
-            <div class="brand-block mobile-brand">
-              <NIcon :component="Database" size="26" class="brand-icon" />
-              <div>
-                <h1>NexusBridge</h1>
-                <p>{{ currentTitle }}</p>
-              </div>
-            </div>
-            <div class="page-title">
-              <strong>{{ currentTitle }}</strong>
-              <span>{{ health?.addr ?? '0.0.0.0:8090' }}</span>
-            </div>
-            <NButton v-if="!showLogin" type="primary" :loading="loading" @click="() => refresh()">
-              <template #icon>
-                <NIcon :component="RefreshCw" />
-              </template>
-              Refresh
-            </NButton>
-          </NLayoutHeader>
-
-          <NLayoutContent class="app-content">
-            <NCard v-if="showLogin" class="login-card" title="Sign in" :bordered="false">
-              <NForm @submit.prevent="login">
-                <NFormItem label="Username">
-                  <NInput v-model:value="username" autocomplete="username" />
-                </NFormItem>
-                <NFormItem label="Password">
-                  <NInput
-                    v-model:value="password"
-                    type="password"
-                    show-password-on="click"
-                    autocomplete="current-password"
-                  />
-                </NFormItem>
-                <NButton type="primary" attr-type="submit" block>
-                  <template #icon>
-                    <NIcon :component="ShieldCheck" />
-                  </template>
-                  Sign in
-                </NButton>
-              </NForm>
-            </NCard>
-
-            <template v-else>
-              <MediaView
-                v-if="activePage === 'media'"
-                :sites="sites"
-                :torrents="torrents"
-                :loading="loading"
-				:qb-url="qbConfig.url"
-				:qb-syncing="qbSyncing"
-				:qb-actioning="qbActioning"
-                @download="openDownloadDialog"
-				@sync-qb="syncQBittorrent"
-				@open-qb="openQBittorrent"
-				@control-qb="controlTorrentQB"
-              />
-              <TasksView
-				v-else-if="activePage === 'tasks'"
-                :download-tasks="downloadTasks"
-                :organize-tasks="organizeTasks"
-                :active-downloads="activeDownloads"
-                :pending-organize="pendingOrganize"
-                @organize="organizePending"
-              />
-			  <FileManagerView
-				v-else-if="activePage === 'files'"
-				:sites="sites"
-				@message="(value) => (message = value)"
-			  />
-              <SubscriptionsView
-                v-else-if="activePage === 'subscriptions'"
-                :sites="sites"
-                :torrents="torrents"
-              />
-              <section v-else class="settings-page">
-                <nav class="settings-tabs">
-                  <NButton
-                    v-for="item in settingsItems"
-                    :key="item.key"
-                    :type="activeSettingsPage === item.key ? 'primary' : 'default'"
-                    :secondary="activeSettingsPage !== item.key"
-                    @click="selectSettingsPage(item.key)"
-                  >
-                    <template #icon>
-                      <NIcon :component="item.icon" />
-                    </template>
-                    {{ item.label }}
-                  </NButton>
-                </nav>
-
-                <SettingsSites
-                  v-if="activeSettingsPage === 'sites'"
-                  :sites="sites"
-                  :credentials="siteCredentials"
-                  :actions="siteActions"
-                  @update-credential="updateSiteCredential"
-                  @save="saveSiteCredential"
-                  @fetch="fetchSite"
-                  @run="runOnce"
-                />
-                <SettingsLLM
-                  v-else-if="activeSettingsPage === 'llm'"
-                  :config="llmConfig"
-                  @update="updateLLMConfig"
-                  @save="saveLLM"
-                />
-                <SettingsQB
-                  v-else-if="activeSettingsPage === 'qbittorrent'"
-                  :config="qbConfig"
-                  :tags-text="qbTagsText"
-				  :connected="qbConnected"
-				  :polling="qbPolling"
-                  @update="updateQBConfig"
-                  @update-tags="(value) => (qbTagsText = value)"
-                  @save="saveQBittorrent"
-                  @sync="syncQBittorrent"
-                />
-                <SettingsMihomo
-                  v-else
-                  @message="(value) => (message = value)"
-                />
-              </section>
+          <NButton v-if="!showLogin" type="primary" :loading="loading" @click="() => refresh()">
+            <template #icon>
+              <NIcon :component="RefreshCw" />
             </template>
-          </NLayoutContent>
-        </NLayout>
+            Refresh
+          </NButton>
+        </NLayoutHeader>
+
+      <NLayoutContent class="app-content">
+          <NCard v-if="showLogin" class="login-card" title="Sign in" :bordered="false">
+            <NForm @submit.prevent="login">
+              <NFormItem label="Username">
+                <NInput v-model:value="username" autocomplete="username" />
+              </NFormItem>
+              <NFormItem label="Password">
+               <NInput v-model:value="password" type="password" show-password-on="click"
+                  autocomplete="current-password" />
+              </NFormItem>
+              <NButton type="primary" attr-type="submit" block>
+                <template #icon>
+                  <NIcon :component="ShieldCheck" />
+                </template>
+                Sign in
+              </NButton>
+            </NForm>
+          </NCard>
+
+        <template v-else>
+           <MediaView v-if="activePage === 'media'" :sites="sites" :torrents="torrents" :loading="loading"
+              :qb-url="qbConfig.url" :qb-syncing="qbSyncing" :qb-actioning="qbActioning" @download="openDownloadDialog"
+              @sync-qb="syncQBittorrent" @open-qb="openQBittorrent" @control-qb="controlTorrentQB" />
+            <TasksView v-else-if="activePage === 'tasks'" :download-tasks="downloadTasks"
+              :organize-tasks="organizeTasks" :active-downloads="activeDownloads" :pending-organize="pendingOrganize"
+              @organize="organizePending" />
+            <FileManagerView v-else-if="activePage === 'files'" :sites="sites"
+              @message="(value) => (message = value)" />
+            <SubscriptionsView v-else-if="activePage === 'subscriptions'" :sites="sites" :torrents="torrents" />
+            <section v-else class="settings-page">
+              <nav class="settings-tabs">
+               <NButton v-for="item in settingsItems" :key="item.key"
+                  :type="activeSettingsPage === item.key ? 'primary' : 'default'"
+                 :secondary="activeSettingsPage !== item.key" @click="selectSettingsPage(item.key)">
+                  <template #icon>
+                    <NIcon :component="item.icon" />
+                  </template>
+                  {{ item.label }}
+                </NButton>
+              </nav>
+
+            <SettingsSites v-if="activeSettingsPage === 'sites'" :sites="sites" :credentials="siteCredentials"
+                :actions="siteActions" @update-credential="updateSiteCredential" @save="saveSiteCredential"
+                @fetch="fetchSite" @run="runOnce" />
+              <SettingsLLM v-else-if="activeSettingsPage === 'llm'" :config="llmConfig" @update="updateLLMConfig"
+                @save="saveLLM" />
+              <SettingsNetwork v-else-if="activeSettingsPage === 'network'" :config="networkConfig"
+                @update="updateNetworkConfig" @save="saveNetwork" />
+              <SettingsQB v-else-if="activeSettingsPage === 'qbittorrent'" :config="qbConfig" :tags-text="qbTagsText"
+                :connected="qbConnected" :polling="qbPolling" @update="updateQBConfig"
+                @update-tags="(value) => (qbTagsText = value)" @save="saveQBittorrent" @sync="syncQBittorrent" />
+              <SettingsMihomo v-else @message="(value) => (message = value)" />
+            </section>
+          </template>
+        </NLayoutContent>
       </NLayout>
+    </NLayout>
 
-      <nav v-if="!showLogin" class="mobile-bottom-nav">
-        <button
-          v-for="item in navItems"
-          :key="item.key"
-          type="button"
-          :class="{ active: activePage === item.key }"
-          @click="selectPage(item.key)"
-        >
-          <NIcon :component="item.icon" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
+  <nav v-if="!showLogin" class="mobile-bottom-nav">
+     <button v-for="item in navItems" :key="item.key" type="button" :class="{ active: activePage === item.key }"
+        @click="selectPage(item.key)">
+        <NIcon :component="item.icon" />
+        <span>{{ item.label }}</span>
+      </button>
+    </nav>
 
-      <NModal
-        v-model:show="downloadDialogOpen"
-        preset="card"
-        title="Download"
-        class="download-modal"
-        :mask-closable="!downloadDialogSending"
-        :closable="!downloadDialogSending"
-        @close="closeDownloadDialog"
-      >
-        <NAlert v-if="downloadDialogLoading" type="info" :bordered="false">
-          Extracting title with LLM...
-        </NAlert>
-        <NAlert v-if="downloadDialogError" type="warning" :bordered="false" class="dialog-alert">
-          {{ downloadDialogError }}
-        </NAlert>
-        <NForm v-if="downloadPreview" class="dialog-form">
-          <NFormItem label="Original Title">
-            <NInput :value="downloadPreview.original_title" type="textarea" readonly :autosize="{ minRows: 3 }" />
-          </NFormItem>
-          <NFormItem label="LLM Result">
-            <NInput v-model:value="downloadPreview.formatted_title" type="textarea" :autosize="{ minRows: 3 }" />
-          </NFormItem>
-          <NFormItem label="Download URL">
-            <NInput :value="downloadPreview.download_url" readonly />
-          </NFormItem>
-        </NForm>
+  <NModal v-model:show="downloadDialogOpen" preset="card" title="Download" class="download-modal"
+      :mask-closable="!downloadDialogSending" :closable="!downloadDialogSending" @close="closeDownloadDialog">
+      <NAlert v-if="downloadDialogLoading" type="info" :bordered="false">
+        Extracting title with LLM...
+      </NAlert>
+      <NAlert v-if="downloadDialogError" type="warning" :bordered="false" class="dialog-alert">
+        {{ downloadDialogError }}
+      </NAlert>
+      <NForm v-if="downloadPreview" class="dialog-form">
+        <NFormItem label="Original Title">
+          <NInput :value="downloadPreview.original_title" type="textarea" readonly :autosize="{ minRows: 3 }" />
+        </NFormItem>
+        <NFormItem label="LLM Result">
+          <NInput v-model:value="downloadPreview.formatted_title" type="textarea" :autosize="{ minRows: 3 }" />
+        </NFormItem>
+        <NFormItem label="Download URL">
+          <NInput :value="downloadPreview.download_url" readonly />
+        </NFormItem>
+      </NForm>
 
-        <template #footer>
-          <NSpace justify="end">
-            <NButton :disabled="downloadDialogSending" @click="closeDownloadDialog">Cancel</NButton>
-            <NButton
-              type="primary"
-              :loading="downloadDialogSending"
-              :disabled="downloadDialogLoading || !downloadPreview?.download_url"
-              @click="sendDownload"
-            >
-              Send to qBittorrent
-            </NButton>
-          </NSpace>
-        </template>
-      </NModal>
+    <template #footer>
+        <NSpace justify="end">
+          <NButton :disabled="downloadDialogSending" @click="closeDownloadDialog">Cancel</NButton>
+         <NButton type="primary" :loading="downloadDialogSending"
+            :disabled="downloadDialogLoading || !downloadPreview?.download_url" @click="sendDownload">
+            Send to qBittorrent
+          </NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </NConfigProvider>
 </template>
