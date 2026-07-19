@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultHost                              = "127.0.0.1"
+	DefaultHost                              = "0.0.0.0"
 	DefaultPort                              = 8090
 	DefaultStoragePath                       = "nexusbridge.db"
 	defaultQBSyncIntervalSeconds             = 3

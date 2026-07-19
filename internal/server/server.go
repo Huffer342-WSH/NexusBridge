@@ -18,6 +18,7 @@ import (
 
 	"nexusbridge/internal/config"
 	"nexusbridge/internal/core"
+	"nexusbridge/internal/mihomo"
 )
 
 type Server struct {
@@ -43,6 +44,9 @@ type settingsService interface {
 	SaveQBittorrentConfig(ctx context.Context, cfg config.QBittorrentConfig) (config.QBittorrentConfig, error)
 	GetLLMConfig(ctx context.Context) config.LLMConfig
 	SaveLLMConfig(ctx context.Context, cfg config.LLMConfig) (config.LLMConfig, error)
+	GetMihomoSettings(ctx context.Context, configDir string) (mihomo.Settings, error)
+	SaveMihomoConfigDir(ctx context.Context, configDir string) (mihomo.Settings, error)
+	AddMihomoProvider(ctx context.Context, request mihomo.AddProviderRequest) (mihomo.Settings, error)
 }
 
 type torrentActionService interface {
@@ -154,6 +158,9 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/api/settings/qbittorrent", s.handleSaveQBittorrent)
 	r.Get("/api/settings/llm", s.handleGetLLM)
 	r.Post("/api/settings/llm", s.handleSaveLLM)
+	r.Get("/api/settings/mihomo", s.handleGetMihomo)
+	r.Post("/api/settings/mihomo/directory", s.handleSaveMihomoDirectory)
+	r.Post("/api/settings/mihomo/providers", s.handleAddMihomoProvider)
 	r.Post("/api/qb/sync", s.handleQBSync)
 	r.Get("/api/qb/poll", s.handleQBPoll)
 	r.Get("/api/qb/categories", s.handleQBCategories)
@@ -823,6 +830,48 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 	}
 	saved.APIKey = ""
 	writeJSON(w, http.StatusOK, saved)
+}
+
+// handleGetMihomo 返回 Mihomo 配置目录与 Provider 列表。
+func (s *Server) handleGetMihomo(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.settings.GetMihomoSettings(r.Context(), r.URL.Query().Get("config_dir"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleSaveMihomoDirectory 验证并保存 Mihomo 配置目录。
+func (s *Server) handleSaveMihomoDirectory(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ConfigDir string `json:"config_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	settings, err := s.settings.SaveMihomoConfigDir(r.Context(), request.ConfigDir)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleAddMihomoProvider 追加一个 Mihomo HTTP Provider。
+func (s *Server) handleAddMihomoProvider(w http.ResponseWriter, r *http.Request) {
+	var request mihomo.AddProviderRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	settings, err := s.settings.AddMihomoProvider(r.Context(), request)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, settings)
 }
 
 func (s *Server) handleQBSync(w http.ResponseWriter, r *http.Request) {

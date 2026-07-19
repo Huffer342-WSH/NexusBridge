@@ -80,7 +80,7 @@ func Load(opts Options) (Result, error) {
 		if strings.TrimSpace(opts.ExplicitConfig) != "" {
 			return Result{}, fmt.Errorf("config file does not exist: %s", configPath)
 		}
-		if err := writeConfig(configPath, defaultConfig()); err != nil {
+		if _, err := writeConfigIfMissing(configPath, defaultConfig()); err != nil {
 			return Result{}, err
 		}
 	} else if err != nil {
@@ -204,15 +204,10 @@ func installBuiltinSites(source fs.FS, targetDir string) error {
 			return err
 		}
 		target := filepath.Join(targetDir, filepath.FromSlash(path))
-		if _, err := os.Stat(target); err == nil {
-			return nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, data, 0o600); err != nil {
+		if _, err := writeFileIfMissing(target, data, 0o600); err != nil {
 			return fmt.Errorf("install builtin site %s: %w", path, err)
 		}
 		return nil
@@ -228,16 +223,37 @@ func defaultConfig() config.Config {
 	return cfg
 }
 
-// writeConfig 写入首次启动使用的默认配置文件。
-func writeConfig(path string, cfg config.Config) error {
+// writeConfigIfMissing 仅在目标不存在时写入首次启动使用的默认配置文件。
+func writeConfigIfMissing(path string, cfg config.Config) (bool, error) {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode runtime config: %w", err)
+		return false, fmt.Errorf("encode runtime config: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return fmt.Errorf("write runtime config: %w", err)
+	created, err := writeFileIfMissing(path, append(data, '\n'), 0o600)
+	if err != nil {
+		return false, fmt.Errorf("write runtime config: %w", err)
 	}
-	return nil
+	return created, nil
+}
+
+// writeFileIfMissing 以排他创建方式写入文件，目标已存在时保持原内容不变。
+func writeFileIfMissing(path string, data []byte, perm fs.FileMode) (bool, error) {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return false, err
+	}
+	if err := file.Close(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // resolveDataPath 将应用配置中的相对路径固定到数据目录。

@@ -1,6 +1,6 @@
 <!-- 应用壳负责页面导航、共享状态和跨组件操作协调。 -->
 <script setup lang="ts">
-import { BellRing, Bot, CloudDownload, Database, FolderKanban, FolderOpen, KeyRound, RefreshCw, Settings, ShieldCheck } from '@lucide/vue';
+import { BellRing, Bot, CloudDownload, Database, FolderKanban, FolderOpen, KeyRound, Network, RefreshCw, Settings, ShieldCheck } from '@lucide/vue';
 import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 import {
   createDiscreteApi,
@@ -26,6 +26,7 @@ import { useQBStatusPolling } from './composables/useQBStatusPolling';
 import { createDefaultQBittorrentConfig } from './config/qbittorrent';
 import MediaView from './components/MediaView.vue';
 import SettingsLLM from './components/SettingsLLM.vue';
+import SettingsMihomo from './components/SettingsMihomo.vue';
 import SettingsQB from './components/SettingsQB.vue';
 import SettingsSites from './components/SettingsSites.vue';
 import TasksView from './components/TasksView.vue';
@@ -44,7 +45,7 @@ import type {
 } from './types';
 
 type PageKey = 'media' | 'files' | 'subscriptions' | 'tasks' | 'settings';
-type SettingsPageKey = 'sites' | 'llm' | 'qbittorrent';
+type SettingsPageKey = 'sites' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
 const SubscriptionsView = defineAsyncComponent(() => import('./components/SubscriptionsView.vue'));
@@ -77,6 +78,7 @@ const settingsItems: Array<{ key: SettingsPageKey; label: string; icon: typeof K
   { key: 'sites', label: '站点', icon: KeyRound },
   { key: 'llm', label: 'LLM', icon: Bot },
   { key: 'qbittorrent', label: 'qBittorrent', icon: Database },
+  { key: 'mihomo', label: 'Mihomo', icon: Network },
 ];
 
 const session = ref<Session | null>(null);
@@ -530,7 +532,7 @@ onMounted(async () => {
             </div>
             <div class="page-title">
               <strong>{{ currentTitle }}</strong>
-              <span>{{ health?.addr ?? '127.0.0.1:8090' }}</span>
+              <span>{{ health?.addr ?? '0.0.0.0:8090' }}</span>
             </div>
             <NButton v-if="!showLogin" type="primary" :loading="loading" @click="() => refresh()">
               <template #icon>
@@ -628,7 +630,7 @@ onMounted(async () => {
                   @save="saveLLM"
                 />
                 <SettingsQB
-                  v-else
+                  v-else-if="activeSettingsPage === 'qbittorrent'"
                   :config="qbConfig"
                   :tags-text="qbTagsText"
 				  :connected="qbConnected"
@@ -637,6 +639,10 @@ onMounted(async () => {
                   @update-tags="(value) => (qbTagsText = value)"
                   @save="saveQBittorrent"
                   @sync="syncQBittorrent"
+                />
+                <SettingsMihomo
+                  v-else
+                  @message="(value) => (message = value)"
                 />
               </section>
             </template>

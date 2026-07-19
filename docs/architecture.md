@@ -42,6 +42,10 @@ flowchart LR
 | `desktop/resources/appicon.png`、`windows/icon.ico` | 桌面应用图标。 |
 | `.github/workflows/build-release.yml` | 多平台构建编排。 |
 | `.github/workflows/publish-release.yml` | 构建产物发布为 GitHub Release。 |
+| `.github/workflows/build-docker.yml` | 构建并推送 amd64/arm64 GHCR 镜像。 |
+| `docker/Dockerfile` | 组装 qBittorrent、NexusBridge 和 mihomo 一体化镜像。 |
+| `docker/root/` | 注入默认配置及 NexusBridge、mihomo 的 s6 服务定义。 |
+| `docker/compose.yaml` | 一体化镜像的本地部署示例。 |
 | `scripts/ci/build-release-linux.sh` | Linux 发布包构建脚本。 |
 | `scripts/ci/build-release-windows.ps1` | Windows 发布包构建脚本。 |
 | `scripts/ci/run-act.ps1` | Windows 本地 act 入口。 |
@@ -102,6 +106,7 @@ flowchart LR
 | `internal/storage/cookies.go` | 站点作用域 Cookie。 |
 | `internal/storage/credentials.go` | 站点凭据元数据与 Cookie 状态。 |
 | `internal/llm/client.go` | OpenAI-compatible Chat Completions 客户端。 |
+| `internal/mihomo/config.go` | Mihomo 默认目录解析、Provider 读取和 YAML 安全追加。 |
 | `internal/organizer/organizer.go` | 校验整理建议并创建媒体硬链接。 |
 
 ## WebUI
@@ -123,6 +128,7 @@ flowchart LR
 | `webui/src/components/SettingsSites.vue` | 站点凭据和抓取操作。 |
 | `webui/src/components/SettingsQB.vue` | qB 连接与轮询设置。 |
 | `webui/src/components/SettingsLLM.vue` | LLM 连接设置。 |
+| `webui/src/components/SettingsMihomo.vue` | Mihomo 配置目录和 Proxy Provider 快捷管理。 |
 | `webui/src/composables/useMediaDisplaySettings.ts` | 本地持久化媒体显示偏好。 |
 | `webui/src/composables/useQBStatusPolling.ts` | 按连接和页面状态轮询 qB。 |
 | `webui/src/config/qbittorrent.ts` | qB 前端默认配置。 |

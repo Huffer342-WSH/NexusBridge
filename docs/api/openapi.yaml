@@ -5,7 +5,7 @@ info:
   description: |
     NexusBridge 后端 HTTP API 契约。当前文件描述已实现接口，前端新需求先写入 docs/api/requests.md。
 servers:
-  - url: http://127.0.0.1:8090
+  - url: http://0.0.0.0:8090
     description: 本地默认服务
 tags:
   - name: health
@@ -608,6 +608,63 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LLMConfig"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/settings/mihomo:
+    get:
+      tags: [settings]
+      summary: 读取 Mihomo Provider 设置
+      parameters:
+        - name: config_dir
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 配置目录与脱敏 Provider 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MihomoSettings"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/settings/mihomo/directory:
+    post:
+      tags: [settings]
+      summary: 选择 Mihomo 配置目录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MihomoDirectoryRequest"
+      responses:
+        "200":
+          description: 目录已验证并保存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MihomoSettings"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/settings/mihomo/providers:
+    post:
+      tags: [settings]
+      summary: 新增 Mihomo HTTP Provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MihomoProviderCreateRequest"
+      responses:
+        "201":
+          description: Provider 已追加
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MihomoSettings"
         "400":
           $ref: "#/components/responses/Error"
   /api/qb/sync:
@@ -2123,6 +2180,45 @@ components:
           description: 响应中为空；请求为空时保留已保存值。
         model:
           type: string
+    MihomoProvider:
+      type: object
+      required: [name, has_url]
+      properties:
+        name:
+          type: string
+        has_url:
+          type: boolean
+    MihomoSettings:
+      type: object
+      required: [config_dir, default_config_dir, config_path, providers]
+      properties:
+        config_dir:
+          type: string
+        default_config_dir:
+          type: string
+        config_path:
+          type: string
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MihomoProvider"
+    MihomoDirectoryRequest:
+      type: object
+      required: [config_dir]
+      properties:
+        config_dir:
+          type: string
+    MihomoProviderCreateRequest:
+      type: object
+      required: [config_dir, name, url]
+      properties:
+        config_dir:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
     ManualDownloadRequest:
       type: object
       properties:

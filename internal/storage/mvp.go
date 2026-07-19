@@ -17,6 +17,8 @@ const (
 	defaultTorrentListLimit = 100
 	QBittorrentSettingKey   = "qbittorrent"
 	LLMSettingKey           = "llm"
+	// MihomoSettingKey 是 Mihomo 配置目录偏好的存储键。
+	MihomoSettingKey = "mihomo"
 )
 
 type TorrentRecord struct {

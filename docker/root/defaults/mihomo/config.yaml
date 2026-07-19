@@ -1,0 +1,289 @@
+# 只需在 proxy-providers 中填写订阅地址；新增提供者时名称不能重复。
+proxy-providers:
+
+mixed-port: 7890
+socks-port: 7891
+port: 7892
+allow-lan: true
+bind-address: "*"
+ipv6: true
+udp: true
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+log-level: info
+
+# WebUI 控制器通过 Docker 发布；首次启动后请立即设置非空 secret。
+external-controller: 0.0.0.0:9090
+secret: ""
+external-ui: ui
+external-ui-url: https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+geodata-mode: true
+geo-auto-update: true
+geo-update-interval: 168
+geox-url:
+  geoip: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat
+  geosite: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat
+  mmdb: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/country-lite.mmdb
+  asn: https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb
+
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  force-dns-mapping: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: false
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  skip-domain:
+    - Mijia Cloud
+    - +.push.apple.com
+  skip-dst-address:
+    - 91.105.192.0/23
+    - 91.108.4.0/22
+    - 91.108.8.0/21
+    - 91.108.16.0/21
+    - 91.108.56.0/22
+    - 95.161.64.0/20
+    - 149.154.160.0/20
+    - 185.76.151.0/24
+    - 2001:67c:4e8::/48
+    - 2001:b28:f23c::/47
+    - 2001:b28:f23f::/48
+    - 2a0a:f280:203::/48
+
+tun:
+  enable: true
+  stack: mixed
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - +.lan
+    - +.local
+    - time.*.com
+    - ntp.*.com
+    - +.market.xiaomi.com
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  proxy-server-nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  nameserver-policy:
+    geosite:gfw:
+      - https://cloudflare-dns.com/dns-query#默认代理
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+
+proxy-groups:
+  - name: 默认代理
+    type: select
+    proxies: [自动选择, 负载均衡-轮询, 负载均衡-一致性哈希, 节点组-🇭🇰香港, 节点组-🇹🇼台湾, 节点组-🇯🇵日本, 节点组-🇸🇬新加坡, 节点组-🇺🇸美国, 节点组-🇬🇧英国, 节点组-🇩🇪德国, 节点组-🇨🇦加拿大, 节点组-🇮🇳印度, 其它地区, 全部节点, DIRECT]
+
+  - name: AI
+    type: select
+    proxies: [自动选择-AI, 节点组-🇺🇸美国, 节点组-🇹🇼台湾, 节点组-🇯🇵日本, 节点组-🇸🇬新加坡, 节点组-🇬🇧英国, 节点组-🇩🇪德国, 默认代理, 全部节点, DIRECT]
+
+  - name: Telegram
+    type: select
+    proxies: [默认代理, 自动选择, 节点组-🇸🇬新加坡, 节点组-🇭🇰香港, 节点组-🇺🇸美国, 节点组-🇯🇵日本, 全部节点, DIRECT]
+
+  - name: 微软服务 - CN
+    type: select
+    proxies: [DIRECT, 默认代理, 自动选择, 全部节点]
+
+  - name: 微软服务
+    type: select
+    proxies: [默认代理, 自动选择, 节点组-🇭🇰香港, 节点组-🇹🇼台湾, 节点组-🇯🇵日本, 节点组-🇸🇬新加坡, 节点组-🇺🇸美国, 全部节点, DIRECT]
+
+  - name: 漏网之鱼
+    type: select
+    proxies: [默认代理, 自动选择, 负载均衡-轮询, 负载均衡-一致性哈希, 全部节点, DIRECT]
+
+  # 地区组从所有 proxy-providers 动态筛选，无需手工维护节点列表。
+  - name: 节点组-🇭🇰香港
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇭🇰|港|香港|hk|hong[ -]?kong"
+
+  - name: 节点组-🇹🇼台湾
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇹🇼|台|台湾|tw|taiwan"
+
+  - name: 节点组-🇯🇵日本
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇯🇵|日|日本|jp|japan"
+
+  - name: 节点组-🇸🇬新加坡
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇸🇬|新加坡|狮城|sg|singapore"
+
+  - name: 节点组-🇺🇸美国
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇺🇸|美|美国|us|united[ -]?states"
+
+  - name: 节点组-🇬🇧英国
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇬🇧|英|英国|uk|united[ -]?kingdom|britain"
+
+  - name: 节点组-🇩🇪德国
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇩🇪|德|德国|de|germany"
+
+  - name: 节点组-🇨🇦加拿大
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇨🇦|加拿大|ca|canada"
+
+  - name: 节点组-🇮🇳印度
+    type: select
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)🇮🇳|印度|in|india"
+
+  - name: 其它地区
+    type: select
+    include-all: true
+    exclude-type: direct
+    exclude-filter: "(?i)🇭🇰|🇹🇼|🇯🇵|🇸🇬|🇺🇸|🇬🇧|🇩🇪|🇨🇦|🇮🇳|香港|台湾|日本|新加坡|美国|英国|德国|加拿大|印度|hong[ -]?kong|taiwan|japan|singapore|united[ -]?states|united[ -]?kingdom|germany|canada|india"
+
+  - name: 全部节点
+    type: select
+    include-all: true
+    exclude-type: direct
+
+  - name: 自动选择
+    type: url-test
+    include-all: true
+    exclude-type: direct
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    tolerance: 50
+
+  - name: 自动选择-AI
+    type: url-test
+    include-all: true
+    exclude-type: direct
+    filter: "(?i)GPT|Gemini|AI|Copilot|ChatGPT"
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    tolerance: 50
+
+  - name: 负载均衡-轮询
+    type: load-balance
+    include-all: true
+    exclude-type: direct
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    strategy: round-robin
+    lazy: true
+
+  - name: 负载均衡-一致性哈希
+    type: load-balance
+    include-all: true
+    exclude-type: direct
+    url: https://www.gstatic.com/generate_204
+    interval: 600
+    strategy: consistent-hashing
+    lazy: true
+
+rules:
+  - DOMAIN-SUFFIX,alipay.com,DIRECT
+  - DOMAIN-SUFFIX,alipayobjects.com,DIRECT
+  - DOMAIN,steamcommunity.com,默认代理
+  - DOMAIN,api.steampowered.com,默认代理
+  - PROCESS-NAME,steamwebhelper,默认代理
+  - PROCESS-NAME,steamwebhelper.exe,默认代理
+  - PROCESS-NAME,steam,DIRECT
+  - PROCESS-NAME,steam.exe,DIRECT
+  - DOMAIN,fastly-download.epicgames.com,DIRECT
+  - PROCESS-NAME,EpicWebHelper.exe,默认代理
+  - PROCESS-NAME,EpicGamesLauncher.exe,DIRECT
+  - PROCESS-NAME,MathWorksProductInstaller,DIRECT
+  - PROCESS-NAME,MathWorksProductInstaller.exe,DIRECT
+  - PROCESS-NAME,MATLABWindow,DIRECT
+  - PROCESS-NAME,MATLABWindow.exe,DIRECT
+  - DOMAIN,esd.mathworks.com,DIRECT
+  - DOMAIN-SUFFIX,mathworks.com,默认代理
+  - DOMAIN,game.maj-soul.com,默认代理
+  - DOMAIN-KEYWORD,majsoul,DIRECT
+  - DOMAIN-SUFFIX,yuzu-soft.com,节点组-🇯🇵日本
+  - DOMAIN-SUFFIX,dmm.co.jp,节点组-🇯🇵日本
+  - GEOSITE,telegram,Telegram
+  - GEOSITE,microsoft@cn,微软服务 - CN
+  - GEOSITE,microsoft,微软服务
+  - RULE-SET,domain-ai,AI
+  - IP-CIDR,160.79.104.0/21,AI
+  - IP-CIDR6,2607:6bc0::/32,AI
+  - IP-ASN,399358,AI
+  - RULE-SET,reject,REJECT
+  - RULE-SET,domain-direct,DIRECT
+  - GEOSITE,private,DIRECT
+  - RULE-SET,domain-proxy,默认代理
+  - GEOSITE,gfw,默认代理
+  - GEOSITE,geolocation-!cn,默认代理
+  - GEOIP,private,DIRECT,no-resolve
+  - GEOIP,telegram,Telegram
+  - GEOIP,LAN,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,漏网之鱼
+
+rule-providers:
+  reject:
+    type: http
+    behavior: domain
+    url: https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt
+    interval: 64800
+  domain-proxy:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Huffer342-WSH/routing-rules/refs/heads/rules/domain/proxy.mrs
+    interval: 64800
+  domain-direct:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Huffer342-WSH/routing-rules/refs/heads/rules/domain/direct.mrs
+    interval: 64800
+  domain-ai:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/Huffer342-WSH/routing-rules/refs/heads/rules/domain/category-ai-chat-!cn.mrs
+    interval: 64800

@@ -1,6 +1,6 @@
 # API 说明
 
-HTTP 服务默认绑定 `127.0.0.1:8090`。
+HTTP 服务默认绑定 `0.0.0.0:8090`。
 
 开发版默认从项目 `data/config.json` 读取监听配置；正式版从统一运行数据目录读取。Linux 发布程序已嵌入 WebUI，运行 `nexusbridge serve` 不需要额外的 `webui/dist` 目录。
 
@@ -193,6 +193,18 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 `POST /api/settings/llm`
 
 保存 OpenAI-compatible LLM 配置，字段包括 `base_url`、`api_key`、`model`。如果 `api_key` 为空，服务端会保留数据库中已有值。
+
+`GET /api/settings/mihomo?config_dir={directory}`
+
+读取已保存或指定目录的 `config.yaml`，返回 Provider 名称和 `has_url`，不返回完整订阅 URL。
+
+`POST /api/settings/mihomo/directory`
+
+接收 `{ "config_dir": "..." }`，验证 `config.yaml` 后保存配置目录选择。空目录表示 Mihomo 默认目录。
+
+`POST /api/settings/mihomo/providers`
+
+接收 `{ "config_dir": "...", "name": "provider1", "url": "https://..." }`，以 HTTP Provider 默认健康检查配置追加到 `proxy-providers`。同名 Provider 已存在时返回 `400`，不覆盖原配置。
 
 `POST /api/qb/sync`
 

@@ -1,0 +1,15 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+set -e
+
+mkdir -p /config/nexusbridge
+if [[ ! -f /config/nexusbridge/config.json ]]; then
+    cp /defaults/nexusbridge/config.json /config/nexusbridge/config.json
+fi
+
+if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+    lsiown -R abc:abc /config/nexusbridge
+    exec s6-setuidgid abc /app/nexusbridge serve --config /config/nexusbridge/config.json
+fi
+
+exec /app/nexusbridge serve --config /config/nexusbridge/config.json

@@ -2,6 +2,27 @@
 
 本文记录 NexusBridge 面向用户的功能变化和重要修复。
 
+## [Unreleased]
+
+### Added
+
+- 新增同时运行 qBittorrent-nox、NexusBridge 和 Mihomo 的一体化 Docker 镜像，支持 `linux/amd64` 与 `linux/arm64`。
+  - 三个应用的配置统一持久化到 `/config`，并保留 qBittorrent 首次启动临时密码日志。
+  - 镜像预置 MetaCubeXD、GeoIP、GeoSite、Country MMDB 和 ASN MMDB，并提供 `nano` 修改容器内配置。
+  - 新增 GitHub Actions 多架构镜像构建与 GHCR 发布流程。
+- 设置页新增 Mihomo Proxy Provider 快捷管理，可选择并持久化配置目录，使用名称和 URL 追加 HTTP Provider。
+
+### Changed
+
+- NexusBridge 默认监听地址改为 `0.0.0.0:8090`。
+- Mihomo 默认配置改为从 `proxy-providers` 动态筛选地区、AI、自动选择和负载均衡组，并集成自定义分流规则。
+- Mihomo External Controller 默认发布 `9090` 端口，可通过内置 WebUI 管理。
+
+### Fixed
+
+- 运行时仅在主配置、内置站点和同名站点索引规则不存在时排他创建，避免启动或升级覆盖用户配置。
+- Docker 默认模板改为在 `/config` 卷挂载后由 s6 安装，避免被 bind mount 或 volume 遮蔽。
+
 ## [0.0.0-beta.1] - 2026-07-19
 
 ### Fixed

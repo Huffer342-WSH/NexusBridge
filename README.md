@@ -87,7 +87,18 @@ chmod +x nexusbridge-webui
 ./nexusbridge-webui serve
 ```
 
-服务默认监听 `http://127.0.0.1:8090`。发布二进制已内嵌 WebUI，不需要额外携带 `webui/dist/`。
+服务默认监听 `0.0.0.0:8090`。发布二进制已内嵌 WebUI，不需要额外携带 `webui/dist/`。
+
+#### Docker 一体化版
+
+一体化镜像同时包含 qBittorrent-nox、NexusBridge 和 mihomo，支持 `linux/amd64` 与 `linux/arm64`。所有应用配置统一持久化到 `/config`，下载数据使用 `/downloads`：
+
+```sh
+docker compose -f docker/compose.yaml up -d
+docker compose -f docker/compose.yaml logs -f nexusbridge
+```
+
+默认端口为 mihomo 代理 `7890`、mihomo WebUI `9090`、qB WebUI `8080`、NexusBridge `8090`、BT `6881/tcp+udp`。qB 首次启动生成的 `admin` 临时密码会出现在容器日志中；登录后应立即修改。配置目录结构、mihomo 控制器安全设置和多架构构建方法见 [Docker 说明](docker/README.md)。
 
 ### 数据目录与配置
 
@@ -155,7 +166,7 @@ cd webui
 pnpm run dev
 ```
 
-后端默认使用 `http://127.0.0.1:8090`；Vite 默认使用 `http://127.0.0.1:5173`，并代理 `/api` 和 `/rss`。
+后端默认监听 `0.0.0.0:8090`；Vite 默认使用 `http://127.0.0.1:5173`，并代理 `/api` 和 `/rss`。
 
 #### Desktop 桌面版
 

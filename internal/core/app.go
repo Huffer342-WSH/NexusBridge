@@ -26,6 +26,7 @@ type App struct {
 	store              *storage.SQLiteStore
 	mu                 sync.RWMutex
 	qbMu               sync.Mutex
+	mihomoMu           sync.Mutex
 	qbCached           *qbittorrent.Client
 	qbCacheKey         string
 	cache              map[string]Torrent

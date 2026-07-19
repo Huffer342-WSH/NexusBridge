@@ -4,7 +4,11 @@ NexusBridge 使用 JSON 配置。CLI、浏览器服务和桌面端统一通过 `
 
 开发构建和测试默认使用仓库的 `data/`，配置文件为 `data/config.json`；文件不存在时会自动生成。正式构建默认使用系统用户配置目录下的 `NexusBridge`：Windows 对应 `%AppData%\NexusBridge`，Linux 通常对应 `$XDG_CONFIG_HOME/NexusBridge` 或 `~/.config/NexusBridge`。
 
-所有运行形态首次启动都会安装程序内置的 KamePT 到 `sites/html/kamept.json`，已有同名文件不会被覆盖。`NEXUSBRIDGE_DATA_DIR` 可覆盖数据根目录；旧的 `NEXUSBRIDGE_DESKTOP_DATA_DIR` 仅为兼容保留。显式传入 `--config` 时，其所在目录成为数据根目录。
+所有运行形态首次启动都会安装程序内置的 KamePT 到 `sites/html/kamept.json`，并安装通用站点索引规则到 `sites/html/common/nexusphp_search.json`。主配置、同名站点文件和同名索引规则都只在目标不存在时排他创建，已有文件保持原内容，不会被启动或升级覆盖。`NEXUSBRIDGE_DATA_DIR` 可覆盖数据根目录；旧的 `NEXUSBRIDGE_DESKTOP_DATA_DIR` 仅为兼容保留。显式传入 `--config` 时，其所在目录成为数据根目录。
+
+Docker 一体化镜像固定设置 `NEXUSBRIDGE_DATA_DIR=/config/nexusbridge`，首次启动安装适用于容器的 `config.json`，其中 `server.host` 为 `0.0.0.0`、qB 地址为 `http://127.0.0.1:8080`。qBittorrent 配置位于 `/config/qBittorrent`，mihomo 配置位于 `/config/mihomo`；三者均通过同一个 `/config` 卷持久化，已有配置不会被镜像默认值覆盖。部署细节见 [Docker 说明](../docker/README.md)。
+
+Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录不存在且设置了 `XDG_CONFIG_HOME` 时，使用 `$XDG_CONFIG_HOME/mihomo`。`NEXUSBRIDGE_MIHOMO_CONFIG_DIR` 可显式覆盖默认目录，Docker 镜像将其设为 `/config/mihomo`。WebUI 中选定的目录保存在 NexusBridge 数据库，新增 Provider 只追加 `proxy-providers` 节点，不覆盖同名 Provider。
 
 正式版还会在可执行文件旁读取 `nexusbridge.bootstrap.json`：
 
@@ -18,7 +22,7 @@ NexusBridge 使用 JSON 配置。CLI、浏览器服务和桌面端统一通过 `
 
 默认值：
 
-- `server.host`：`127.0.0.1`
+- `server.host`：`0.0.0.0`
 - `server.port`：`8090`
 - `storage.path`：`nexusbridge.db`
 - `sites_dir`：`sites/html`
@@ -30,7 +34,7 @@ NexusBridge 使用 JSON 配置。CLI、浏览器服务和桌面端统一通过 `
 ```json
 {
   "server": {
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 8090
   },
   "storage": {

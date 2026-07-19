@@ -1,0 +1,25 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+set -e
+
+mkdir -p /config/mihomo
+if [[ ! -f /config/mihomo/config.yaml ]]; then
+    cp /defaults/mihomo/config.yaml /config/mihomo/config.yaml
+fi
+
+for database in GeoIP.dat GeoSite.dat country.mmdb ASN.mmdb; do
+    if [[ ! -f "/config/mihomo/${database}" ]]; then
+        cp "/defaults/mihomo/${database}" "/config/mihomo/${database}"
+    fi
+done
+
+if [[ ! -d /config/mihomo/ui ]]; then
+    cp -a /defaults/mihomo/ui /config/mihomo/ui
+fi
+
+if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+    lsiown -R abc:abc /config/mihomo
+    exec s6-setuidgid abc /app/mihomo -d /config/mihomo -f /config/mihomo/config.yaml
+fi
+
+exec /app/mihomo -d /config/mihomo -f /config/mihomo/config.yaml

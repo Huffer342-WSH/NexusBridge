@@ -12,6 +12,8 @@ import type {
   FetchResult,
   Health,
   LLMConfig,
+	MihomoProviderCreateRequest,
+	MihomoSettings,
   OrganizeTask,
   QBittorrentConfig,
 	QBSyncResult,
@@ -213,6 +215,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(config),
     }),
+	getMihomo: (configDir?: string) =>
+		request<MihomoSettings>(`/api/settings/mihomo${configDir ? `?config_dir=${encodeURIComponent(configDir)}` : ''}`),
+	saveMihomoDirectory: (configDir: string) =>
+		request<MihomoSettings>('/api/settings/mihomo/directory', {
+			method: 'POST',
+			body: JSON.stringify({ config_dir: configDir }),
+		}),
+	addMihomoProvider: (provider: MihomoProviderCreateRequest) =>
+		request<MihomoSettings>('/api/settings/mihomo/providers', {
+			method: 'POST',
+			body: JSON.stringify(provider),
+		}),
   previewTorrentDownload: (siteID: string, torrentID: string) =>
     request<DownloadPreview>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/download/preview`, {
       method: 'POST',

@@ -8,7 +8,7 @@
   },
   "sites_dir": "sites/html",
   "logging": {
-    "level": "debug",
+    "level": "info",
     "file": "logs/nexusbridge.log",
     "log_sensitive_fetch": false
   },
@@ -25,7 +25,9 @@
     "user_id": "",
     "password": "",
     "category": "nexusbridge",
-    "tags": ["nexusbridge"],
+    "tags": [
+      "nexusbridge"
+    ],
     "auto_sync": true,
     "sync_interval_seconds": 3,
     "inactive_sync_interval_seconds": 30,
@@ -37,30 +39,8 @@
     "model": ""
   },
   "media_library": {
-    "root": "",
+    "root": "/downloads",
     "dry_run": true
   },
-  "rules": [
-    {
-      "name": "示例筛选规则",
-      "site_ids": [],
-      "site_categories": [],
-      "site_tags": [],
-      "subtitle_tags": [],
-      "title_expression": "",
-      "promotions": [],
-      "min_size": 0,
-      "max_size": 0,
-      "min_seeders": 0,
-      "max_seeders": 0,
-      "min_leechers": 0,
-      "max_leechers": 0,
-      "min_snatches": 0,
-      "max_snatches": 0,
-      "published_within_minutes": 0,
-      "sort_by": "source_order",
-      "sort_direction": "asc",
-      "action": "download"
-    }
-  ]
+  "rules": []
 }

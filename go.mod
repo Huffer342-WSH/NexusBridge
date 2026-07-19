@@ -8,6 +8,8 @@ require (
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/spf13/cobra v1.9.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117
+	golang.org/x/net v0.54.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.3
 )
 
@@ -38,7 +40,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	lukechampine.com/blake3 v1.1.6 // indirect
 	modernc.org/libc v1.67.6 // indirect

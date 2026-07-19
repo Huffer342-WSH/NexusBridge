@@ -151,6 +151,24 @@ export type LLMConfig = {
   model: string;
 };
 
+export type MihomoProvider = {
+  name: string;
+  has_url: boolean;
+};
+
+export type MihomoSettings = {
+  config_dir: string;
+  default_config_dir: string;
+  config_path: string;
+  providers: MihomoProvider[];
+};
+
+export type MihomoProviderCreateRequest = {
+  config_dir: string;
+  name: string;
+  url: string;
+};
+
 export type DownloadPreview = {
   site_id: string;
   torrent_id: string;
