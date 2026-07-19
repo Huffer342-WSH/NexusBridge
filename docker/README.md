@@ -76,6 +76,6 @@ docker buildx build \
   --push .
 ```
 
-`.github/workflows/build-docker.yml` 在推送 `v*` tag 时构建并推送一个同时包含 `linux/amd64` 和 `linux/arm64` 的 GHCR manifest，同时生成版本号、主次版本号和 `latest` tag。手动运行 workflow 时可指定 mihomo 稳定版 tag 和目标镜像 tag，默认发布为 `edge`。
+`.github/workflows/build-docker.yml` 分别使用 GitHub 的 `ubuntu-24.04` 和 `ubuntu-24.04-arm` 原生 runner 并行构建 `linux/amd64` 与 `linux/arm64`，无需 QEMU。两个架构构建完成后会合并并推送一个 GHCR manifest，同时生成版本号、主次版本号和 `latest` tag。手动运行 workflow 时可指定 mihomo 稳定版 tag 和目标镜像 tag，默认发布为 `edge`。
 
 Dockerfile 默认使用 `lscr.io/linuxserver/qbittorrent:latest` 作为运行底座，并固定使用 mihomo `v1.19.29`。需要复现其他组合时可分别传入 `QBITTORRENT_IMAGE` 和 `MIHOMO_VERSION` build arg。
