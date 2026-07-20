@@ -195,14 +195,17 @@ func (a *App) resolveQBStatus(ctx context.Context, torrent Torrent, tasks []stor
 
 // statusFromQBTorrent 将 qB 原生任务转换为领域状态。
 func statusFromQBTorrent(qbTorrent qbittorrent.TorrentInfo, task storage.DownloadTaskRecord, source string, fetchedAt time.Time) QBTorrentStatus {
-	return QBTorrentStatus{
-		Available: true, Added: true, Source: source, FetchedAt: fetchedAt,
-		TaskID: task.ID, TaskStatus: task.Status, RuleName: task.RuleName,
-		Hash: qbTorrent.Hash, Name: qbTorrent.Name, State: qbTorrent.State, Progress: qbTorrent.Progress,
-		Category: qbTorrent.Category, Tags: qbTorrent.Tags, SavePath: qbTorrent.SavePath, ContentPath: qbTorrent.ContentPath,
-		DownloadSpeed: qbTorrent.DownloadSpeed, UploadSpeed: qbTorrent.UploadSpeed, ETA: qbTorrent.ETA, Ratio: qbTorrent.Ratio,
-		Size: qbTorrent.Size, Completed: qbTorrent.Completed, AmountLeft: qbTorrent.AmountLeft,
-	}
+	snapshot := qbSnapshotFromTorrent(storage.TorrentKey{}, qbTorrent, qbittorrent.TorrentProperties{}, false, fetchedAt)
+	status := qbStatusFromSnapshot(snapshot)
+	status.Source = source
+	status.TaskID = task.ID
+	status.TaskStatus = task.Status
+	status.RuleName = task.RuleName
+	// 实时接口保持 qB 列表响应的原始标签、大小和完成量语义。
+	status.Tags = qbTorrent.Tags
+	status.Size = qbTorrent.Size
+	status.Completed = qbTorrent.Completed
+	return status
 }
 
 // matchDownloadTaskToQB 匹配历史下载任务与 qB 原生任务。

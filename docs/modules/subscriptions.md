@@ -18,17 +18,20 @@
 | 模块 | 作用 |
 | --- | --- |
 | `filter.go`、`title_expression.go` | 规则匹配和排序。 |
-| `subscriptions.go` | CRUD、预览、候选与站点计划。 |
+| `subscriptions.go` | 订阅 CRUD 和预览。 |
+| `subscription_*.go` | 候选分配、规划、状态迁移和 qB 发送。 |
+| `scheduler.go` | 独立执行站点周期抓取。 |
 | `subscription_execution.go` | 候选领取、配额和 qB 发送。 |
 | `download_plan.go` | 确定性生成路径、分类、标签和名称。 |
 | `scheduler.go` | 到期执行、防重入和取消。 |
-| `storage/subscriptions.go` | 持久化候选所有权、运行记录和计划。 |
+| `storage/subscriptions.go`、`storage/subscription_*.go` | 持久化订阅、候选所有权和运行记录。 |
+| `storage/site_schedules.go` | 持久化站点周期计划。 |
 
 ## 执行约束
 
 - 同一站点种子只归属首个命中的已启用订阅；优先级高者先评估。
 - 首页、手动、CLI 和周期列表抓取都逐页消费该站点队列；固定页数历史补录同样会触发自动下载。
-- 同站点多个订阅共享一次列表刷新；周期计划仅在该站点存在已启用订阅时访问站点。
+- 周期计划独立触发站点列表刷新；命中的多个启用订阅共享该次刷新结果。
 - 预览只读取本地数据，不领取候选、不创建 qB 任务。
 - 下载计划不调用 LLM；模板只使用明确允许的字段。
 - qB 分类必须存在；需要的标签可在发送前创建。

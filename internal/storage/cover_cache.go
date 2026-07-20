@@ -77,13 +77,3 @@ ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 		formatDBTime(record.LastFailedAt), record.FailCount, record.AttemptVersion)
 	return err
 }
-
-// DeleteCoverCache 按站点和种子 ID 删除封面缓存记录，不删除关联的本地文件。
-func (s *SQLiteStore) DeleteCoverCache(ctx context.Context, siteID, torrentID string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM cover_cache WHERE site_id = ? AND torrent_id = ?`, siteID, torrentID)
-	if err != nil {
-		return false, err
-	}
-	rows, err := result.RowsAffected()
-	return rows > 0, err
-}

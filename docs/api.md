@@ -66,7 +66,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `POST /api/sites/{site_id}/schedule`
 
-保存站点周期配置。`interval_seconds` 允许 `60` 至 `86400`，并使用整分钟步长；站点计划默认关闭。后台调度只由常驻 WebUI/CLI 服务和桌面进程启动，并且只在该站点存在已启用订阅时访问站点。多个订阅共享一次分页扫描。
+保存站点周期配置。`interval_seconds` 允许 `60` 至 `86400`，并使用整分钟步长；站点计划默认关闭。后台调度只由常驻 WebUI/CLI 服务和桌面进程启动。计划独立触发站点分页扫描，命中的多个启用订阅共享该次扫描结果。
 
 `GET /api/sites/{site_id}/filter-options`
 
@@ -112,7 +112,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/rules`
 
-返回数据库中的可复用筛选规则。`/api/rules` 路径保持兼容，领域含义为 `FilterRule`；规则本身不包含站点周期和 qB 下载目标。
+返回数据库中的可复用筛选规则。规则本身不包含站点周期和 qB 下载目标。
 
 `POST /api/rules`
 

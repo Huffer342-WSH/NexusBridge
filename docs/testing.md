@@ -160,19 +160,18 @@ go test ./tests -run TestRecoverRealAPI -v
 
 fake qB 测试不需要环境变量，使用 `httptest` 精确断言 `torrents/add` multipart 中的 `savepath`、`category`、`tags`、`paused`、`rename` 和显式路径对应的 `autoTMM=false`，并覆盖 `200`、`202`、重复 hash、响应 body、失败重试与并发重放。它与上面的真实 WebAPI 闭环分开运行。
 
-### LLM 与整理通信
+### LLM 通信
 
 说明：
 
-- `TestLLMBasicChat` 使用 fake LLM 服务验证基础 Chat Completions 调用。
-- `TestLLMExtractCosplayVideo` 验证 cosplay 视频信息结构化提取。
-- `TestOrganizerUsesLLMAndCreatesHardlink` 使用 fake LLM 服务验证整理输出和硬链接创建。
-- `TestOrganizerRejectsUnsafeLLMPath` 验证 LLM 返回不安全相对路径时会被拒绝。
+- `TestLLMRealChat` 使用配置的真实 OpenAI-compatible 服务验证基础 Chat Completions 调用。
+- `TestLLMRealExtractCosplayVideo` 验证 demo 阶段的 cosplay 视频信息结构化提取。
+- 两项测试都需要 `NEXUSBRIDGE_TEST_LLM_BASE_URL`、`NEXUSBRIDGE_TEST_LLM_API_KEY` 和 `NEXUSBRIDGE_TEST_LLM_MODEL`，会产生真实模型请求和可能的调用费用。
 
 指令：
 
 ```sh
-go test ./tests -run "TestLLM|TestOrganizer" -v
+go test ./tests -run "TestLLMReal" -v
 ```
 
 ### 请求策略通信

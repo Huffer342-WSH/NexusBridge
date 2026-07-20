@@ -65,23 +65,6 @@ VALUES (?, ?, '', ?, CURRENT_TIMESTAMP)
 	return tx.Commit()
 }
 
-// SaveQBCategory 新增或覆盖单个 qB 分类快照。
-func (s *SQLiteStore) SaveQBCategory(ctx context.Context, record QBCategoryRecord) error {
-	if record.SyncedAt.IsZero() {
-		record.SyncedAt = time.Now()
-	}
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO qb_categories (name, save_path, last_error, synced_at, updated_at)
-VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-ON CONFLICT(name) DO UPDATE SET
-	save_path = excluded.save_path,
-	last_error = excluded.last_error,
-	synced_at = excluded.synced_at,
-	updated_at = CURRENT_TIMESTAMP
-`, record.Name, record.SavePath, record.LastError, formatDBTime(record.SyncedAt))
-	return err
-}
-
 // ListQBCategories 返回最近一次成功同步的 qB 分类快照。
 func (s *SQLiteStore) ListQBCategories(ctx context.Context) ([]QBCategoryRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -136,22 +119,6 @@ VALUES (?, '', ?, CURRENT_TIMESTAMP)
 		return err
 	}
 	return tx.Commit()
-}
-
-// SaveQBTag 新增或覆盖单个 qB 标签快照。
-func (s *SQLiteStore) SaveQBTag(ctx context.Context, record QBTagRecord) error {
-	if record.SyncedAt.IsZero() {
-		record.SyncedAt = time.Now()
-	}
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO qb_tags (name, last_error, synced_at, updated_at)
-VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-ON CONFLICT(name) DO UPDATE SET
-	last_error = excluded.last_error,
-	synced_at = excluded.synced_at,
-	updated_at = CURRENT_TIMESTAMP
-`, record.Name, record.LastError, formatDBTime(record.SyncedAt))
-	return err
 }
 
 // ListQBTags 返回最近一次成功同步的 qB 标签快照。

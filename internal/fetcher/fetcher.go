@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"nexusbridge/internal/urlutil"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -481,14 +483,7 @@ func buildRequestURL(rawURL string, params map[string]string) (string, error) {
 }
 
 func normalizeBaseURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if !strings.Contains(raw, "://") {
-		raw = "https://" + raw
-	}
-	return strings.TrimRight(raw, "/")
+	return urlutil.NormalizeBaseURL(raw)
 }
 
 func joinURL(baseURL, path string) string {

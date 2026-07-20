@@ -307,6 +307,7 @@ func mergeTags(groups ...[]string) []string {
 	return result
 }
 
+// normalizeStrings 清理空值，并按不区分大小写的值去重。
 func normalizeStrings(values []string) []string {
 	seen := map[string]struct{}{}
 	result := make([]string, 0, len(values))

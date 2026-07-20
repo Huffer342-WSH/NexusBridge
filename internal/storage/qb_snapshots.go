@@ -122,18 +122,6 @@ func (s *SQLiteStore) ListQBSnapshots(ctx context.Context, keys []TorrentKey) (m
 	return result, rows.Err()
 }
 
-// GetQBSnapshot 读取单个本地种子的 qBittorrent 快照。
-func (s *SQLiteStore) GetQBSnapshot(ctx context.Context, key TorrentKey) (QBSnapshotRecord, bool, error) {
-	record, err := scanQBSnapshot(s.db.QueryRowContext(ctx, qbSnapshotSelect+" WHERE site_id = ? AND torrent_id = ?", key.SiteID, key.TorrentID))
-	if err == sql.ErrNoRows {
-		return QBSnapshotRecord{}, false, nil
-	}
-	if err != nil {
-		return QBSnapshotRecord{}, false, err
-	}
-	return record, true, nil
-}
-
 const qbSnapshotSelect = `
 SELECT site_id, torrent_id, added, qb_hash, name, state, progress, category, tags_json,
 	save_path, content_path, total_size, amount_left, downloaded, uploaded, download_speed,

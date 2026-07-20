@@ -57,7 +57,7 @@ func (mutex *contextMutex) Lock(ctx context.Context) error {
 
 func (mutex *contextMutex) Unlock() { mutex.token <- struct{}{} }
 
-// StartAutomation 启动仅供常驻进程使用的站点订阅调度器。
+// StartAutomation 启动仅供常驻进程使用的站点抓取调度器。
 func (a *App) StartAutomation(ctx context.Context) {
 	a.StartAutomationWithClock(ctx, realAutomationClock{})
 }
@@ -163,17 +163,6 @@ func (a *App) runDueSiteSchedules(ctx context.Context, clock AutomationClock, no
 		interval := time.Duration(schedule.IntervalMinutes) * time.Minute
 		if interval <= 0 {
 			interval = defaultScheduleInterval
-		}
-		subscriptions, err := a.store.ListEnabledSubscriptionsBySite(ctx, schedule.SiteID)
-		if err != nil {
-			slog.Error("list scheduled site subscriptions failed", "site_id", schedule.SiteID, "error", err)
-			continue
-		}
-		if len(subscriptions) == 0 {
-			if err := a.store.UpdateSiteScheduleResult(ctx, schedule.SiteID, schedule.LastRunAt, claimedAt.Add(interval), ""); err != nil {
-				slog.Error("defer inactive site schedule failed", "site_id", schedule.SiteID, "error", err)
-			}
-			continue
 		}
 		claimed, err := a.store.ClaimDueSiteSchedule(ctx, schedule.SiteID, claimedAt, claimedAt.Add(interval))
 		if err != nil {

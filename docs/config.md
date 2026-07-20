@@ -180,7 +180,7 @@ WebUI 的 `设置 / qBittorrent` 页面保存 qBittorrent 设置时，如果密�
 
 订阅的 `save_path_template`、`qb_tags[]` 和 `filename_template` 只允许：`{{site_id}}`、`{{site_name}}`、`{{torrent_id}}`、`{{category}}`、`{{category_query}}`、`{{rule_name}}`、`{{subscription_name}}`、`{{title}}`、`{{detail_title}}`、`{{subtitle}}`。模板不执行表达式或 LLM，未知占位符会在保存时拒绝。`max_concurrent=0` 和 `daily_limit=0` 表示不限；显式路径会以 `autoTMM=false` 发送，空路径让 qB 使用分类或默认路径策略。
 
-每个站点计划保存 `enabled` 和 `interval_seconds`，默认关闭、默认 900 秒，允许 60 秒至 24 小时并使用整分钟步长。只有常驻服务版和桌面版启动后台调度器，且站点没有已启用订阅时计划不会访问站点；CLI 单次命令不启动后台循环。
+每个站点计划保存 `enabled` 和 `interval_seconds`，默认关闭、默认 900 秒，允许 60 秒至 24 小时并使用整分钟步长。只有常驻服务版和桌面版启动后台调度器；计划独立触发站点抓取，CLI 单次命令不启动后台循环。
 
 ## LLM 与媒体库
 

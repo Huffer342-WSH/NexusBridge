@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"nexusbridge/internal/stringutil"
 )
 
 type Config struct {
@@ -83,13 +85,6 @@ func (c *Client) GetDefaultSavePath(ctx context.Context) (string, error) {
 		}
 	}
 	return value, nil
-}
-
-// Login 使用 qBittorrent 原生账号密码登录接口获取 SID cookie。
-func (c *Client) Login(ctx context.Context) error {
-	c.authMu.Lock()
-	defer c.authMu.Unlock()
-	return c.login(ctx)
 }
 
 // login 执行一次 qB 原生登录并记录认证状态。
@@ -286,6 +281,7 @@ func joinHashes(hashes []string) string {
 	return strings.Join(values, "|")
 }
 
+// nonEmptyStrings 清理空值并保留原始顺序、大小写和重复项。
 func nonEmptyStrings(values []string) []string {
 	result := make([]string, 0, len(values))
 	for _, value := range values {
@@ -298,10 +294,5 @@ func nonEmptyStrings(values []string) []string {
 }
 
 func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
+	return stringutil.FirstNonEmpty(values...)
 }

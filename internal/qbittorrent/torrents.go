@@ -1,15 +1,10 @@
 package qbittorrent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"mime/multipart"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -161,32 +156,7 @@ type TorrentContent struct {
 }
 
 // Category 表示 qBittorrent 下载分类。
-type Category struct {
-	Name     string `json:"name"`
-	SavePath string `json:"savePath"`
-}
 
-// UnmarshalJSON 同时兼容 qBittorrent 返回的 savePath 和 save_path 字段。
-func (c *Category) UnmarshalJSON(data []byte) error {
-	var value struct {
-		Name          string  `json:"name"`
-		SavePath      *string `json:"savePath"`
-		SavePathSnake *string `json:"save_path"`
-	}
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	c.Name = value.Name
-	c.SavePath = ""
-	if value.SavePath != nil {
-		c.SavePath = *value.SavePath
-	} else if value.SavePathSnake != nil {
-		c.SavePath = *value.SavePathSnake
-	}
-	return nil
-}
-
-// AddTorrentURL 通过 URL 或 magnet 链接添加新种子。
 func (c *Client) AddTorrentURL(ctx context.Context, opts AddOptions) error {
 	urls := append([]string{}, opts.URLs...)
 	if strings.TrimSpace(opts.URL) != "" {
@@ -202,12 +172,6 @@ func (c *Client) AddTorrentURL(ctx context.Context, opts AddOptions) error {
 	}
 	form.Set("urls", strings.Join(nonEmptyStrings(urls), "\n"))
 	_, err = c.postMultipart(ctx, "/api/v2/torrents/add", form, nil)
-	return err
-}
-
-// AddTorrentFile 上传本地已下载的 torrent 文件到 qBittorrent。
-func (c *Client) AddTorrentFile(ctx context.Context, opts AddOptions) error {
-	_, err := c.addTorrentFileWithResult(ctx, opts)
 	return err
 }
 
@@ -284,25 +248,6 @@ func (c *Client) FindTorrentByHash(ctx context.Context, hash string) (TorrentInf
 	return TorrentInfo{}, false, nil
 }
 
-// FindTorrentsByName 按名称不区分大小写查找 qBittorrent 任务。
-func (c *Client) FindTorrentsByName(ctx context.Context, name string) ([]TorrentInfo, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return nil, fmt.Errorf("torrent name is required")
-	}
-	torrents, err := c.ListTorrents(ctx)
-	if err != nil {
-		return nil, err
-	}
-	matched := make([]TorrentInfo, 0)
-	for _, torrent := range torrents {
-		if strings.EqualFold(strings.TrimSpace(torrent.Name), name) {
-			matched = append(matched, torrent)
-		}
-	}
-	return matched, nil
-}
-
 // GetTorrentProperties 查询指定种子的通用属性。
 func (c *Client) GetTorrentProperties(ctx context.Context, hash string) (TorrentProperties, error) {
 	if strings.TrimSpace(hash) == "" {
@@ -317,267 +262,3 @@ func (c *Client) GetTorrentProperties(ctx context.Context, hash string) (Torrent
 }
 
 // GetTorrentContents 查询指定种子的文件列表。
-func (c *Client) GetTorrentContents(ctx context.Context, hash string, indexes []int) ([]TorrentContent, error) {
-	if strings.TrimSpace(hash) == "" {
-		return nil, fmt.Errorf("torrent hash is required")
-	}
-	values := url.Values{"hash": {hash}}
-	if len(indexes) > 0 {
-		parts := make([]string, 0, len(indexes))
-		for _, index := range indexes {
-			parts = append(parts, strconv.Itoa(index))
-		}
-		values.Set("indexes", strings.Join(parts, "|"))
-	}
-	var contents []TorrentContent
-	if err := c.getJSON(ctx, "/api/v2/torrents/files", values, "torrents/files", &contents); err != nil {
-		return nil, err
-	}
-	return contents, nil
-}
-
-// RenameTorrentFile 修改指定种子中单个文件的相对路径或文件名。
-func (c *Client) RenameTorrentFile(ctx context.Context, hash, oldPath, newPath string) error {
-	hash = strings.TrimSpace(hash)
-	oldPath = strings.TrimSpace(oldPath)
-	newPath = strings.TrimSpace(newPath)
-	if hash == "" {
-		return fmt.Errorf("torrent hash is required")
-	}
-	if oldPath == "" {
-		return fmt.Errorf("old torrent file path is required")
-	}
-	if newPath == "" {
-		return fmt.Errorf("new torrent file path is required")
-	}
-	values := url.Values{"hash": {hash}, "oldPath": {oldPath}, "newPath": {newPath}}
-	return c.postForm(ctx, "/api/v2/torrents/renameFile", values, "torrents/renameFile")
-}
-
-// RenameTorrentFolder 修改指定种子中目录的相对路径或目录名。
-func (c *Client) RenameTorrentFolder(ctx context.Context, hash, oldPath, newPath string) error {
-	hash = strings.TrimSpace(hash)
-	oldPath = strings.TrimSpace(oldPath)
-	newPath = strings.TrimSpace(newPath)
-	if hash == "" {
-		return fmt.Errorf("torrent hash is required")
-	}
-	if oldPath == "" {
-		return fmt.Errorf("old torrent folder path is required")
-	}
-	if newPath == "" {
-		return fmt.Errorf("new torrent folder path is required")
-	}
-	values := url.Values{"hash": {hash}, "oldPath": {oldPath}, "newPath": {newPath}}
-	return c.postForm(ctx, "/api/v2/torrents/renameFolder", values, "torrents/renameFolder")
-}
-
-// SetTorrentLocation 修改一个或多个种子的保存目录。
-func (c *Client) SetTorrentLocation(ctx context.Context, hashes []string, location string) error {
-	location = strings.TrimSpace(location)
-	if location == "" {
-		return fmt.Errorf("torrent location is required")
-	}
-	values := url.Values{"hashes": {joinHashes(hashes)}, "location": {location}}
-	return c.postForm(ctx, "/api/v2/torrents/setLocation", values, "torrents/setLocation")
-}
-
-// SetTorrentCategory 设置一个或多个种子的分类。
-func (c *Client) SetTorrentCategory(ctx context.Context, hashes []string, category string) error {
-	values := url.Values{"hashes": {joinHashes(hashes)}, "category": {category}}
-	return c.postForm(ctx, "/api/v2/torrents/setCategory", values, "torrents/setCategory")
-}
-
-// GetCategories 查询 qBittorrent 中的全部分类。
-func (c *Client) GetCategories(ctx context.Context) (map[string]Category, error) {
-	var categories map[string]Category
-	if err := c.getJSON(ctx, "/api/v2/torrents/categories", nil, "torrents/categories", &categories); err != nil {
-		return nil, err
-	}
-	if categories == nil {
-		categories = map[string]Category{}
-	}
-	for name, category := range categories {
-		if strings.TrimSpace(category.Name) == "" {
-			category.Name = name
-			categories[name] = category
-		}
-	}
-	return categories, nil
-}
-
-// CreateCategory 创建 qBittorrent 分类。
-func (c *Client) CreateCategory(ctx context.Context, category, savePath string) error {
-	values := url.Values{"category": {category}}
-	if savePath != "" {
-		values.Set("savePath", savePath)
-	}
-	return c.postForm(ctx, "/api/v2/torrents/createCategory", values, "torrents/createCategory")
-}
-
-// EditCategory 修改 qBittorrent 分类的保存路径。
-func (c *Client) EditCategory(ctx context.Context, category, savePath string) error {
-	values := url.Values{"category": {category}, "savePath": {savePath}}
-	return c.postForm(ctx, "/api/v2/torrents/editCategory", values, "torrents/editCategory")
-}
-
-// RemoveCategories 删除一个或多个 qBittorrent 分类。
-func (c *Client) RemoveCategories(ctx context.Context, categories []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/removeCategories", url.Values{"categories": {strings.Join(nonEmptyStrings(categories), "\n")}}, "torrents/removeCategories")
-}
-
-// AddTorrentTags 给一个或多个种子添加标签。
-func (c *Client) AddTorrentTags(ctx context.Context, hashes []string, tags []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/addTags", torrentTagsForm(hashes, tags), "torrents/addTags")
-}
-
-// RemoveTorrentTags 移除一个或多个种子的标签。
-func (c *Client) RemoveTorrentTags(ctx context.Context, hashes []string, tags []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/removeTags", torrentTagsForm(hashes, tags), "torrents/removeTags")
-}
-
-// GetTags 查询 qBittorrent 中的全部标签。
-func (c *Client) GetTags(ctx context.Context) ([]string, error) {
-	var tags []string
-	if err := c.getJSON(ctx, "/api/v2/torrents/tags", nil, "torrents/tags", &tags); err != nil {
-		return nil, err
-	}
-	return tags, nil
-}
-
-// CreateTags 创建一个或多个 qBittorrent 标签。
-func (c *Client) CreateTags(ctx context.Context, tags []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/createTags", url.Values{"tags": {strings.Join(nonEmptyStrings(tags), ",")}}, "torrents/createTags")
-}
-
-// DeleteTags 删除一个或多个 qBittorrent 标签。
-func (c *Client) DeleteTags(ctx context.Context, tags []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/deleteTags", url.Values{"tags": {strings.Join(nonEmptyStrings(tags), ",")}}, "torrents/deleteTags")
-}
-
-// DeleteTorrents 删除一个或多个 qBittorrent 种子任务。
-func (c *Client) DeleteTorrents(ctx context.Context, hashes []string, deleteFiles bool) error {
-	values := url.Values{"hashes": {joinHashes(hashes)}, "deleteFiles": {strconv.FormatBool(deleteFiles)}}
-	return c.postForm(ctx, "/api/v2/torrents/delete", values, "torrents/delete")
-}
-
-// StopTorrents 暂停一个或多个 qBittorrent 种子任务。
-func (c *Client) StopTorrents(ctx context.Context, hashes []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/stop", url.Values{"hashes": {joinHashes(hashes)}}, "torrents/stop")
-}
-
-// StartTorrents 恢复一个或多个 qBittorrent 种子任务。
-func (c *Client) StartTorrents(ctx context.Context, hashes []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/start", url.Values{"hashes": {joinHashes(hashes)}}, "torrents/start")
-}
-
-// RecheckTorrents 强制重新校验一个或多个 qBittorrent 种子任务。
-func (c *Client) RecheckTorrents(ctx context.Context, hashes []string) error {
-	return c.postForm(ctx, "/api/v2/torrents/recheck", url.Values{"hashes": {joinHashes(hashes)}}, "torrents/recheck")
-}
-
-func torrentTagsForm(hashes, tags []string) url.Values {
-	return url.Values{"hashes": {joinHashes(hashes)}, "tags": {strings.Join(nonEmptyStrings(tags), ",")}}
-}
-
-func (c *Client) postMultipart(ctx context.Context, path string, values url.Values, files []torrentFile) (torrentAddResult, error) {
-	if err := c.ensureAuth(ctx); err != nil {
-		return torrentAddResult{}, err
-	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	for name, fieldValues := range values {
-		for _, value := range fieldValues {
-			if err := writer.WriteField(name, value); err != nil {
-				return torrentAddResult{}, err
-			}
-		}
-	}
-	for _, file := range files {
-		part, err := writer.CreateFormFile("torrents", file.Name)
-		if err != nil {
-			return torrentAddResult{}, err
-		}
-		if _, err := part.Write(file.Data); err != nil {
-			return torrentAddResult{}, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return torrentAddResult{}, err
-	}
-	resp, err := c.doAuthed(ctx, http.MethodPost, path, &body, writer.FormDataContentType())
-	if err != nil {
-		return torrentAddResult{}, err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	slog.Info("qb add torrent response", "status", resp.StatusCode, "body", strings.TrimSpace(string(respBody)))
-	if resp.StatusCode == http.StatusConflict {
-		return torrentAddResult{}, fmt.Errorf("%w: %s", ErrTorrentConflict, trimBody(respBody))
-	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return torrentAddResult{}, fmt.Errorf("qbittorrent torrents/add status %d: %s", resp.StatusCode, trimBody(respBody))
-	}
-	var addResult torrentAddResult
-	if json.Unmarshal(respBody, &addResult) == nil && addResult.FailureCount > 0 {
-		return addResult, fmt.Errorf("qbittorrent add failed: %s", trimBody(respBody))
-	}
-	if text := strings.TrimSpace(string(respBody)); text != "" && !strings.Contains(strings.ToLower(text), "ok") {
-		if !strings.Contains(text, "pending_count") && !strings.Contains(text, "success_count") {
-			return addResult, fmt.Errorf("qbittorrent add failed: %s", text)
-		}
-	}
-	return addResult, nil
-}
-
-func (c *Client) addOptionsForm(opts AddOptions) (url.Values, error) {
-	values := url.Values{}
-	if opts.SavePath != "" {
-		values.Set("savepath", opts.SavePath)
-	}
-	if opts.Category != "" {
-		values.Set("category", opts.Category)
-	}
-	if len(opts.Tags) > 0 {
-		values.Set("tags", strings.Join(nonEmptyStrings(opts.Tags), ","))
-	}
-	if opts.SkipChecking {
-		values.Set("skip_checking", "true")
-	}
-	if opts.Paused {
-		values.Set("paused", "true")
-	}
-	if opts.RootFolder != nil {
-		values.Set("root_folder", strconv.FormatBool(*opts.RootFolder))
-	}
-	if opts.Rename != "" {
-		values.Set("rename", opts.Rename)
-	}
-	if opts.UploadLimit > 0 {
-		values.Set("upLimit", strconv.Itoa(opts.UploadLimit))
-	}
-	if opts.DownloadLimit > 0 {
-		values.Set("dlLimit", strconv.Itoa(opts.DownloadLimit))
-	}
-	if opts.RatioLimit != nil {
-		values.Set("ratioLimit", strconv.FormatFloat(*opts.RatioLimit, 'f', -1, 64))
-	}
-	if opts.SeedingTimeLimit != nil {
-		values.Set("seedingTimeLimit", strconv.Itoa(*opts.SeedingTimeLimit))
-	}
-	if opts.AutoTMM != nil {
-		values.Set("autoTMM", strconv.FormatBool(*opts.AutoTMM))
-	}
-	if opts.SequentialDownload {
-		values.Set("sequentialDownload", "true")
-	}
-	if opts.FirstLastPiecePrio {
-		values.Set("firstLastPiecePrio", "true")
-	}
-	return values, nil
-}
-
-type torrentFile struct {
-	Name string
-	Data []byte
-}
