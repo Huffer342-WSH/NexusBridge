@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -139,7 +140,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/torrents/{site_id}/{torrent_id}/qb-status", s.handleTorrentQBStatus)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/qb-control", s.handleTorrentQBControl)
 	r.Post("/api/sites/{site_id}/fetch", s.handleFetchSite)
-	r.Post("/api/sites/{site_id}/run-once", s.handleRunOnce)
+	r.Get("/api/site-fetch-jobs", s.handleSiteFetchJobs)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/download/preview", s.handlePreviewTorrentDownload)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/download", s.handleSendTorrentDownload)
 	r.Get("/api/rules", s.handleRules)
@@ -151,7 +152,6 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/api/subscriptions", s.handleSaveSubscription)
 	r.Delete("/api/subscriptions/{subscription_id}", s.handleDeleteSubscription)
 	r.Post("/api/subscriptions/{subscription_id}/preview", s.handlePreviewSubscription)
-	r.Post("/api/subscriptions/{subscription_id}/run-once", s.handleRunSubscriptionOnce)
 	r.Get("/api/subscriptions/{subscription_id}/candidates", s.handleSubscriptionCandidates)
 	r.Get("/api/subscription-runs", s.handleSubscriptionRuns)
 	r.Get("/api/sites/{site_id}/schedule", s.handleGetSiteSchedule)
@@ -162,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 	r.Post("/api/settings/llm", s.handleSaveLLM)
 	r.Get("/api/settings/network", s.handleGetNetwork)
 	r.Post("/api/settings/network", s.handleSaveNetwork)
+	r.Get("/api/settings/fetch", s.handleGetFetchSettings)
+	r.Post("/api/settings/fetch", s.handleSaveFetchSettings)
 	r.Get("/api/settings/mihomo", s.handleGetMihomo)
 	r.Post("/api/settings/mihomo/directory", s.handleSaveMihomoDirectory)
 	r.Post("/api/settings/mihomo/providers", s.handleAddMihomoProvider)
@@ -309,18 +311,48 @@ func (s *Server) handleSaveSiteCredential(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
-	torrents, err := s.torrents.ListTorrents(r.Context(), core.TorrentQuery{
-		SiteID:      r.URL.Query().Get("site_id"),
-		Search:      r.URL.Query().Get("q"),
-		Limit:       50,
-		IncludeQB:   queryBool(r, "include_qb"),
-		QBWeakMatch: queryBool(r, "qb_weak_match"),
+	offset, err := queryInt(r, "offset", 0)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	limit, err := queryInt(r, "limit", 50)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if offset < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("offset must not be negative"))
+		return
+	}
+	if limit < 1 || limit > 100 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("limit must be between 1 and 100"))
+		return
+	}
+	includePinned := true
+	if raw := strings.TrimSpace(r.URL.Query().Get("include_pinned")); raw != "" {
+		includePinned, err = strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid include_pinned: %w", err))
+			return
+		}
+	}
+	page, err := s.torrents.ListTorrentPage(r.Context(), core.TorrentQuery{
+		SiteID:        r.URL.Query().Get("site_id"),
+		Search:        r.URL.Query().Get("q"),
+		SortBy:        r.URL.Query().Get("sort_by"),
+		SortDirection: r.URL.Query().Get("sort_direction"),
+		Limit:         limit,
+		Offset:        offset,
+		IncludeQB:     queryBool(r, "include_qb"),
+		QBWeakMatch:   queryBool(r, "qb_weak_match"),
+		ExcludePinned: !includePinned,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, torrents)
+	writeJSON(w, http.StatusOK, page)
 }
 
 // handleTorrentCover 返回持久缓存中的封面图片并支持浏览器条件请求。
@@ -375,26 +407,42 @@ func (s *Server) handleTorrentQBControl(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, status)
 }
 
+// handleFetchSite 创建后台站点扫描并立即返回持久化任务。
 func (s *Server) handleFetchSite(w http.ResponseWriter, r *http.Request) {
 	siteID := chi.URLParam(r, "site_id")
 	slog.Info("api fetch requested", "site_id", siteID)
-	result, err := s.fetcher.FetchSite(r.Context(), siteID)
+	var request core.SiteFetchRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	trigger := "manual"
+	if r.URL.Query().Get("trigger") == "homepage" {
+		trigger = "homepage"
+	}
+	result, err := s.fetcher.StartSiteFetch(r.Context(), siteID, trigger, request)
 	if err != nil {
 		slog.Error("api fetch failed", "site_id", siteID, "error", err)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	slog.Info("api fetch accepted", "site_id", siteID, "fetched", result.Fetched, "changed", result.Changed)
+	slog.Info("api fetch accepted", "site_id", siteID, "job_id", result.ID)
 	writeJSON(w, http.StatusAccepted, result)
 }
 
-func (s *Server) handleRunOnce(w http.ResponseWriter, r *http.Request) {
-	result, err := s.fetcher.RunOnce(r.Context(), chi.URLParam(r, "site_id"))
+// handleSiteFetchJobs 返回最近的持久化站点扫描任务。
+func (s *Server) handleSiteFetchJobs(w http.ResponseWriter, r *http.Request) {
+	limit, err := queryInt(r, "limit", 100)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	items, err := s.fetcher.ListSiteFetchJobs(r.Context(), r.URL.Query().Get("site_id"), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, result)
+	writeJSON(w, http.StatusOK, items)
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
@@ -514,15 +562,6 @@ func (s *Server) handlePreviewSubscription(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
-}
-
-func (s *Server) handleRunSubscriptionOnce(w http.ResponseWriter, r *http.Request) {
-	result, err := s.subscriptions.RunSubscriptionOnce(r.Context(), chi.URLParam(r, "subscription_id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, result)
 }
 
 func (s *Server) handleSubscriptionCandidates(w http.ResponseWriter, r *http.Request) {
@@ -862,6 +901,31 @@ func (s *Server) handleSaveNetwork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, saved)
 }
 
+// handleGetFetchSettings 返回全局站点抓取设置。
+func (s *Server) handleGetFetchSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.fetcher.GetFetchSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleSaveFetchSettings 保存全局站点抓取设置。
+func (s *Server) handleSaveFetchSettings(w http.ResponseWriter, r *http.Request) {
+	var settings core.FetchSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	saved, err := s.fetcher.SaveFetchSettings(r.Context(), settings)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
 // handleGetMihomo 返回 Mihomo 配置目录与 Provider 列表。
 func (s *Server) handleGetMihomo(w http.ResponseWriter, r *http.Request) {
 	settings, err := s.settings.GetMihomoSettings(r.Context(), r.URL.Query().Get("config_dir"))
@@ -972,6 +1036,18 @@ func queryBool(r *http.Request, name string) bool {
 	default:
 		return false
 	}
+}
+
+func queryInt(r *http.Request, name string, fallback int) (int, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s: %w", name, err)
+	}
+	return value, nil
 }
 
 func dirExists(path string) bool {

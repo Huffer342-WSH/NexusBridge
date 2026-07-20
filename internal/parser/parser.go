@@ -46,7 +46,6 @@ func ParsePage(data []byte, opts SiteParseOptions) (ParsedPage, error) {
 				"category": "{{query_name}}=1",
 				"tag":      "tag_id={{value}}",
 				"keyword":  "search={{value}}",
-				"page":     "page={{value}}",
 			},
 		},
 		Selectors: selectors,
@@ -57,7 +56,7 @@ func ParsePage(data []byte, opts SiteParseOptions) (ParsedPage, error) {
 		page.SearchConfig = parseSearchConfig(form, baseURL)
 	}
 	page.Torrents = parseTorrents(doc, opts.SiteID, baseURL, selectors, opts.TorrentFields)
-	page.Pagination = parsePagination(doc, baseURL, selectors)
+	page.Pagination = parsePagination(doc, pageURL, selectors)
 	return page, nil
 }
 
@@ -255,7 +254,11 @@ func UpdateSiteDefinitionSearchOptions(definition SiteDefinition, page ParsedPag
 		}
 	}
 	if !page.SearchConfig.Fields.Empty() {
-		definition.HTML.Search.Fields = page.SearchConfig.Fields
+		fields := page.SearchConfig.Fields
+		if fields.Page == nil {
+			fields.Page = definition.HTML.Search.Fields.Page
+		}
+		definition.HTML.Search.Fields = fields
 	}
 	if len(definition.HTML.Category) == 0 || len(page.SearchConfig.Categories) == 0 {
 		return definition
@@ -1138,7 +1141,7 @@ func uniqueNonEmpty(values []string) []string {
 	return result
 }
 
-func parsePagination(doc *goquery.Document, baseURL string, selectors ParseSelectors) Pagination {
+func parsePagination(doc *goquery.Document, pageURL string, selectors ParseSelectors) Pagination {
 	pagination := Pagination{}
 	pager := doc.Find(selectors.Pagination).First()
 	pagination.CurrentLabel = cleanText(pager.Find(".current").First().Text())
@@ -1149,7 +1152,7 @@ func parsePagination(doc *goquery.Document, baseURL string, selectors ParseSelec
 			Page:  page,
 			Label: cleanText(link.Text()),
 			Href:  html.UnescapeString(href),
-			URL:   absoluteURL(baseURL, href),
+			URL:   resolvePageReference(pageURL, href),
 		})
 	})
 	return pagination
@@ -1246,6 +1249,26 @@ func absoluteURL(baseURL, href string) string {
 		return href
 	}
 	ref, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+	return base.ResolveReference(ref).String()
+}
+
+// resolvePageReference 以当前列表页为基准解析分页链接，保留 torrents.php 路径。
+func resolvePageReference(pageURL, href string) string {
+	href = strings.TrimSpace(html.UnescapeString(href))
+	if href == "" {
+		return ""
+	}
+	ref, err := url.Parse(href)
+	if err != nil {
+		return href
+	}
+	if ref.IsAbs() {
+		return ref.String()
+	}
+	base, err := url.Parse(strings.TrimSpace(pageURL))
 	if err != nil {
 		return href
 	}

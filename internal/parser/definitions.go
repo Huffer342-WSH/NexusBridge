@@ -74,14 +74,25 @@ func SiteConfigFromDefinition(definition SiteDefinition) SiteConfig {
 	if len(definition.HTML.Search.Paths) > 0 && strings.TrimSpace(definition.HTML.Search.Paths[0].Path) != "" {
 		searchPath = strings.TrimSpace(definition.HTML.Search.Paths[0].Path)
 	}
+	listPath := searchPath
+	if strings.TrimSpace(definition.HTML.Browse.Path) != "" {
+		listPath = strings.TrimSpace(definition.HTML.Browse.Path)
+	}
 	queryTemplate := map[string]string{
 		"category": "{{query_name}}=1",
 		"tag":      "tag_id={{value}}",
 		"keyword":  "search={{value}}",
-		"page":     "page={{value}}",
 	}
 	for name, value := range definition.HTML.Search.Params {
 		queryTemplate[name] = fmt.Sprint(value)
+	}
+	pagination := SitePaginationConfig{Start: definition.HTML.Browse.Start}
+	if page := definition.HTML.Search.Fields.Page; page != nil && strings.EqualFold(strings.TrimSpace(page.Type), "number") {
+		pagination.Parameter = strings.TrimSpace(page.Name)
+		pagination.Query = strings.TrimSpace(page.Query)
+		if pagination.Parameter != "" && pagination.Query == "" {
+			pagination.Query = pagination.Parameter + "={{value}}"
+		}
 	}
 	return normalizeSiteConfig(SiteConfig{
 		SiteID:        definition.ID,
@@ -89,9 +100,10 @@ func SiteConfigFromDefinition(definition SiteDefinition) SiteConfig {
 		BaseURL:       baseURL,
 		Domain:        baseURL,
 		Encoding:      definition.Encoding,
-		URL:           absoluteURL(baseURL, searchPath),
+		URL:           absoluteURL(baseURL, listPath),
 		SearchPath:    pathFromURL(searchPath, "/torrents.php"),
 		DownloadPath:  "/download.php",
+		Pagination:    pagination,
 		QueryTemplate: queryTemplate,
 	})
 }
@@ -148,7 +160,6 @@ func normalizeSiteConfig(cfg SiteConfig) SiteConfig {
 			"category": "{{query_name}}=1",
 			"tag":      "tag_id={{value}}",
 			"keyword":  "search={{value}}",
-			"page":     "page={{value}}",
 		}
 	}
 	return cfg

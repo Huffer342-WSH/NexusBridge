@@ -6,7 +6,6 @@ import {
 	CloudDownload,
 	Database,
 	Eye,
-	Play,
 	Plus,
 	RefreshCw,
 	Save,
@@ -550,23 +549,6 @@ async function previewSubscription() {
 	}
 }
 
-async function runSubscription() {
-	if (!subscriptions.value.some((subscription) => subscription.id === subscriptionDraft.value.id)) {
-		setFeedback('warning', '请先保存订阅，再执行一次');
-		return;
-	}
-	action.value = 'run-subscription';
-	try {
-		const result = await api.runSubscriptionOnce(subscriptionDraft.value.id);
-		setFeedback('success', `执行完成：发送 ${result.sent}，跳过 ${result.skipped}，失败 ${result.failed}`);
-		await Promise.all([loadCandidates(subscriptionDraft.value.id), loadRuns()]);
-	} catch (error) {
-		setFeedback('error', error instanceof Error ? error.message : '订阅执行失败');
-	} finally {
-		action.value = '';
-	}
-}
-
 async function loadCandidates(subscriptionID: string) {
 	try {
 		candidates.value = await api.getSubscriptionCandidates(subscriptionID);
@@ -920,7 +902,6 @@ onBeforeUnmount(() => {
 									</NPopconfirm>
 									<NSpace>
 										<NButton :loading="action === 'preview-subscription'" data-testid="preview-subscription" @click="previewSubscription"><template #icon><NIcon :component="Eye" /></template>预览</NButton>
-										<NButton :loading="action === 'run-subscription'" @click="runSubscription"><template #icon><NIcon :component="Play" /></template>执行一次</NButton>
 										<NButton type="primary" :loading="action === 'save-subscription'" data-testid="save-subscription" @click="saveSubscription"><template #icon><NIcon :component="Save" /></template>保存订阅</NButton>
 									</NSpace>
 								</NSpace>

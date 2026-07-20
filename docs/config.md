@@ -30,6 +30,8 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 - `auth.enabled`：`false`
 - `network.mode`：`system`
 
+站点设置页另有保存到 SQLite `app_settings` 的全局抓取设置 `max_pages`，默认 `3`、范围 `1` 至 `100`。增量、固定页数、首页自动抓取、周期计划和 CLI 抓取统一受该上限约束，不写入主 JSON 配置。
+
 示例：
 
 ```json
@@ -148,7 +150,7 @@ KamePT 图片域通常还要求与 `cf_clearance` 配套的浏览器 User-Agent�
 
 WebUI 的 `设置 / qBittorrent` 页面保存 qBittorrent 设置时，如果密码或 API Key 输入框留空，服务端会保留数据库中已有值。该页面同时控制增量刷新：`auto_sync` 默认启用；连接正常且媒体页位于前台时使用 `sync_interval_seconds=3`，页面隐藏或位于其他页面时使用 `inactive_sync_interval_seconds=30`，连接失败后使用 `disconnected_sync_interval_seconds=60` 重试。URL 为空或关闭自动同步时不轮询。
 
-应用在站点检索后自动下载缺失的 `.torrent` 文件，以 SQLite BLOB 保存并解析 v1/v2 hash。该行为无需新增配置项，固定最多 3 个并发；失败记录会在后续检索中重试。
+应用只为站点列表扫描中首次入库的种子主动下载 `.torrent` 文件，以 SQLite BLOB 保存并解析 v1/v2 hash。该行为无需新增配置项，固定最多 3 个并发；订阅执行时仍会按需重试缺失文件。
 
 `qbittorrent.category` 和 `qbittorrent.tags` 是兼容的全局下载默认值；订阅另外保存自己的分类、路径、标签、名称与暂停配置。全局标签会排在订阅标签和种子标签之前合并。qB 分类按完整字符串处理，例如 `PT/ASMR`，应用不会把它拆成 qB 不存在的父子字段；WebUI 的树仅是展示。
 
@@ -178,7 +180,7 @@ WebUI 的 `设置 / qBittorrent` 页面保存 qBittorrent 设置时，如果密�
 
 订阅的 `save_path_template`、`qb_tags[]` 和 `filename_template` 只允许：`{{site_id}}`、`{{site_name}}`、`{{torrent_id}}`、`{{category}}`、`{{category_query}}`、`{{rule_name}}`、`{{subscription_name}}`、`{{title}}`、`{{detail_title}}`、`{{subtitle}}`。模板不执行表达式或 LLM，未知占位符会在保存时拒绝。`max_concurrent=0` 和 `daily_limit=0` 表示不限；显式路径会以 `autoTMM=false` 发送，空路径让 qB 使用分类或默认路径策略。
 
-每个站点计划保存 `enabled` 和 `interval_seconds`，默认关闭、默认 900 秒，允许 60 秒至 24 小时并使用整分钟步长。只有常驻服务版和桌面版启动后台调度器，CLI 单次命令不启动后台循环。
+每个站点计划保存 `enabled` 和 `interval_seconds`，默认关闭、默认 900 秒，允许 60 秒至 24 小时并使用整分钟步长。只有常驻服务版和桌面版启动后台调度器，且站点没有已启用订阅时计划不会访问站点；CLI 单次命令不启动后台循环。
 
 ## LLM 与媒体库
 

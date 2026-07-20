@@ -23,9 +23,12 @@ import (
 	"nexusbridge/internal/storage"
 )
 
+// App 组合持久化、站点抓取、订阅执行和外部服务适配。
 type App struct {
 	cfg                config.Config
 	store              *storage.SQLiteStore
+	ctx                context.Context
+	cancel             context.CancelFunc
 	mu                 sync.RWMutex
 	qbMu               sync.Mutex
 	mihomoMu           sync.Mutex
@@ -46,6 +49,9 @@ type App struct {
 	subscriptionLocks  map[string]*contextMutex
 	hashLockMu         sync.Mutex
 	hashLocks          map[string]*contextMutex
+	fetchMu            sync.Mutex
+	activeFetches      map[string]*activeSiteFetch
+	fetchWG            sync.WaitGroup
 }
 
 type runtimeSite struct {
@@ -67,27 +73,38 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	appCtx, cancel := context.WithCancel(ctx)
 	app := &App{
 		cfg: cfg, store: store, cache: map[string]Torrent{}, sites: sites, siteIDs: siteIDs,
+		ctx: appCtx, cancel: cancel,
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
-		hashLocks: map[string]*contextMutex{},
+		hashLocks: map[string]*contextMutex{}, activeFetches: map[string]*activeSiteFetch{},
 	}
 	coverCache, err := covercache.New(store, coverDownloader{app: app}, filepath.Join(filepath.Dir(cfg.Storage.Path), "covers"))
 	if err != nil {
+		cancel()
 		_ = store.Close()
 		return nil, err
 	}
 	app.coverCache = coverCache
 	if err := app.applyNetworkConfig(ctx); err != nil {
+		cancel()
 		_ = store.Close()
 		return nil, err
 	}
 	if err := store.RecoverInterruptedSubscriptionWork(ctx); err != nil {
+		cancel()
+		_ = store.Close()
+		return nil, err
+	}
+	if err := store.RecoverInterruptedSiteFetchJobs(ctx); err != nil {
+		cancel()
 		_ = store.Close()
 		return nil, err
 	}
 	existingRules, err := store.ListRules(ctx)
 	if err != nil {
+		cancel()
 		_ = store.Close()
 		return nil, err
 	}
@@ -100,11 +117,13 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 			continue
 		}
 		if err := store.SaveRule(ctx, ruleToRecord(ruleFromConfig(rule))); err != nil {
+			cancel()
 			_ = store.Close()
 			return nil, err
 		}
 	}
 	if err := app.loadCache(ctx); err != nil {
+		cancel()
 		_ = store.Close()
 		return nil, err
 	}
@@ -113,6 +132,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 
 // Close 关闭应用持有的资源。
 func (a *App) Close() error {
+	a.cancel()
 	a.automationMu.Lock()
 	cancel := a.automationCancel
 	a.automationMu.Unlock()
@@ -120,6 +140,7 @@ func (a *App) Close() error {
 		cancel()
 	}
 	a.automationWG.Wait()
+	a.fetchWG.Wait()
 	return a.store.Close()
 }
 
@@ -198,13 +219,18 @@ func (a *App) SaveSiteCredential(ctx context.Context, credential SiteCredential)
 
 // ListTorrents 查询本地种子缓存。
 func (a *App) ListTorrents(ctx context.Context, query TorrentQuery) ([]Torrent, error) {
+	searchSiteIDs := a.searchSiteIDs(query.Search)
 	records, err := a.store.ListTorrents(ctx, storage.TorrentListQuery{
 		SiteID: query.SiteID, Search: query.Search, SortBy: query.SortBy, SortDirection: query.SortDirection,
-		Limit: query.Limit, Offset: query.Offset,
+		Limit: query.Limit, Offset: query.Offset, SearchSiteIDs: searchSiteIDs, ExcludePinned: query.ExcludePinned,
 	})
 	if err != nil {
 		return nil, err
 	}
+	return a.torrentsFromRecords(ctx, records, query)
+}
+
+func (a *App) torrentsFromRecords(ctx context.Context, records []storage.TorrentRecord, query TorrentQuery) ([]Torrent, error) {
 	torrents := make([]Torrent, 0, len(records))
 	keys := make([]storage.TorrentKey, 0, len(records))
 	for _, record := range records {
@@ -246,20 +272,71 @@ func (a *App) ListTorrents(ctx context.Context, query TorrentQuery) ([]Torrent, 
 	return torrents, nil
 }
 
-// FetchSite 抓取并保存指定站点种子。
-func (a *App) FetchSite(ctx context.Context, siteID string) (FetchResult, error) {
-	lock := a.siteMutex(siteID)
-	if err := lock.Lock(ctx); err != nil {
-		return FetchResult{SiteID: siteID, Status: "failed"}, err
+// ListTorrentPage 返回媒体页所需的范围数据和筛选后总数。
+func (a *App) ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentPage, error) {
+	if query.Offset < 0 {
+		return TorrentPage{}, fmt.Errorf("torrent offset must not be negative")
 	}
-	defer lock.Unlock()
-	result, _, err := a.refreshSite(ctx, siteID)
-	return result, err
+	if query.Limit <= 0 {
+		query.Limit = 50
+	}
+	if query.Limit > 100 {
+		return TorrentPage{}, fmt.Errorf("torrent limit must not exceed 100")
+	}
+	if strings.TrimSpace(query.SortBy) == "" {
+		query.SortBy = "published_at"
+	}
+	if strings.TrimSpace(query.SortDirection) == "" {
+		query.SortDirection = "desc"
+	}
+	searchSiteIDs := a.searchSiteIDs(query.Search)
+	records, total, err := a.store.ListTorrentPage(ctx, storage.TorrentListQuery{
+		SiteID: query.SiteID, Search: query.Search, SortBy: query.SortBy, SortDirection: query.SortDirection,
+		Limit: query.Limit, Offset: query.Offset, SearchSiteIDs: searchSiteIDs, ExcludePinned: query.ExcludePinned,
+	})
+	if err != nil {
+		return TorrentPage{}, err
+	}
+	items, err := a.torrentsFromRecords(ctx, records, query)
+	if err != nil {
+		return TorrentPage{}, err
+	}
+	return TorrentPage{Items: items, Offset: query.Offset, Limit: query.Limit, Total: total}, nil
 }
 
-// RunOnce 抓取指定站点并执行其全部已启用订阅。
+func (a *App) searchSiteIDs(search string) []string {
+	search = strings.ToLower(strings.TrimSpace(search))
+	if search == "" {
+		return nil
+	}
+	result := []string{}
+	for _, siteID := range a.siteIDs {
+		site := a.sites[siteID]
+		if strings.Contains(strings.ToLower(site.ID), search) || strings.Contains(strings.ToLower(site.Name), search) {
+			result = append(result, site.ID)
+		}
+	}
+	return result
+}
+
+// FetchSite 抓取并保存指定站点种子。
+func (a *App) FetchSite(ctx context.Context, siteID string) (FetchResult, error) {
+	job, err := a.runTrackedSiteFetch(ctx, siteID, "manual", SiteFetchRequest{Mode: "incremental"})
+	result := FetchResult{
+		SiteID: job.SiteID, Fetched: job.Fetched, Inserted: job.Inserted, Changed: job.Changed,
+		Matched: job.Matched, DownloadSent: job.DownloadSent, FilesSaved: job.FilesSaved, FilesFailed: job.FilesFailed,
+	}
+	if err != nil {
+		result.Status = "failed"
+		return result, err
+	}
+	result.Status = "ok"
+	return result, nil
+}
+
+// RunOnce 保留内部调用兼容，实际执行与统一站点抓取入口相同的增量订阅流程。
 func (a *App) RunOnce(ctx context.Context, siteID string) (FetchResult, error) {
-	return a.runSiteSubscriptions(ctx, siteID, "run-once")
+	return a.FetchSite(ctx, siteID)
 }
 
 // ListRules 返回本地筛选规则。
@@ -607,58 +684,6 @@ func loadRuntimeSites(cfg config.Config) (map[string]runtimeSite, []string, erro
 	return sites, siteIDs, nil
 }
 
-// refreshSite 抓取站点页面并写入缓存。
-func (a *App) refreshSite(ctx context.Context, siteID string) (FetchResult, []Torrent, error) {
-	site, err := a.findSite(siteID)
-	if err != nil {
-		return FetchResult{SiteID: siteID, Status: "failed"}, nil, err
-	}
-	slog.Info("fetch site started", "site_id", site.ID, "base_url", site.BaseURL)
-	siteCfg := parser.SiteConfigFromDefinition(site.Definition)
-	fetchURL := firstNonEmpty(siteCfg.URL, site.BaseURL+"/torrents.php")
-	result, err := a.fetchSiteResource(ctx, site, fetchURL, siteRequestOptions{
-		Timeout: defaultSiteRequestTimeout, RequireCookies: true, LogRequest: true,
-	})
-	if err != nil {
-		slog.Error("fetch site request failed", "site_id", site.ID, "url", fetchURL, "error", err)
-		return FetchResult{SiteID: siteID, Status: "failed"}, nil, err
-	}
-	parsed, err := parser.ParsePageWithDefinition(result.Body, site.Definition)
-	if err != nil {
-		slog.Error("parse fetched html failed", "site_id", site.ID, "url", result.URL, "error", err)
-		return FetchResult{SiteID: siteID, Status: "failed"}, nil, err
-	}
-	records := make([]storage.TorrentRecord, 0, len(parsed.Torrents))
-	for index, entry := range parsed.Torrents {
-		records = append(records, recordFromParser(entry, index))
-	}
-	upsert, err := a.store.UpsertTorrents(ctx, records)
-	if err != nil {
-		slog.Error("upsert fetched torrents failed", "site_id", site.ID, "error", err)
-		return FetchResult{SiteID: siteID, Status: "failed"}, nil, err
-	}
-	allTorrents := make([]Torrent, 0, len(records))
-	for _, record := range records {
-		allTorrents = append(allTorrents, torrentFromRecord(record))
-	}
-	inserted := make([]Torrent, 0, len(upsert.Inserted))
-	a.mu.Lock()
-	for _, record := range records {
-		a.cache[record.SiteID+":"+record.TorrentID] = torrentFromRecord(record)
-	}
-	for _, record := range upsert.Inserted {
-		inserted = append(inserted, torrentFromRecord(record))
-	}
-	a.mu.Unlock()
-	filesSaved, filesFailed, err := a.ensureTorrentFiles(ctx, allTorrents)
-	if err != nil {
-		slog.Error("persist fetched torrent files failed", "site_id", site.ID, "error", err)
-		return FetchResult{SiteID: siteID, Status: "failed", Fetched: len(records), Inserted: len(inserted), Changed: len(upsert.Changed), FilesSaved: filesSaved, FilesFailed: filesFailed}, inserted, err
-	}
-	slog.Info("fetch site completed", "site_id", site.ID, "fetched", len(records), "inserted", len(inserted), "changed", len(upsert.Changed), "torrent_files_saved", filesSaved, "torrent_files_failed", filesFailed)
-	return FetchResult{SiteID: site.ID, Status: "ok", Fetched: len(records), Inserted: len(inserted), Changed: len(upsert.Changed), FilesSaved: filesSaved, FilesFailed: filesFailed}, inserted, nil
-}
-
 // findSite 按站点 ID 查找运行时站点。
 func (a *App) findSite(siteID string) (runtimeSite, error) {
 	if site, ok := a.sites[siteID]; ok {
@@ -774,6 +799,7 @@ func torrentFromRecord(record storage.TorrentRecord) Torrent {
 		FirstSeenAt:       record.FirstSeenAt,
 		LastSeenAt:        record.LastSeenAt,
 		SourceOrder:       record.SourceOrder,
+		StickyLevel:       record.StickyLevel,
 	}
 }
 

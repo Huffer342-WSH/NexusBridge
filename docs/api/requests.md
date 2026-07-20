@@ -198,22 +198,22 @@ qB 任务被意外删除，但完整数据目录仍保留在 NexusBridge 可访�
 - `GET/POST /api/subscriptions`
 - `DELETE /api/subscriptions/{subscription_id}`
 - `POST /api/subscriptions/{subscription_id}/preview`
-- `POST /api/subscriptions/{subscription_id}/run-once`
 - `GET /api/subscriptions/{subscription_id}/candidates`
 - `GET /api/subscription-runs`
 - `GET/POST /api/sites/{site_id}/schedule`
-- 调整 `POST /api/sites/{site_id}/run-once`
+- `POST /api/sites/{site_id}/fetch`
+- `GET /api/site-fetch-jobs`
 
 ### 请求与响应
 
-订阅保存完整 `Subscription`；预览返回命中、可执行性、全部原因和最终 `DownloadPlan`；run-once 返回 `SubscriptionRun`。站点计划使用 `enabled` 和 `interval_seconds`，响应包含最近/下次时间与错误。
+订阅保存完整 `Subscription`；预览返回命中、可执行性、全部原因和最终 `DownloadPlan`。站点抓取返回持久化 `SiteFetchJob`，运行记录按页汇总订阅结果；站点计划使用 `enabled` 和 `interval_seconds`，响应包含最近/下次时间与错误。
 
 ### 验收标准
 
 - 订阅和站点计划默认关闭，周期允许 60 至 86400 秒。
 - 同站点订阅按 `priority DESC, id ASC`，新种子由首个命中者独占。
 - 配额或 qB 前置条件不满足时，候选保持 `unread` 且不回退到低优先级订阅。
-- 站点 fetch 只抓取；站点 run-once 才执行该站点已启用订阅。
+- 所有站点列表抓取逐页入库并执行该站点已启用订阅；站点和订阅不再提供重复的 run-once 入口。
 
 ## [implemented] qB 分类与标签快照
 

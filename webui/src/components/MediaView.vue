@@ -1,8 +1,8 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
 import { ExternalLink, Film, RadioTower, RefreshCw, Search } from '@lucide/vue';
-import { computed, ref } from 'vue';
-import { NButton, NCard, NEmpty, NIcon, NInput, NSelect, NSpace, NTag } from 'naive-ui';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { NButton, NCard, NEmpty, NIcon, NInput, NPagination, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
 import { useMediaDisplaySettings } from '../composables/useMediaDisplaySettings';
 import type { Site, Torrent } from '../types';
 import { formatByteSize, formatByteSpeed } from '../utils/format';
@@ -12,6 +12,7 @@ import TorrentStatusControl from './TorrentStatusControl.vue';
 const props = defineProps<{
   sites: Site[];
   torrents: Torrent[];
+  total: number;
   loading: boolean;
 	qbUrl: string;
 	qbSyncing: boolean;
@@ -23,17 +24,22 @@ const emit = defineEmits<{
 	syncQb: [];
 	openQb: [];
 	controlQb: [torrent: Torrent, action: 'start' | 'stop'];
+	queryChange: [query: { site_id?: string; q?: string; offset: number; limit: number; include_pinned: boolean }];
 }>();
 
 const activeSite = ref('all');
 const query = ref('');
+const includePinned = ref(true);
+const page = ref(1);
+const pageSize = ref(50);
 const failedCovers = ref(new Set<string>());
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const { settings: displaySettings, layoutClass, layoutStyle } = useMediaDisplaySettings();
 
 const siteOptions = computed(() => [
-  { label: `全部站点 (${props.torrents.length})`, value: 'all' },
+  { label: '全部站点', value: 'all' },
   ...props.sites.map((site) => ({
-    label: `${site.name} (${props.torrents.filter((torrent) => torrent.site_id === site.id).length})`,
+    label: site.name,
     value: site.id,
   })),
 ]);
@@ -46,25 +52,30 @@ const siteNameByID = computed(() => {
   return names;
 });
 
-const filteredTorrents = computed(() => {
-  const keyword = query.value.trim().toLowerCase();
-  return props.torrents.filter((torrent) => {
-    if (activeSite.value !== 'all' && torrent.site_id !== activeSite.value) {
-      return false;
-    }
-    if (!keyword) {
-      return true;
-    }
-    return [
-      torrent.title,
-      torrent.category,
-      torrent.promotion,
-      siteNameByID.value.get(torrent.site_id),
-      torrent.site_id,
-    ]
-      .filter(Boolean)
-      .some((value) => value?.toLowerCase().includes(keyword));
-  });
+function emitQuery() {
+	emit('queryChange', {
+		site_id: activeSite.value === 'all' ? undefined : activeSite.value,
+		q: query.value.trim() || undefined,
+		offset: (page.value - 1) * pageSize.value,
+		limit: pageSize.value,
+		include_pinned: includePinned.value,
+	});
+}
+
+function resetPageAndEmit() {
+	if (page.value !== 1) page.value = 1;
+	else emitQuery();
+}
+
+watch([activeSite, includePinned, pageSize], resetPageAndEmit);
+watch(page, emitQuery);
+watch(query, () => {
+	if (searchTimer) clearTimeout(searchTimer);
+	searchTimer = setTimeout(resetPageAndEmit, 300);
+});
+onMounted(emitQuery);
+onBeforeUnmount(() => {
+	if (searchTimer) clearTimeout(searchTimer);
 });
 
 /** 返回站点显示名称。 */
@@ -121,6 +132,7 @@ function qbTags(torrent: Torrent) {
 					<template #prefix><NIcon :component="Search" /></template>
 				</NInput>
 			</NSpace>
+			<NSpace align="center"><span class="muted">显示置顶</span><NSwitch v-model:value="includePinned" /></NSpace>
 			<NSpace>
 				<NButton secondary :loading="qbSyncing" @click="emit('syncQb')">
 					<template #icon><NIcon :component="RefreshCw" /></template>
@@ -135,8 +147,8 @@ function qbTags(torrent: Torrent) {
       </div>
     </NCard>
 
-    <div v-if="filteredTorrents.length" class="media-list" :class="layoutClass" :style="layoutStyle">
-      <NCard v-for="torrent in filteredTorrents" :key="`${torrent.site_id}:${torrent.id}`" :bordered="false" class="media-item">
+    <div v-if="torrents.length" class="media-list" :class="layoutClass" :style="layoutStyle">
+      <NCard v-for="torrent in torrents" :key="`${torrent.site_id}:${torrent.id}`" :bordered="false" class="media-item">
         <div class="media-poster">
           <img v-if="canShowCover(torrent)" :src="coverProxyURL(torrent)" :alt="torrent.title" loading="lazy" @error="markCoverFailed(torrent)" />
           <div v-else class="media-poster-placeholder">
@@ -168,6 +180,7 @@ function qbTags(torrent: Torrent) {
           </div>
 
           <NSpace class="media-tags">
+            <NTag v-if="torrent.sticky_level > 0" round size="small" type="warning">置顶 {{ torrent.sticky_level }}</NTag>
             <NTag round size="small">{{ siteDisplayName(torrent.site_id) }}</NTag>
             <NTag v-if="torrent.category" round size="small" type="info">{{ torrent.category }}</NTag>
             <NTag v-if="torrent.promotion" round size="small" type="success">{{ torrent.promotion }}</NTag>
@@ -205,6 +218,10 @@ function qbTags(torrent: Torrent) {
     <NCard v-else :bordered="false">
       <NEmpty :description="loading ? 'Loading media...' : 'No cached torrents matched'" />
     </NCard>
+
+	<NCard :bordered="false">
+		<NPagination v-model:page="page" v-model:page-size="pageSize" :item-count="total" :page-sizes="[20, 50, 100]" show-size-picker />
+	</NCard>
 
 	<MediaQuickSettings v-model="displaySettings" />
   </section>

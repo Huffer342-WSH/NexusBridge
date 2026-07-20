@@ -19,6 +19,7 @@ type SiteCredential struct {
 	HasCookie bool   `json:"has_cookie"`
 }
 
+// Torrent 表示一个站点种子的持久化媒体视图。
 type Torrent struct {
 	ID                string           `json:"id"`
 	SiteID            string           `json:"site_id"`
@@ -51,6 +52,7 @@ type Torrent struct {
 	FirstSeenAt       time.Time        `json:"first_seen_at"`
 	LastSeenAt        time.Time        `json:"last_seen_at"`
 	SourceOrder       int              `json:"source_order"`
+	StickyLevel       int              `json:"sticky_level"`
 	TorrentFileSaved  bool             `json:"torrent_file_saved"`
 	InfoHashV1        string           `json:"info_hash_v1,omitempty"`
 	InfoHashV2        string           `json:"info_hash_v2,omitempty"`
@@ -67,6 +69,15 @@ type TorrentQuery struct {
 	Offset        int
 	IncludeQB     bool
 	QBWeakMatch   bool
+	ExcludePinned bool
+}
+
+// TorrentPage 表示按范围查询的媒体种子页。
+type TorrentPage struct {
+	Items  []Torrent `json:"items"`
+	Offset int       `json:"offset"`
+	Limit  int       `json:"limit"`
+	Total  int       `json:"total"`
 }
 
 type QBTorrentStatus struct {
@@ -95,6 +106,7 @@ type QBTorrentStatus struct {
 	AmountLeft    int64     `json:"amount_left,omitempty"`
 }
 
+// FetchResult 保留同步内部入口使用的站点扫描汇总。
 type FetchResult struct {
 	SiteID       string `json:"site_id"`
 	Status       string `json:"status"`
@@ -105,6 +117,42 @@ type FetchResult struct {
 	DownloadSent int    `json:"download_sent,omitempty"`
 	FilesSaved   int    `json:"torrent_files_saved,omitempty"`
 	FilesFailed  int    `json:"torrent_files_failed,omitempty"`
+}
+
+// FetchSettings 描述所有站点共享的分页扫描限制。
+type FetchSettings struct {
+	MaxPages int `json:"max_pages"`
+}
+
+// SiteFetchRequest 描述一次站点列表扫描方式。
+type SiteFetchRequest struct {
+	Mode  string `json:"mode"`
+	Pages int    `json:"pages,omitempty"`
+}
+
+// SiteFetchJob 表示站点列表扫描及其订阅执行进度。
+type SiteFetchJob struct {
+	ID             string     `json:"id"`
+	SiteID         string     `json:"site_id"`
+	Trigger        string     `json:"trigger"`
+	Mode           string     `json:"mode"`
+	RequestedPages int        `json:"requested_pages"`
+	Status         string     `json:"status"`
+	CurrentPage    int        `json:"current_page"`
+	PagesFetched   int        `json:"pages_fetched"`
+	Fetched        int        `json:"fetched"`
+	Inserted       int        `json:"inserted"`
+	Changed        int        `json:"changed"`
+	Matched        int        `json:"matched"`
+	DownloadSent   int        `json:"download_sent"`
+	FilesSaved     int        `json:"torrent_files_saved"`
+	FilesFailed    int        `json:"torrent_files_failed"`
+	StopReason     string     `json:"stop_reason,omitempty"`
+	Error          string     `json:"error,omitempty"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type Rule struct {

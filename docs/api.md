@@ -52,11 +52,13 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `POST /api/sites/{site_id}/fetch`
 
-读取数据库中的站点 cookie，抓取 `torrents.php`，按页面顺序写入本地缓存和 SQLite，并补齐缺失的 torrent BLOB、v1/v2 hash 与原始 `info.name`。响应中的 `inserted` 和 `changed` 分别表示新入库和既有记录变化；该接口不会匹配订阅或写入 qB。
+接收 `{ "mode": "incremental" }` 或 `{ "mode": "pages", "pages": 3 }`；空 Body 默认增量。接口创建后台扫描任务并立即返回 `SiteFetchJob` 和 HTTP `202`，同站点已有活动任务时直接返回该任务。`incremental` 使用全局最大页数并在连续 5 条既有普通种子时提前停止；`pages` 请求页数不得超过全局上限。
 
-`POST /api/sites/{site_id}/run-once`
+扫描逐页持久化种子、更新第一页置顶状态、补抓首次入库种子的 torrent 文件，并消费该站点订阅队列。每页新种子都可能按照已启用订阅、配额和幂等规则向 qB 添加任务；请求或解析失败结束扫描，已完成页面不回滚。可传 `trigger=homepage` 标记媒体页自动触发来源。
 
-立即抓取一次站点，并执行该站点的已启用订阅。该流程和后台计划使用相同的首个订阅独占、配额与幂等规则。
+`GET /api/site-fetch-jobs?site_id={site_id}&limit=100`
+
+返回持久化扫描任务，包含模式、请求页数、当前页、完成页数、抓取/新增/更新/匹配/发送及 torrent 文件统计、状态、停止原因、错误和起止时间。`site_id` 可省略；每站点只保留最近 100 条结束记录。
 
 `GET /api/sites/{site_id}/schedule`
 
@@ -64,7 +66,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `POST /api/sites/{site_id}/schedule`
 
-保存站点周期配置。`interval_seconds` 允许 `60` 至 `86400`，并使用整分钟步长；站点计划默认关闭。后台调度只由常驻 WebUI/CLI 服务和桌面进程启动，CLI 的单次命令不会在命令结束后保留后台任务。
+保存站点周期配置。`interval_seconds` 允许 `60` 至 `86400`，并使用整分钟步长；站点计划默认关闭。后台调度只由常驻 WebUI/CLI 服务和桌面进程启动，并且只在该站点存在已启用订阅时访问站点。多个订阅共享一次分页扫描。
 
 `GET /api/sites/{site_id}/filter-options`
 
@@ -74,12 +76,17 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/torrents`
 
-返回 SQLite 中的种子元数据、最近抓取列表序号 `source_order`、列表页副标题、从副标题拆出的 `tags`、官方站点标签 `tag_ids`、按需详情页字段（商品链接、详情页 hash、简介）、torrent 文件保存状态、v1/v2 hash 和最近一次持久化的 `qb_status`；不会返回 torrent BLOB，普通请求不会访问 qB。
+先在 SQLite 全库执行站点和关键词筛选、排序与计数，再返回范围数据；不会返回 torrent BLOB，普通请求不会访问 qB。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含 `sticky_level`。
 
-预留查询参数：
+查询参数：
 
-- `site_id`
-- `q`
+- `offset`：从 0 开始，默认 0。
+- `limit`：默认 50，最大 100；WebUI 使用 20、50 或 100。
+- `site_id`、`q`：全库站点和包含式关键词筛选。
+- `include_pinned`：默认 `true`；关闭时排除置顶种子。
+- `sort_by`、`sort_direction`：默认 `published_at/desc`。
+
+默认排序先按 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。关键词搜索只读取数据库，不触发站点抓取或自动订阅。
 
 `GET /api/torrents/{site_id}/{torrent_id}/qb-status`
 
@@ -146,7 +153,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 - `qb_tags`：订阅标签模板列表。
 - `filename_template`：映射 qB `rename` 的任务名称模板；为空时省略 `rename` 并保留 torrent 原始 `info.name`。
 - `paused`：新增任务是否暂停，默认 `false`。
-- `max_concurrent`、`daily_limit`：`0` 表示不限；自动和订阅级 run-once 会遵守配额。
+- `max_concurrent`、`daily_limit`：`0` 表示不限；所有站点列表抓取触发的自动执行都会遵守配额。
 
 每日配额按服务所在时区的自然日统计 `sent`，`exists/failed/skipped` 不计；并发配额统计本地 pending 加该订阅在 qB 中尚未完成的任务。配额检查与 pending 领取原子化，配额跳过不会增加 `retry_count`。
 
@@ -164,17 +171,23 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 只读预览已保存订阅。返回规则是否命中、最终 category/save path/tags/rename/paused、`eligible` 以及全部阻塞原因。预览会实时验证 qB 分类和名称冲突，但不会改变候选或任务状态。
 
-`POST /api/subscriptions/{subscription_id}/run-once`
-
-立即执行一次订阅，使用与计划调度相同的抓取、候选、排序、配额和幂等流程，返回 `SubscriptionRun` 统计。
-
 `GET /api/subscriptions/{subscription_id}/candidates?status=unread`
 
 返回首个命中订阅独占的候选队列。候选状态为 `unread`、`processing`、`processed` 或 `failed`；配额不足、qB 离线或分类缺失时保持 `unread`，下一次刷新继续尝试，不回退给低优先级订阅。
 
 `GET /api/subscription-runs?subscription_id={id}`
 
-返回 `scheduled`、`run-once` 或 `manual-batch` 运行记录及 `fetched/inserted/matched/attempted/sent/exists/failed/skipped` 统计。
+返回站点抓取或 `manual-batch` 产生的运行记录及 `fetched/inserted/matched/attempted/sent/exists/failed/skipped` 统计。
+
+## 应用设置
+
+`GET /api/settings/fetch`
+
+返回全局站点扫描设置 `{ "max_pages": 3 }`。设置不存在时默认 3，范围 1–100；设置无法读取或内容非法时返回服务错误。
+
+`POST /api/settings/fetch`
+
+保存全局最大扫描页数。首页、手动、CLI、固定页数和周期扫描统一受该值约束。
 
 ## qBittorrent
 

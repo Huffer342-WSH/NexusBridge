@@ -21,6 +21,12 @@
         "space_replace": "_"
       },
       "fields": {
+        "page": {
+          "name": "page",
+          "type": "number",
+          "label": "页码",
+          "query": "page={{value}}"
+        },
         "checkboxes": [
           {
             "name": "cat",

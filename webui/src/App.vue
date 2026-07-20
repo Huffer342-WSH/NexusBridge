@@ -23,6 +23,7 @@ import {
 } from 'naive-ui';
 import { api } from './api';
 import { useQBStatusPolling } from './composables/useQBStatusPolling';
+import { useSiteFetchJobs } from './composables/useSiteFetchJobs';
 import { createDefaultQBittorrentConfig } from './config/qbittorrent';
 import MediaView from './components/MediaView.vue';
 import SettingsLLM from './components/SettingsLLM.vue';
@@ -36,13 +37,17 @@ import type {
   DownloadPreview,
   DownloadTask,
   Health,
+	FetchSettings,
   LLMConfig,
   NetworkConfig,
   OrganizeTask,
   QBittorrentConfig,
   Session,
   Site,
+	SiteFetchJob,
+	SiteFetchRequest,
   Torrent,
+	TorrentPageQuery,
   QBPollResult,
 } from './types';
 
@@ -91,10 +96,14 @@ const activeSettingsPage = ref<SettingsPageKey>('sites');
 const health = ref<Health | null>(null);
 const sites = ref<Site[]>([]);
 const torrents = ref<Torrent[]>([]);
+const torrentTotal = ref(0);
+const mediaQuery = ref<TorrentPageQuery>({ offset: 0, limit: 50, include_pinned: true, sort_by: 'published_at', sort_direction: 'desc' });
 const downloadTasks = ref<DownloadTask[]>([]);
 const organizeTasks = ref<OrganizeTask[]>([]);
 const siteCredentials = ref<Record<string, SiteCredentialDraft>>({});
-const siteActions = ref<Record<string, 'fetch' | 'run' | 'save' | ''>>({});
+const siteActions = ref<Record<string, 'fetch' | 'save' | ''>>({});
+const fetchSettings = ref<FetchSettings>({ max_pages: 3 });
+const fetchJobs = ref<SiteFetchJob[]>([]);
 const qbConfig = ref<QBittorrentConfig>(createDefaultQBittorrentConfig());
 const llmConfig = ref<LLMConfig>({
   base_url: '',
@@ -117,6 +126,7 @@ const password = ref('');
 const { message: floatingMessage } = createDiscreteApi(['message']);
 const qbOptimisticUntil = new Map<string, number>();
 const qbOptimisticUpdateDelayMs = 800;
+const autoFetchedSites = new Set<string>();
 
 const showLogin = computed(() => session.value?.requires_login && !loggedIn.value);
 const activeDownloads = computed(() => downloadTasks.value.filter((task) => task.status !== 'completed').length);
@@ -207,10 +217,12 @@ async function refresh(clearMessage = true) {
     message.value = '';
   }
   try {
-    const [healthData, siteData, torrentData] = await Promise.all([
+    const [healthData, siteData, torrentData, fetchSettingsData, fetchJobData] = await Promise.all([
       api.health(),
       api.sites(),
-      api.torrents(),
+	  api.torrents(mediaQuery.value),
+	  api.getFetchSettings(),
+	  api.getSiteFetchJobs(undefined, 100),
     ]);
     const [qbData, llmData, networkData, downloadData, organizeData] = await Promise.all([
       api.getQBittorrent(),
@@ -228,7 +240,11 @@ async function refresh(clearMessage = true) {
         siteCredentials.value[site.id].user_agent = site.user_agent ?? '';
       }
     }
-    torrents.value = torrentData;
+	mediaQuery.value = { ...mediaQuery.value, offset: torrentData.offset, limit: torrentData.limit };
+	torrents.value = torrentData.items;
+	torrentTotal.value = torrentData.total;
+	fetchSettings.value = fetchSettingsData;
+	fetchJobs.value = fetchJobData;
     qbConfig.value = { ...qbData, auth_mode: qbData.auth_mode ?? 'uid' };
     qbTagsText.value = qbData.tags?.join(', ') ?? '';
     llmConfig.value = llmData;
@@ -240,6 +256,50 @@ async function refresh(clearMessage = true) {
   } finally {
     loading.value = false;
   }
+}
+
+/** 按媒体视图给出的范围和筛选条件读取数据库。 */
+async function loadTorrentPage(query: TorrentPageQuery = mediaQuery.value) {
+	mediaQuery.value = { ...query, sort_by: 'published_at', sort_direction: 'desc' };
+	loading.value = true;
+	try {
+		const result = await api.torrents(mediaQuery.value);
+		torrents.value = result.items;
+		torrentTotal.value = result.total;
+	} catch (error) {
+		message.value = error instanceof Error ? error.message : '媒体列表加载失败';
+	} finally {
+		loading.value = false;
+	}
+}
+
+const { merge: mergeFetchJobs, monitor: monitorFetchJob } = useSiteFetchJobs({
+	jobs: fetchJobs,
+	onCompleted: async (siteID) => {
+		if (mediaQuery.value.site_id === siteID) await loadTorrentPage();
+	},
+});
+
+async function startSiteFetch(siteID: string, request: SiteFetchRequest, trigger: 'manual' | 'homepage') {
+	const job = await api.fetchSite(siteID, request, trigger);
+	mergeFetchJobs([job]);
+	monitorFetchJob(siteID, job.id);
+	return job;
+}
+
+/** 响应媒体分页、筛选和单站点首页自动抓取。 */
+async function handleMediaQueryChange(query: Omit<TorrentPageQuery, 'sort_by' | 'sort_direction'>) {
+	await loadTorrentPage({ ...query, sort_by: 'published_at', sort_direction: 'desc' });
+	const siteID = query.site_id;
+	if (!siteID || autoFetchedSites.has(siteID)) return;
+	const site = sites.value.find((item) => item.id === siteID);
+	if (!site?.has_cookie) return;
+	try {
+		await startSiteFetch(siteID, { mode: 'incremental' }, 'homepage');
+		autoFetchedSites.add(siteID);
+	} catch (error) {
+		message.value = error instanceof Error ? error.message : '首页自动抓取失败';
+	}
 }
 
 /** 登录需要鉴权的本地服务。 */
@@ -278,13 +338,12 @@ async function saveSiteCredential(site: Site) {
 }
 
 /** 抓取单个站点并刷新数据库列表。 */
-async function fetchSite(siteID: string) {
+async function fetchSite(siteID: string, request: SiteFetchRequest) {
   message.value = '';
   siteActions.value[siteID] = 'fetch';
   try {
-    const result = await api.fetchSite(siteID);
-    message.value = `Fetch ${result.status}: fetched ${result.fetched}, changed ${result.changed}`;
-    await refresh(false);
+	const result = await startSiteFetch(siteID, request, 'manual');
+	message.value = `扫描任务已提交：${result.id}`;
   } catch (error) {
     message.value = error instanceof Error ? error.message : 'Fetch failed';
   } finally {
@@ -292,19 +351,14 @@ async function fetchSite(siteID: string) {
   }
 }
 
-/** 执行站点抓取、匹配和发送闭环。 */
-async function runOnce(siteID: string) {
-  message.value = '';
-  siteActions.value[siteID] = 'run';
-  try {
-    const result = await api.runOnce(siteID);
-    message.value = `Run once ${result.status}: matched ${result.matched ?? 0}, sent ${result.download_sent ?? 0}`;
-    await refresh(false);
-  } catch (error) {
-    message.value = error instanceof Error ? error.message : 'Run once failed';
-  } finally {
-    siteActions.value[siteID] = '';
-  }
+/** 保存全局站点扫描页数限制。 */
+async function saveFetchSettings(settings: FetchSettings) {
+	try {
+		fetchSettings.value = await api.saveFetchSettings(settings);
+		message.value = '抓取设置已保存';
+	} catch (error) {
+		message.value = error instanceof Error ? error.message : '抓取设置保存失败';
+	}
 }
 
 /** 保存 qBittorrent 配置。 */
@@ -495,6 +549,7 @@ onMounted(async () => {
     message.value = error instanceof Error ? error.message : 'Failed to connect to service';
   }
 });
+
 </script>
 
 <template>
@@ -575,9 +630,9 @@ onMounted(async () => {
           </NCard>
 
         <template v-else>
-           <MediaView v-if="activePage === 'media'" :sites="sites" :torrents="torrents" :loading="loading"
+           <MediaView v-if="activePage === 'media'" :sites="sites" :torrents="torrents" :total="torrentTotal" :loading="loading"
               :qb-url="qbConfig.url" :qb-syncing="qbSyncing" :qb-actioning="qbActioning" @download="openDownloadDialog"
-              @sync-qb="syncQBittorrent" @open-qb="openQBittorrent" @control-qb="controlTorrentQB" />
+              @sync-qb="syncQBittorrent" @open-qb="openQBittorrent" @control-qb="controlTorrentQB" @query-change="handleMediaQueryChange" />
             <TasksView v-else-if="activePage === 'tasks'" :download-tasks="downloadTasks"
               :organize-tasks="organizeTasks" :active-downloads="activeDownloads" :pending-organize="pendingOrganize"
               @organize="organizePending" />
@@ -597,8 +652,9 @@ onMounted(async () => {
               </nav>
 
             <SettingsSites v-if="activeSettingsPage === 'sites'" :sites="sites" :credentials="siteCredentials"
-                :actions="siteActions" @update-credential="updateSiteCredential" @save="saveSiteCredential"
-                @fetch="fetchSite" @run="runOnce" />
+                :actions="siteActions" :fetch-settings="fetchSettings" :fetch-jobs="fetchJobs"
+				@update-credential="updateSiteCredential" @save="saveSiteCredential"
+				@fetch="fetchSite" @save-fetch-settings="saveFetchSettings" />
               <SettingsLLM v-else-if="activeSettingsPage === 'llm'" :config="llmConfig" @update="updateLLMConfig"
                 @save="saveLLM" />
               <SettingsNetwork v-else-if="activeSettingsPage === 'network'" :config="networkConfig"

@@ -254,6 +254,30 @@ CREATE TABLE IF NOT EXISTS site_schedules (
 	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS site_fetch_jobs (
+	id TEXT PRIMARY KEY,
+	site_id TEXT NOT NULL,
+	trigger TEXT NOT NULL,
+	mode TEXT NOT NULL,
+	requested_pages INTEGER NOT NULL DEFAULT 0,
+	status TEXT NOT NULL,
+	current_page INTEGER NOT NULL DEFAULT 0,
+	pages_fetched INTEGER NOT NULL DEFAULT 0,
+	fetched_count INTEGER NOT NULL DEFAULT 0,
+	inserted_count INTEGER NOT NULL DEFAULT 0,
+	changed_count INTEGER NOT NULL DEFAULT 0,
+	matched_count INTEGER NOT NULL DEFAULT 0,
+	sent_count INTEGER NOT NULL DEFAULT 0,
+	files_saved INTEGER NOT NULL DEFAULT 0,
+	files_failed INTEGER NOT NULL DEFAULT 0,
+	stop_reason TEXT NOT NULL DEFAULT '',
+	error TEXT NOT NULL DEFAULT '',
+	started_at TEXT NOT NULL DEFAULT '',
+	finished_at TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS subscription_candidates (
 	site_id TEXT NOT NULL,
 	torrent_id TEXT NOT NULL,
@@ -426,8 +450,13 @@ CREATE INDEX IF NOT EXISTS idx_torrent_qb_snapshots_hash ON torrent_qb_snapshots
 	}
 	_, err = s.db.ExecContext(ctx, `
 CREATE INDEX IF NOT EXISTS idx_torrents_site_source_order ON torrents (site_id, source_order, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrents_published ON torrents (published_at DESC, site_id, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrents_site_published ON torrents (site_id, published_at DESC, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrents_site_sticky_published ON torrents (site_id, sticky_level DESC, published_at DESC, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled_priority ON subscriptions (enabled, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_site_schedules_due ON site_schedules (enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_site_fetch_jobs_site_created ON site_fetch_jobs (site_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_site_fetch_jobs_status ON site_fetch_jobs (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_subscription_candidates_status ON subscription_candidates (subscription_id, status, source_order, site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_ingest_site_order ON subscription_ingest_queue (site_id, source_order, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_runs_subscription ON subscription_runs (subscription_id, created_at DESC);

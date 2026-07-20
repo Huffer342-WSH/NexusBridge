@@ -97,16 +97,24 @@ type SiteBrowseDefinition struct {
 }
 
 type SiteConfig struct {
-	SiteID        string            `json:"site_id"`
-	Name          string            `json:"name,omitempty"`
-	BaseURL       string            `json:"base_url"`
-	Domain        string            `json:"domain,omitempty"`
-	DomainAliases []string          `json:"domain_aliases,omitempty"`
-	Encoding      string            `json:"encoding,omitempty"`
-	URL           string            `json:"url"`
-	SearchPath    string            `json:"search_path"`
-	DownloadPath  string            `json:"download_path"`
-	QueryTemplate map[string]string `json:"query_template"`
+	SiteID        string               `json:"site_id"`
+	Name          string               `json:"name,omitempty"`
+	BaseURL       string               `json:"base_url"`
+	Domain        string               `json:"domain,omitempty"`
+	DomainAliases []string             `json:"domain_aliases,omitempty"`
+	Encoding      string               `json:"encoding,omitempty"`
+	URL           string               `json:"url"`
+	SearchPath    string               `json:"search_path"`
+	DownloadPath  string               `json:"download_path"`
+	Pagination    SitePaginationConfig `json:"pagination,omitempty"`
+	QueryTemplate map[string]string    `json:"query_template"`
+}
+
+// SitePaginationConfig 描述由站点定义派生的数字分页规则。
+type SitePaginationConfig struct {
+	Parameter string `json:"parameter,omitempty"`
+	Query     string `json:"query,omitempty"`
+	Start     int    `json:"start"`
 }
 
 type ParseSelectors struct {
@@ -132,10 +140,11 @@ type SiteSearchFields struct {
 	Selects    []SiteSearchField         `json:"selects,omitempty"`
 	Ranges     []SiteSearchField         `json:"ranges,omitempty"`
 	Keyword    *SiteSearchField          `json:"keyword,omitempty"`
+	Page       *SiteSearchField          `json:"page,omitempty"`
 }
 
 func (fields SiteSearchFields) Empty() bool {
-	return len(fields.Checkboxes) == 0 && fields.Tags == nil && len(fields.Selects) == 0 && len(fields.Ranges) == 0 && fields.Keyword == nil
+	return len(fields.Checkboxes) == 0 && fields.Tags == nil && len(fields.Selects) == 0 && len(fields.Ranges) == 0 && fields.Keyword == nil && fields.Page == nil
 }
 
 type SiteSearchCheckboxGroup struct {

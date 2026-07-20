@@ -9,7 +9,7 @@ import type {
 	DownloadPreview,
 	FilterRule,
 	FileBrowseResult,
-	FetchResult,
+	FetchSettings,
 	Health,
 	LLMConfig,
 	NetworkConfig,
@@ -45,6 +45,10 @@ import type {
 	SubscriptionPreview,
 	SubscriptionRun,
 	Torrent,
+	TorrentPage,
+	TorrentPageQuery,
+	SiteFetchJob,
+	SiteFetchRequest,
 } from './types';
 
 /** 发送 API 请求并统一解析错误响应。 */
@@ -92,15 +96,31 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(credential),
 		}),
-	torrents: () => request<Torrent[]>('/api/torrents'),
-	fetchSite: (siteID: string) =>
-		request<FetchResult>(`/api/sites/${siteID}/fetch`, {
+	torrents: (query: TorrentPageQuery) => {
+		const params = new URLSearchParams({
+			offset: String(query.offset),
+			limit: String(query.limit),
+			include_pinned: String(query.include_pinned),
+			sort_by: query.sort_by ?? 'published_at',
+			sort_direction: query.sort_direction ?? 'desc',
+		});
+		if (query.site_id) params.set('site_id', query.site_id);
+		if (query.q?.trim()) params.set('q', query.q.trim());
+		return request<TorrentPage>(`/api/torrents?${params.toString()}`);
+	},
+	fetchSite: (siteID: string, payload: SiteFetchRequest = { mode: 'incremental' }, trigger: 'manual' | 'homepage' = 'manual') =>
+		request<SiteFetchJob>(`/api/sites/${encodeURIComponent(siteID)}/fetch?trigger=${trigger}`, {
 			method: 'POST',
+			body: JSON.stringify(payload),
 		}),
-	runOnce: (siteID: string) =>
-		request<FetchResult>(`/api/sites/${siteID}/run-once`, {
-			method: 'POST',
-		}),
+	getSiteFetchJobs: (siteID?: string, limit = 100) => {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (siteID) params.set('site_id', siteID);
+		return request<SiteFetchJob[]>(`/api/site-fetch-jobs?${params.toString()}`);
+	},
+	getFetchSettings: () => request<FetchSettings>('/api/settings/fetch'),
+	saveFetchSettings: (settings: FetchSettings) =>
+		request<FetchSettings>('/api/settings/fetch', { method: 'POST', body: JSON.stringify(settings) }),
 	getRules: () => request<FilterRule[]>('/api/rules'),
 	getRuleFilterOptions: (siteID: string) =>
 		request<RuleFilterOptions>(`/api/sites/${encodeURIComponent(siteID)}/filter-options`),
@@ -131,10 +151,6 @@ export const api = {
 		request<DeletedResult>(`/api/subscriptions/${encodeURIComponent(subscriptionID)}`, { method: 'DELETE' }),
 	previewSubscription: (subscriptionID: string, limit?: number) =>
 		request<SubscriptionPreview>(`/api/subscriptions/${encodeURIComponent(subscriptionID)}/preview${limit ? `?limit=${limit}` : ''}`, {
-			method: 'POST',
-		}),
-	runSubscriptionOnce: (subscriptionID: string) =>
-		request<SubscriptionRun>(`/api/subscriptions/${encodeURIComponent(subscriptionID)}/run-once`, {
 			method: 'POST',
 		}),
 	getSiteSchedule: (siteID: string) =>

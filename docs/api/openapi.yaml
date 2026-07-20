@@ -125,29 +125,58 @@ paths:
       - $ref: "#/components/parameters/SiteID"
     post:
       tags: [sites]
-      summary: 抓取站点种子列表并写入本地缓存
+      summary: 创建统一的站点分页扫描任务
+      parameters:
+        - name: trigger
+          in: query
+          required: false
+          description: 媒体页自动触发时传 homepage，其余请求可省略。
+          schema:
+            type: string
+            enum: [manual, homepage]
+            default: manual
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteFetchRequest"
       responses:
         "202":
-          description: 抓取完成
+          description: 已创建任务，或返回同站点现有活动任务
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FetchResult"
+                $ref: "#/components/schemas/SiteFetchJob"
         "400":
           $ref: "#/components/responses/Error"
-  /api/sites/{site_id}/run-once:
-    parameters:
-      - $ref: "#/components/parameters/SiteID"
-    post:
-      tags: [sites]
-      summary: 抓取站点并执行该站点已启用订阅
+  /api/site-fetch-jobs:
+    get:
+      tags: [sites, subscriptions]
+      summary: 获取持久化站点扫描任务
+      parameters:
+        - name: site_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
       responses:
-        "202":
-          description: 单次流程完成
+        "200":
+          description: 最近扫描任务
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FetchResult"
+                type: array
+                items:
+                  $ref: "#/components/schemas/SiteFetchJob"
         "500":
           $ref: "#/components/responses/Error"
   /api/sites/{site_id}/schedule:
@@ -201,8 +230,23 @@ paths:
   /api/torrents:
     get:
       tags: [torrents]
-      summary: 查询本地种子缓存
+      summary: 分页查询本地种子缓存
       parameters:
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
         - name: site_id
           in: query
           required: false
@@ -213,15 +257,35 @@ paths:
           required: false
           schema:
             type: string
+        - name: include_pinned
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - name: sort_by
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [source_order, published_at, size_bytes, seeders, leechers, snatches]
+            default: published_at
+        - name: sort_direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
       responses:
         "200":
-          description: 种子列表
+          description: 筛选、排序和范围截取后的种子页
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Torrent"
+                $ref: "#/components/schemas/TorrentPage"
+        "400":
+          $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
   /api/torrents/{site_id}/{torrent_id}/qb-status:
@@ -492,21 +556,6 @@ paths:
                 $ref: "#/components/schemas/SubscriptionPreview"
         "400":
           $ref: "#/components/responses/Error"
-  /api/subscriptions/{subscription_id}/run-once:
-    parameters:
-      - $ref: "#/components/parameters/SubscriptionID"
-    post:
-      tags: [subscriptions]
-      summary: 立即执行一次订阅并遵守订阅配额
-      responses:
-        "202":
-          description: 运行结果
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SubscriptionRun"
-        "400":
-          $ref: "#/components/responses/Error"
   /api/subscriptions/{subscription_id}/candidates:
     parameters:
       - $ref: "#/components/parameters/SubscriptionID"
@@ -551,6 +600,37 @@ paths:
                 items:
                   $ref: "#/components/schemas/SubscriptionRun"
         "500":
+          $ref: "#/components/responses/Error"
+  /api/settings/fetch:
+    get:
+      tags: [settings, sites]
+      summary: 获取全局站点分页扫描设置
+      responses:
+        "200":
+          description: 当前设置，未保存时返回默认值
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchSettings"
+        "500":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [settings, sites]
+      summary: 保存全局站点分页扫描设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FetchSettings"
+      responses:
+        "200":
+          description: 已保存设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchSettings"
+        "400":
           $ref: "#/components/responses/Error"
   /api/settings/qbittorrent:
     get:
@@ -1191,7 +1271,7 @@ components:
           type: boolean
     Torrent:
       type: object
-      required: [id, site_id, title, detail_url, first_seen_at, last_seen_at, source_order, torrent_file_saved]
+      required: [id, site_id, title, detail_url, first_seen_at, last_seen_at, source_order, sticky_level, torrent_file_saved]
       properties:
         id:
           type: string
@@ -1264,6 +1344,10 @@ components:
         source_order:
           type: integer
           description: 最近一次站点列表抓取中的从上到下序号
+        sticky_level:
+          type: integer
+          minimum: 0
+          description: 大于 0 表示置顶，数值较高者优先。
         torrent_file_saved:
           type: boolean
         info_hash_v1:
@@ -1274,6 +1358,24 @@ components:
           type: string
         qb_status:
           $ref: "#/components/schemas/QBTorrentStatus"
+    TorrentPage:
+      type: object
+      required: [items, offset, limit, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Torrent"
+        offset:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
     QBTorrentStatus:
       type: object
       required: [available, added, source, fetched_at]
@@ -1308,14 +1410,49 @@ components:
         action:
           type: string
           enum: [start, stop]
-    FetchResult:
+    FetchSettings:
       type: object
-      required: [site_id, status, fetched, inserted, changed]
+      required: [max_pages]
       properties:
+        max_pages:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 3
+    SiteFetchRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [incremental, pages]
+          default: incremental
+        pages:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: pages 模式必填，并且不得超过全局 max_pages。
+    SiteFetchJob:
+      type: object
+      required: [id, site_id, trigger, mode, requested_pages, status, current_page, pages_fetched, fetched, inserted, changed, matched, download_sent, torrent_files_saved, torrent_files_failed, created_at, updated_at]
+      properties:
+        id:
+          type: string
         site_id:
           type: string
+        trigger:
+          type: string
+        mode:
+          type: string
+          enum: [incremental, pages]
+        requested_pages:
+          type: integer
         status:
           type: string
+          enum: [queued, running, completed, completed_with_errors, failed]
+        current_page:
+          type: integer
+        pages_fetched:
+          type: integer
         fetched:
           type: integer
         inserted:
@@ -1330,6 +1467,23 @@ components:
           type: integer
         torrent_files_failed:
           type: integer
+        stop_reason:
+          type: string
+          description: completed、existing_boundary、no_next_page、no_normal_torrents、empty_page、max_pages、error 或 interrupted。
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Rule:
       type: object
       required: [name, site_ids, site_categories, site_tags, subtitle_tags, title_expression, promotions, min_size, max_size, min_seeders, max_seeders, min_leechers, max_leechers, min_snatches, max_snatches, published_within_minutes, sort_by, sort_direction, action]
@@ -1670,7 +1824,7 @@ components:
           type: string
         trigger:
           type: string
-          enum: [scheduled, run-once, manual-batch]
+          enum: [manual, homepage, scheduled, manual-batch]
         status:
           type: string
         fetched:

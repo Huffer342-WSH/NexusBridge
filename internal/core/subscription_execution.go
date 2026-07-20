@@ -2,9 +2,7 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -28,164 +26,17 @@ type preparedSubscriptionCandidate struct {
 	plan     DownloadPlan
 }
 
-// RunSubscriptionOnce 抓取订阅涉及的站点并按同一配额规则执行一次。
-func (a *App) RunSubscriptionOnce(ctx context.Context, id string) (SubscriptionRun, error) {
-	subscription, rule, err := a.loadSubscriptionAndRule(ctx, id)
-	if err != nil {
-		return SubscriptionRun{}, err
-	}
-
-	run := storage.SubscriptionRunRecord{
-		ID: newSubscriptionRunID(subscription.ID, "all", "run-once"), SubscriptionID: subscription.ID,
-		Trigger: "run-once", Status: "running", StartedAt: time.Now(),
-	}
-	if err := a.store.SaveSubscriptionRun(ctx, run); err != nil {
-		return SubscriptionRun{}, err
-	}
-	var fetchErrors []error
-	finish := func(runErr error) (SubscriptionRun, error) {
-		run.FinishedAt = time.Now()
-		if runErr != nil {
-			run.Status = "failed"
-			run.Error = runErr.Error()
-		} else {
-			run.Status = "completed"
-		}
-		if saveErr := a.store.SaveSubscriptionRun(context.WithoutCancel(ctx), run); saveErr != nil && runErr == nil {
-			runErr = saveErr
-		}
-		return subscriptionRunFromRecord(run), runErr
-	}
-
-	for _, siteID := range subscription.SiteIDs {
-		if err := ctx.Err(); err != nil {
-			return finish(err)
-		}
-		lock := a.siteMutex(siteID)
-		if err := lock.Lock(ctx); err != nil {
-			return finish(err)
-		}
-		fetch, inserted, fetchErr := a.refreshSite(ctx, siteID)
-		run.FetchedCount += fetch.Fetched
-		run.InsertedCount += fetch.Inserted
-		if ctx.Err() != nil {
-			lock.Unlock()
-			return finish(ctx.Err())
-		}
-
-		candidates, err := a.store.ListEnabledSubscriptionsBySite(ctx, siteID)
-		if err != nil {
-			lock.Unlock()
-			return finish(err)
-		}
-		if !subscription.Enabled {
-			candidates = append(candidates, subscriptionToRecord(subscription))
-			sort.SliceStable(candidates, func(i, j int) bool {
-				if candidates[i].Priority != candidates[j].Priority {
-					return candidates[i].Priority > candidates[j].Priority
-				}
-				return candidates[i].ID < candidates[j].ID
-			})
-		}
-		assigned, err := a.assignPendingSiteTorrents(ctx, siteID, candidates)
-		lock.Unlock()
-		if err != nil {
-			return finish(err)
-		}
-		run.MatchedCount += assigned[subscription.ID]
-		if fetchErr != nil {
-			fetchErrors = append(fetchErrors, fetchErr)
-		}
-		_ = inserted // inserted 仅用于抓取统计；首次匹配由持久化 ingest 队列驱动。
-	}
-
-	counts, err := a.runSubscriptionCandidates(ctx, subscription, rule, "run-once", "")
-	run.AttemptedCount += counts.attempted
-	run.SentCount += counts.sent
-	run.ExistsCount += counts.exists
-	run.FailedCount += counts.failed
-	run.SkippedCount += counts.skipped
-	return finish(errors.Join(append(fetchErrors, err)...))
-}
-
 // runSiteSubscriptions 抓取站点、按优先级独占分配新种子并执行全部启用订阅。
 func (a *App) runSiteSubscriptions(ctx context.Context, siteID, trigger string) (FetchResult, error) {
-	lock := a.siteMutex(siteID)
-	if err := lock.Lock(ctx); err != nil {
-		return FetchResult{SiteID: siteID, Status: "failed"}, err
+	job, err := a.runTrackedSiteFetch(ctx, siteID, trigger, SiteFetchRequest{Mode: "incremental"})
+	result := FetchResult{
+		SiteID: job.SiteID, Status: "ok", Fetched: job.Fetched, Inserted: job.Inserted, Changed: job.Changed,
+		Matched: job.Matched, DownloadSent: job.DownloadSent, FilesSaved: job.FilesSaved, FilesFailed: job.FilesFailed,
 	}
-
-	result, inserted, fetchErr := a.refreshSite(ctx, siteID)
-	if ctx.Err() != nil {
-		lock.Unlock()
-		return result, ctx.Err()
-	}
-	records, err := a.store.ListEnabledSubscriptionsBySite(ctx, siteID)
 	if err != nil {
-		lock.Unlock()
-		return result, err
-	}
-	assigned, err := a.assignPendingSiteTorrents(ctx, siteID, records)
-	lock.Unlock()
-	if err != nil {
-		return result, err
-	}
-	_ = inserted // inserted 仅用于抓取统计；首次匹配由持久化 ingest 队列驱动。
-	for _, count := range assigned {
-		result.Matched += count
-	}
-
-	var runErrors []error
-	if fetchErr != nil {
-		runErrors = append(runErrors, fetchErr)
-	}
-	for _, record := range records {
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		subscription := subscriptionFromRecord(record)
-		ruleRecord, ok, err := a.store.GetRule(ctx, subscription.RuleName)
-		if err != nil {
-			runErrors = append(runErrors, err)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		run := storage.SubscriptionRunRecord{
-			ID: newSubscriptionRunID(subscription.ID, siteID, trigger), SubscriptionID: subscription.ID,
-			SiteID: siteID, Trigger: trigger, Status: "running", FetchedCount: result.Fetched,
-			InsertedCount: result.Inserted, MatchedCount: assigned[subscription.ID], StartedAt: time.Now(),
-		}
-		if err := a.store.SaveSubscriptionRun(ctx, run); err != nil {
-			runErrors = append(runErrors, err)
-			continue
-		}
-		counts, runErr := a.runSubscriptionCandidates(ctx, subscription, ruleFromRecord(ruleRecord), trigger, siteID)
-		run.AttemptedCount = counts.attempted
-		run.SentCount = counts.sent
-		run.ExistsCount = counts.exists
-		run.FailedCount = counts.failed
-		run.SkippedCount = counts.skipped
-		run.FinishedAt = time.Now()
-		if runErr != nil {
-			run.Status = "failed"
-			run.Error = runErr.Error()
-			runErrors = append(runErrors, fmt.Errorf("subscription %s: %w", subscription.ID, runErr))
-		} else {
-			run.Status = "completed"
-		}
-		if err := a.store.SaveSubscriptionRun(context.WithoutCancel(ctx), run); err != nil {
-			runErrors = append(runErrors, err)
-		}
-		result.DownloadSent += counts.sent
-	}
-	if len(runErrors) > 0 {
 		result.Status = "failed"
-		return result, errors.Join(runErrors...)
 	}
-	result.Status = "ok"
-	return result, nil
+	return result, err
 }
 
 func (a *App) assignInsertedTorrents(ctx context.Context, torrents []Torrent, subscriptions []storage.SubscriptionRecord) (map[string]int, error) {

@@ -18,6 +18,8 @@ const (
 	QBittorrentSettingKey   = "qbittorrent"
 	LLMSettingKey           = "llm"
 	NetworkSettingKey       = "network"
+	// FetchSettingKey 是全局站点抓取设置的存储键。
+	FetchSettingKey = "fetch"
 	// MihomoSettingKey 是 Mihomo 配置目录偏好的存储键。
 	MihomoSettingKey = "mihomo"
 )
@@ -69,10 +71,12 @@ type TorrentUpsertResult struct {
 type TorrentListQuery struct {
 	SiteID        string
 	Search        string
+	SearchSiteIDs []string
 	SortBy        string
 	SortDirection string
 	Limit         int
 	Offset        int
+	ExcludePinned bool
 }
 
 type TorrentKey struct {
@@ -180,19 +184,28 @@ func (s *SQLiteStore) LoadSetting(ctx context.Context, key string, value any) (b
 }
 
 func (s *SQLiteStore) UpsertTorrents(ctx context.Context, records []TorrentRecord) (TorrentUpsertResult, error) {
+	return s.upsertTorrents(ctx, "", records, false)
+}
+
+// UpsertTorrentPage 写入一页站点列表，并可在第一页原子清除该站点旧置顶状态。
+func (s *SQLiteStore) UpsertTorrentPage(ctx context.Context, siteID string, records []TorrentRecord, resetPinned bool) (TorrentUpsertResult, error) {
+	return s.upsertTorrents(ctx, strings.TrimSpace(siteID), records, resetPinned)
+}
+
+func (s *SQLiteStore) upsertTorrents(ctx context.Context, siteID string, records []TorrentRecord, resetPinned bool) (TorrentUpsertResult, error) {
 	result := TorrentUpsertResult{Total: len(records)}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
 	}
 	defer rollbackUnlessCommitted(tx)
-
+	type existingTorrent struct {
+		signature string
+		subtitle  string
+	}
+	existing := make(map[TorrentKey]existingTorrent, len(records))
 	for _, record := range records {
-		if strings.TrimSpace(record.SiteID) == "" || strings.TrimSpace(record.TorrentID) == "" {
-			continue
-		}
-		existingSig := ""
-		existingSubtitle := ""
+		var item existingTorrent
 		err := tx.QueryRowContext(ctx, `
 SELECT source_order || '|' || title || '|' || category || '|' || category_query || '|' || detail_url || '|' || download_url || '|' || cover_url || '|' ||
        tags_json || '|' || tag_ids_json || '|' || promotion || '|' || promotion_class || '|' || promotion_ends_at || '|' || promotion_remaining || '|' ||
@@ -200,11 +213,24 @@ SELECT source_order || '|' || title || '|' || category || '|' || category_query 
        comments || '|' || published_at || '|' || published_text || '|' || sticky_level || '|' || bookmarked,
        subtitle
 FROM torrents WHERE site_id = ? AND torrent_id = ?
-`, record.SiteID, record.TorrentID).Scan(&existingSig, &existingSubtitle)
-		exists := err == nil
-		if err != nil && err != sql.ErrNoRows {
+`, record.SiteID, record.TorrentID).Scan(&item.signature, &item.subtitle)
+		if err == nil {
+			existing[TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}] = item
+		} else if err != sql.ErrNoRows {
 			return result, fmt.Errorf("check torrent: %w", err)
 		}
+	}
+	if resetPinned && siteID != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE torrents SET sticky_level = 0, updated_at = CURRENT_TIMESTAMP WHERE site_id = ? AND sticky_level <> 0`, siteID); err != nil {
+			return result, fmt.Errorf("reset torrent sticky state: %w", err)
+		}
+	}
+
+	for _, record := range records {
+		if strings.TrimSpace(record.SiteID) == "" || strings.TrimSpace(record.TorrentID) == "" {
+			continue
+		}
+		existingRecord, exists := existing[TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}]
 
 		tagsJSON, err := json.Marshal(record.Tags)
 		if err != nil {
@@ -216,7 +242,7 @@ FROM torrents WHERE site_id = ? AND torrent_id = ?
 		}
 		effectiveSubtitle := record.Subtitle
 		if exists && effectiveSubtitle == "" {
-			effectiveSubtitle = existingSubtitle
+			effectiveSubtitle = existingRecord.subtitle
 		}
 		newSig := strings.Join([]string{
 			strconv.Itoa(record.SourceOrder),
@@ -247,7 +273,7 @@ FROM torrents WHERE site_id = ? AND torrent_id = ?
 		}, "|")
 		if !exists {
 			result.Inserted = append(result.Inserted, record)
-		} else if existingSig != newSig {
+		} else if existingRecord.signature != newSig {
 			result.Changed = append(result.Changed, record)
 		}
 
@@ -307,11 +333,12 @@ VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 	return result, tx.Commit()
 }
 
-func (s *SQLiteStore) ListTorrents(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, error) {
-	limit := query.Limit
-	if limit <= 0 || limit > MaxTorrentListLimit {
-		limit = defaultTorrentListLimit
-	}
+type torrentQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func buildTorrentWhere(query TorrentListQuery) (string, []any) {
 	clauses := []string{"1=1"}
 	args := []any{}
 	if query.SiteID != "" {
@@ -319,10 +346,35 @@ func (s *SQLiteStore) ListTorrents(ctx context.Context, query TorrentListQuery) 
 		args = append(args, query.SiteID)
 	}
 	if query.Search != "" {
-		clauses = append(clauses, "title LIKE ?")
-		args = append(args, "%"+query.Search+"%")
+		searchClauses := []string{"title LIKE ?", "category LIKE ?", "promotion LIKE ?", "site_id LIKE ?"}
+		pattern := "%" + query.Search + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
+		for range query.SearchSiteIDs {
+			searchClauses = append(searchClauses, "site_id = ?")
+		}
+		for _, siteID := range query.SearchSiteIDs {
+			args = append(args, siteID)
+		}
+		clauses = append(clauses, "("+strings.Join(searchClauses, " OR ")+")")
 	}
-	orderBy := "last_seen_at DESC, source_order ASC, site_id ASC, torrent_id ASC"
+	if query.ExcludePinned {
+		clauses = append(clauses, "sticky_level = 0")
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+// ListTorrents 返回符合筛选条件的种子范围。
+func (s *SQLiteStore) ListTorrents(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, error) {
+	return listTorrents(ctx, s.db, query)
+}
+
+func listTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuery) ([]TorrentRecord, error) {
+	limit := query.Limit
+	if limit <= 0 || limit > MaxTorrentListLimit {
+		limit = defaultTorrentListLimit
+	}
+	where, args := buildTorrentWhere(query)
+	orderBy := "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
 	if column, ok := map[string]string{
 		"source_order": "source_order", "published_at": "published_at", "size_bytes": "size_bytes",
 		"seeders": "seeders", "leechers": "leechers", "snatches": "snatches",
@@ -331,17 +383,21 @@ func (s *SQLiteStore) ListTorrents(ctx context.Context, query TorrentListQuery) 
 		if strings.EqualFold(strings.TrimSpace(query.SortDirection), "desc") {
 			direction = "DESC"
 		}
-		orderBy = column + " " + direction + ", site_id ASC, torrent_id ASC"
+		if column == "published_at" && direction == "DESC" {
+			orderBy = "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
+		} else {
+			orderBy = "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, " + column + " " + direction + ", site_id ASC, torrent_id ASC"
+		}
 	}
 	args = append(args, limit, query.Offset)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := db.QueryContext(ctx, `
 SELECT site_id, torrent_id, source_order, title, category, category_query, detail_url, download_url, cover_url,
        tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
        detail_title, subtitle, product_url, detail_info_hash, detail_description, detail_raw_text, detail_fetched_at,
        size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
        sticky_level, bookmarked, first_seen_at, last_seen_at
 FROM torrents
-WHERE `+strings.Join(clauses, " AND ")+`
+WHERE `+where+`
 ORDER BY `+orderBy+`
 LIMIT ? OFFSET ?
 `, args...)
@@ -373,6 +429,34 @@ LIMIT ? OFFSET ?
 		records = append(records, record)
 	}
 	return records, rows.Err()
+}
+
+func countTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuery) (int, error) {
+	where, args := buildTorrentWhere(query)
+	var count int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM torrents WHERE `+where, args...).Scan(&count)
+	return count, err
+}
+
+// ListTorrentPage 在同一只读事务中返回筛选总数和当前范围。
+func (s *SQLiteStore) ListTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rollbackUnlessCommitted(tx)
+	total, err := countTorrents(ctx, tx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	items, err := listTorrents(ctx, tx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, err
+	}
+	return items, total, nil
 }
 
 // ListRuleFacets 汇总指定站点已抓取种子的分类和两类标签。

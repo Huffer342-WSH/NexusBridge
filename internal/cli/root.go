@@ -33,38 +33,10 @@ func NewRootCommand() *cobra.Command {
 	cmd.AddCommand(newServeCommand(opts))
 	cmd.AddCommand(newConfigCommand(opts))
 	cmd.AddCommand(newFetchCommand(opts))
-	cmd.AddCommand(newRunOnceCommand(opts))
 	cmd.AddCommand(newRSSCommand())
 	cmd.AddCommand(newQBCommand(opts))
 	cmd.AddCommand(newOrganizeCommand(opts))
 	return cmd
-}
-
-func newRunOnceCommand(opts *options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "run-once <site>",
-		Short: "Fetch, filter, and send matched new torrents to qBittorrent",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, cleanup, err := loadConfigAndSetupLogging(opts)
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			app, err := core.NewApp(cmd.Context(), cfg)
-			if err != nil {
-				return err
-			}
-			defer app.Close()
-			result, err := app.RunOnce(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "run-once %s: %s fetched=%d changed=%d matched=%d sent=%d\n",
-				result.SiteID, result.Status, result.Fetched, result.Changed, result.Matched, result.DownloadSent)
-			return nil
-		},
-	}
 }
 
 func newServeCommand(opts *options) *cobra.Command {
@@ -122,7 +94,7 @@ func newConfigCommand(opts *options) *cobra.Command {
 func newFetchCommand(opts *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "fetch <site>",
-		Short: "Fetch torrents for a configured site",
+		Short: "Fetch torrents and run enabled subscriptions for a configured site",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, cleanup, err := loadConfigAndSetupLogging(opts)
@@ -139,7 +111,8 @@ func newFetchCommand(opts *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "fetch %s: %s fetched=%d changed=%d\n", result.SiteID, result.Status, result.Fetched, result.Changed)
+			fmt.Fprintf(cmd.OutOrStdout(), "fetch %s: %s fetched=%d inserted=%d changed=%d matched=%d sent=%d\n",
+				result.SiteID, result.Status, result.Fetched, result.Inserted, result.Changed, result.Matched, result.DownloadSent)
 			return nil
 		},
 	}

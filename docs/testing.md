@@ -197,7 +197,7 @@ go test ./tests -run "TestRequestPolicy|TestFetcherReevaluatesCookiesOnRedirect"
 - 筛选/订阅持久化测试覆盖全新自然键表结构、规则级联改名、规则与订阅 roundtrip、qB category/tag 离线快照、首个订阅独占、配额候选保持 `unread` 和下载任务幂等。
 - 调度测试使用 fake clock，覆盖动态周期、同站防重入、context 取消、多个订阅优先级和本地自然日跨日配额恢复。
 - `TestSQLiteLockContentionRecovers` 使用第二条真实 SQLite 连接持有独占写事务，验证 WAL 下调度读取不中断，以及连接池中的等待写入会在锁释放后恢复。
-- API 测试覆盖草稿 preview 零写入、命中优先排序、本地 qB 三态、站点筛选选项、规则级联改名、规则/订阅 CRUD、分类创建、站点及订阅 run-once、批量快速应用/临时 options 和任务 retry。
+- API 测试覆盖草稿 preview 零写入、命中优先排序、本地 qB 三态、站点筛选选项、规则级联改名、规则/订阅 CRUD、分类创建、批量快速应用/临时 options 和任务 retry。
 - `TestDesktopPrepareData` 验证桌面用户目录、默认配置、内置站点安装、绝对路径解析及已有站点文件不覆盖。
 - `TestDesktopRuntimeServesSharedAPI` 验证 Wails 中间件复用现有 `/api` Handler。
 - `TestRuntimeConfigDevelopmentDataDir`、`TestRuntimeConfigDataDirOverride`、`TestRuntimeConfigProductionBootstrap` 验证运行目录策略。

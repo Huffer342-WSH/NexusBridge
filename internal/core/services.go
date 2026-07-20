@@ -10,14 +10,17 @@ type SiteService interface {
 
 type TorrentService interface {
 	ListTorrents(ctx context.Context, query TorrentQuery) ([]Torrent, error)
+	ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentPage, error)
 	GetTorrentQBStatus(ctx context.Context, siteID, torrentID string, weakMatch bool) (QBTorrentStatus, error)
 	ControlTorrentQB(ctx context.Context, siteID, torrentID, action string) (QBTorrentStatus, error)
 	FetchTorrentCover(ctx context.Context, siteID, torrentID string) (CoverImage, error)
 }
 
 type FetchService interface {
-	FetchSite(ctx context.Context, siteID string) (FetchResult, error)
-	RunOnce(ctx context.Context, siteID string) (FetchResult, error)
+	StartSiteFetch(ctx context.Context, siteID, trigger string, request SiteFetchRequest) (SiteFetchJob, error)
+	ListSiteFetchJobs(ctx context.Context, siteID string, limit int) ([]SiteFetchJob, error)
+	GetFetchSettings(ctx context.Context) (FetchSettings, error)
+	SaveFetchSettings(ctx context.Context, settings FetchSettings) (FetchSettings, error)
 }
 
 type RuleService interface {
@@ -34,7 +37,6 @@ type SubscriptionService interface {
 	SaveSubscription(ctx context.Context, subscription Subscription) (Subscription, error)
 	DeleteSubscription(ctx context.Context, id string) (bool, error)
 	PreviewSubscription(ctx context.Context, id string, limit int) (SubscriptionPreview, error)
-	RunSubscriptionOnce(ctx context.Context, id string) (SubscriptionRun, error)
 	ListSubscriptionCandidates(ctx context.Context, subscriptionID, status string) ([]SubscriptionCandidate, error)
 	ListSubscriptionRuns(ctx context.Context, subscriptionID string) ([]SubscriptionRun, error)
 	GetSiteSchedule(ctx context.Context, siteID string) (SiteSchedule, error)

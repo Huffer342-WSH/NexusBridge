@@ -181,12 +181,11 @@ Wails 会启动桌面壳和前端开发服务。桌面入口、资源和平台�
 ```sh
 go run ./cmd/nexusbridge config check
 go run ./cmd/nexusbridge fetch <site>
-go run ./cmd/nexusbridge run-once <site>
 go run ./cmd/nexusbridge qb sync
 go run ./cmd/nexusbridge organize pending
 ```
 
-`serve` 会启动已显式启用的站点和订阅调度；`fetch`、`run-once` 等单次命令不保留后台调度器。`fetch` 只抓取和持久化，站点 `run-once` 才会执行该站点已启用的订阅。
+`serve` 会启动已显式启用的站点计划；计划仅在该站点存在已启用订阅时抓取。`fetch` 使用统一的增量分页流程，逐页持久化新种子、消费订阅队列并按现有配额和幂等规则发送到 qB；单次命令结束后不保留后台调度器。
 
 ### 测试
 

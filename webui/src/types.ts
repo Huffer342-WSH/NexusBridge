@@ -58,6 +58,7 @@ export type Torrent = {
 	first_seen_at?: string;
 	last_seen_at?: string;
 	source_order: number;
+	sticky_level: number;
 	torrent_file_saved: boolean;
 	info_hash_v1?: string;
 	info_hash_v2?: string;
@@ -89,18 +90,6 @@ export type QBTorrentStatus = {
 	size?: number;
 	completed?: number;
 	amount_left?: number;
-};
-
-export type FetchResult = {
-	site_id: string;
-	status: string;
-	fetched: number;
-	inserted: number;
-	changed: number;
-	matched?: number;
-	download_sent?: number;
-	torrent_files_saved?: number;
-	torrent_files_failed?: number;
 };
 
 export type QBSyncResult = {
@@ -155,6 +144,56 @@ export type NetworkConfig = {
 	mode: 'system' | 'manual' | 'direct';
 	proxy_url: string;
 	no_proxy: string;
+};
+
+export type FetchSettings = {
+	max_pages: number;
+};
+
+export type SiteFetchRequest = {
+	mode: 'incremental' | 'pages';
+	pages?: number;
+};
+
+export type SiteFetchJob = {
+	id: string;
+	site_id: string;
+	trigger: string;
+	mode: 'incremental' | 'pages' | string;
+	requested_pages: number;
+	status: 'queued' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | string;
+	current_page: number;
+	pages_fetched: number;
+	fetched: number;
+	inserted: number;
+	changed: number;
+	matched: number;
+	download_sent: number;
+	torrent_files_saved: number;
+	torrent_files_failed: number;
+	stop_reason?: string;
+	error?: string;
+	started_at?: string;
+	finished_at?: string;
+	created_at: string;
+	updated_at: string;
+};
+
+export type TorrentPage = {
+	items: Torrent[];
+	offset: number;
+	limit: number;
+	total: number;
+};
+
+export type TorrentPageQuery = {
+	offset: number;
+	limit: number;
+	site_id?: string;
+	q?: string;
+	include_pinned: boolean;
+	sort_by?: 'published_at';
+	sort_direction?: 'desc';
 };
 
 export type MihomoProvider = {
@@ -384,7 +423,7 @@ export type SubscriptionRun = {
 	id: string;
 	subscription_id?: string;
 	site_id?: string;
-	trigger: 'scheduled' | 'run-once' | 'manual-batch' | string;
+	trigger: 'manual' | 'homepage' | 'scheduled' | 'manual-batch' | string;
 	status: string;
 	fetched: number;
 	inserted: number;
