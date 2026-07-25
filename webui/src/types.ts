@@ -210,6 +210,37 @@ export type TorrentPageQuery = {
   sort_direction?: 'desc';
 };
 
+export type PlaybackMediaType = 'video' | 'audio' | 'image';
+
+export type PlaybackMedia = {
+  index: number;
+  name: string;
+  media_type: PlaybackMediaType;
+  mime_type: string;
+  size: number;
+  progress: number;
+  selected: boolean;
+  complete: boolean;
+  available: boolean;
+  stream_url: string;
+};
+
+export type TorrentPlayback = {
+  torrent: Torrent;
+  qb_status: QBTorrentStatus;
+  files: PlaybackMedia[];
+  default_file_index?: number;
+};
+
+export type PlaybackTorrent = {
+  id: string;
+  site_id: string;
+  title: string;
+  cover_url?: string;
+  category?: string;
+  published_at?: string;
+};
+
 export type MihomoProvider = {
   name: string;
   has_url: boolean;

@@ -321,6 +321,113 @@ paths:
           $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
+  /api/playback/torrents:
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 查询含有完整音频或视频文件的其他 qB 种子
+      parameters:
+        - name: exclude_site_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: exclude_torrent_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: 按站点发布时间倒序的其他可播放种子
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlaybackTorrent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/playback:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 获取当前种子的实时媒体播放清单
+      responses:
+        "200":
+          description: 种子元数据、qB 状态、媒体选集和默认文件
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TorrentPlayback"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/media/{file_index}:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+      - name: file_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 按 qB 文件索引传输同机源媒体文件
+      responses:
+        "200":
+          description: 完整文件或 Range 响应
+          headers:
+            Accept-Ranges:
+              schema:
+                type: string
+                example: bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: 字节范围响应
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+    head:
+      tags: [torrents, qbittorrent]
+      summary: 查询同机源媒体文件响应头
+      responses:
+        "200":
+          description: 文件长度、类型、修改时间和 Range 能力
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /api/torrents/{site_id}/{torrent_id}/qb-status:
     parameters:
       - $ref: "#/components/parameters/SiteID"
@@ -1457,6 +1564,70 @@ components:
         total:
           type: integer
           minimum: 0
+    PlaybackMedia:
+      type: object
+      required: [index, name, media_type, mime_type, size, progress, selected, complete, available, stream_url]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+          description: qB 返回的种子内相对路径，不包含本机绝对路径。
+        media_type:
+          type: string
+          enum: [video, audio, image]
+        mime_type:
+          type: string
+        size:
+          type: integer
+          format: int64
+        progress:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        selected:
+          type: boolean
+        complete:
+          type: boolean
+        available:
+          type: boolean
+          description: 下载进度大于零且同机普通文件通过路径安全校验。
+        stream_url:
+          type: string
+    TorrentPlayback:
+      type: object
+      required: [torrent, qb_status, files]
+      properties:
+        torrent:
+          $ref: "#/components/schemas/Torrent"
+        qb_status:
+          $ref: "#/components/schemas/QBTorrentStatus"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlaybackMedia"
+        default_file_index:
+          type: integer
+          minimum: 0
+    PlaybackTorrent:
+      type: object
+      required: [id, site_id, title]
+      properties:
+        id:
+          type: string
+        site_id:
+          type: string
+        title:
+          type: string
+        cover_url:
+          type: string
+        category:
+          type: string
+        published_at:
+          type: string
+          format: date-time
     QBTorrentStatus:
       type: object
       required: [available, added, source, fetched_at]
@@ -1475,8 +1646,12 @@ components:
         progress: { type: number, format: double }
         category: { type: string }
         tags: { type: string }
-        save_path: { type: string }
-        content_path: { type: string }
+        save_path:
+          type: string
+          description: qB 返回的任务保存路径，可能是本机绝对路径。
+        content_path:
+          type: string
+          description: qB 返回的任务内容路径，可能是本机绝对路径。
         download_speed: { type: integer, format: int64 }
         upload_speed: { type: integer, format: int64 }
         eta: { type: integer, format: int64 }

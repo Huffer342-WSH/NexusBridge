@@ -16,6 +16,7 @@ import type {
   MihomoProviderCreateRequest,
   MihomoSettings,
   OrganizeTask,
+  PlaybackTorrent,
   QBittorrentConfig,
   QBSyncResult,
   QBPollResult,
@@ -47,6 +48,7 @@ import type {
   SubscriptionPreview,
   SubscriptionRun,
   Torrent,
+  TorrentPlayback,
   TorrentPage,
   TorrentPageQuery,
   SiteFetchJob,
@@ -115,6 +117,16 @@ export const api = {
     if (query.site_id) params.set('site_id', query.site_id);
     if (query.q?.trim()) params.set('q', query.q.trim());
     return request<TorrentPage>(`/api/torrents?${params.toString()}`);
+  },
+  getTorrentPlayback: (siteID: string, torrentID: string) =>
+    request<TorrentPlayback>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/playback`),
+  getPlaybackTorrents: (excludeSiteID: string, excludeTorrentID: string, limit = 20) => {
+    const params = new URLSearchParams({
+      exclude_site_id: excludeSiteID,
+      exclude_torrent_id: excludeTorrentID,
+      limit: String(limit),
+    });
+    return request<PlaybackTorrent[]>(`/api/playback/torrents?${params.toString()}`);
   },
   fetchSite: (
     siteID: string,

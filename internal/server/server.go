@@ -18,6 +18,7 @@ type Server struct {
 	cfg           config.Config
 	sites         core.SiteService
 	torrents      core.TorrentService
+	playback      core.PlaybackService
 	fetcher       core.FetchService
 	rules         core.RuleService
 	subscriptions core.SubscriptionService
@@ -53,6 +54,7 @@ type torrentActionService interface {
 func New(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
+	core.PlaybackService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -71,6 +73,7 @@ func New(cfg config.Config, app interface {
 func NewWithAssets(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
+	core.PlaybackService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -89,6 +92,7 @@ func NewWithAssets(cfg config.Config, app interface {
 func newServer(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
+	core.PlaybackService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -104,6 +108,7 @@ func newServer(cfg config.Config, app interface {
 		cfg:           cfg,
 		sites:         app,
 		torrents:      app,
+		playback:      app,
 		fetcher:       app,
 		rules:         app,
 		subscriptions: app,
@@ -133,6 +138,10 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/sites/{site_id}/filter-options", s.handleRuleFilterOptions)
 	r.Get("/api/torrents", s.handleTorrents)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/cover", s.handleTorrentCover)
+	r.Get("/api/torrents/{site_id}/{torrent_id}/playback", s.handleTorrentPlayback)
+	r.Get("/api/playback/torrents", s.handlePlaybackTorrents)
+	r.Get("/api/torrents/{site_id}/{torrent_id}/media/{file_index}", s.handleTorrentMedia)
+	r.Head("/api/torrents/{site_id}/{torrent_id}/media/{file_index}", s.handleTorrentMedia)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/qb-status", s.handleTorrentQBStatus)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/qb-control", s.handleTorrentQBControl)
 	r.Post("/api/sites/{site_id}/fetch", s.handleFetchSite)

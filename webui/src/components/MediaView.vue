@@ -1,6 +1,6 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
-import { ExternalLink, Film, RadioTower, RefreshCw, Search } from '@lucide/vue';
+import { ExternalLink, Film, Play, RadioTower, RefreshCw, Search } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { NButton, NCard, NEmpty, NIcon, NInput, NPagination, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
@@ -181,6 +181,16 @@ function markCoverFailed(torrent: Torrent) {
   failedCovers.value = new Set(failedCovers.value).add(`${torrent.site_id}:${torrent.id}`);
 }
 
+/** 在浏览器新标签页打开已关联 qB 任务的播放页。 */
+function openPlayback(torrent: Torrent) {
+  if (!torrent.qb_status?.added) return;
+  const target = router.resolve({
+    name: 'playback',
+    params: { site_id: torrent.site_id, torrent_id: torrent.id },
+  });
+  window.open(target.href, '_blank', 'noopener,noreferrer');
+}
+
 /** 解析 qB 返回的逗号分隔标签。 */
 function qbTags(torrent: Torrent) {
   return (torrent.qb_status?.tags ?? '')
@@ -234,6 +244,16 @@ function qbTags(torrent: Torrent) {
             <NIcon :component="Film" size="28" />
             <span>{{ torrent.site_id }}</span>
           </div>
+          <NButton
+            v-if="torrent.qb_status?.added"
+            class="card-play-button"
+            type="primary"
+            circle
+            aria-label="在新标签页播放"
+            @click.stop="openPlayback(torrent)"
+          >
+            <template #icon><NIcon :component="Play" /></template>
+          </NButton>
           <TorrentStatusControl
             class="card-status-control"
             :torrent="torrent"
@@ -246,7 +266,16 @@ function qbTags(torrent: Torrent) {
         <div class="media-body">
           <div class="media-title-row">
             <div>
-              <h3 :class="`media-title-${displaySettings.titleMode}`">{{ torrent.title }}</h3>
+              <button
+                v-if="torrent.qb_status?.added"
+                type="button"
+                class="media-title-link"
+                title="在新标签页播放"
+                @click="openPlayback(torrent)"
+              >
+                <h3 :class="`media-title-${displaySettings.titleMode}`">{{ torrent.title }}</h3>
+              </button>
+              <h3 v-else :class="`media-title-${displaySettings.titleMode}`">{{ torrent.title }}</h3>
               <p class="muted">{{ torrent.published_text || formatDate(torrent.published_at) }}</p>
             </div>
             <TorrentStatusControl

@@ -7,6 +7,7 @@ WebUI 使用 Vue Router History 模式。浏览器版和 Wails 桌面版使用�
 | 路径 | 页面 |
 | --- | --- |
 | `/media` | 媒体库 |
+| `/play/:site_id/:torrent_id` | 独立媒体播放页 |
 | `/files` | 文件与恢复 |
 | `/subscriptions` | 订阅与筛选 |
 | `/tasks` | 任务 |
@@ -40,6 +41,22 @@ WebUI 使用 Vue Router History 模式。浏览器版和 Wails 桌面版使用�
 
 媒体页读取本地缓存后会提交增量抓取：选择单个站点时只请求该站点；选择默认的“全部站点”时，并发请求所有已保存 Cookie 的站点。每个站点在当前 WebUI 生命周期内只会成功自动提交一次，正在提交的站点也不会重复请求；手动扫描和后台周期计划仍可独立触发。
 
+## 播放页
+
+媒体卡片只有在已关联 qB 任务时显示播放入口，入口使用 `/play/:site_id/:torrent_id` 在浏览器新标签页打开。播放路由使用独立外壳，不加载普通 Dashboard 数据，也不会触发媒体页自动抓取。
+
+完整的清单生成、默认选集、播放器分派、源文件读取和路径边界见[媒体播放](modules/playback.md)。
+
+播放页左侧固定为媒体画布和种子简介，右侧依次展示当前种子的图片、视频、音频选集及其他可播放种子。当前选集允许尝试播放已有下载进度的文件；进度为零时禁用。其他种子只包含至少一个完整音频或视频的 qB 任务，并按站点发布时间倒序。切换其他种子时复用当前播放标签页。
+
+播放器实现由 `src/config/mediaPlayer.ts` 的构建配置选择：
+
+- `video` 支持 `artplayer` 或 `native`，默认 `artplayer`。
+- `audio` 支持 `vidstack` 或 `native`，默认 `vidstack`。
+- `image` 固定为轻量原生查看器。
+
+播放路由和三类播放器均懒加载。播放器只消费后端同源源文件 URL，不负责转码；不受浏览器支持的容器或编码会显示加载/解码错误。
+
 ## 文件页路径参数
 
 文件页使用 `path` 保存当前浏览目录：
@@ -59,4 +76,4 @@ WebUI 使用 Vue Router History 模式。浏览器版和 Wails 桌面版使用�
 - Web 服务的 SPA catch-all 对未命中的非 `/api`、`/rss` 路径返回 `index.html`。
 - Wails 只对 `GET/HEAD`、接受 HTML、没有文件扩展名且原响应为 404 的页面导航回退 `index.html`；缺失静态资源、API 和 Runtime 请求不会被前端路由吞掉。
 
-代码入口是 `webui/src/router.ts`、`webui/src/App.vue`、`webui/src/components/MediaView.vue` 和 `webui/src/components/FileManagerView.vue`；Web 与桌面回退分别位于 `internal/server/http_helpers.go` 和 `internal/desktop/assets.go`。
+代码入口是 `webui/src/router.ts`、`webui/src/App.vue`、`webui/src/components/MediaView.vue`、`webui/src/components/PlaybackView.vue` 和 `webui/src/components/FileManagerView.vue`；Web 与桌面回退分别位于 `internal/server/http_helpers.go` 和 `internal/desktop/assets.go`。

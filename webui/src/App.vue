@@ -142,9 +142,10 @@ const autoFetchingSites = new Set<string>();
 const showLogin = computed(() => session.value?.requires_login && !loggedIn.value);
 const activeDownloads = computed(() => downloadTasks.value.filter((task) => task.status !== 'completed').length);
 const pendingOrganize = computed(() => organizeTasks.value.filter((task) => task.status !== 'completed').length);
-const activePage = computed(() => route.meta.page as PageKey | 'not-found');
+const activePage = computed(() => route.meta.page as PageKey | 'playback' | 'not-found');
 const activeSettingsPage = computed(() => route.meta.settingsPage as SettingsPageKey | undefined);
 const currentTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : 'NexusBridge'));
+const isPlaybackLayout = computed(() => route.meta.layout === 'playback');
 
 /** 为当前路由组件提供所需状态，避免页面组件接管全局状态。 */
 const currentViewProps = computed<Record<string, unknown>>(() => {
@@ -413,23 +414,23 @@ async function startSiteFetch(siteID: string, request: SiteFetchRequest, trigger
 
 /** 并发提交媒体页当前范围内尚未触发的站点抓取。 */
 async function triggerMediaAutoFetch(siteID?: string) {
-  const candidates = siteID
-    ? sites.value.filter((site) => site.id === siteID)
-    : sites.value;
+  const candidates = siteID ? sites.value.filter((site) => site.id === siteID) : sites.value;
   const eligibleSites = candidates.filter(
     (site) => site.has_cookie && !autoFetchedSites.has(site.id) && !autoFetchingSites.has(site.id),
   );
   if (!eligibleSites.length) return;
 
-  const results = await Promise.allSettled(eligibleSites.map(async (site) => {
-    autoFetchingSites.add(site.id);
-    try {
-      await startSiteFetch(site.id, { mode: 'incremental' }, 'homepage');
-      autoFetchedSites.add(site.id);
-    } finally {
-      autoFetchingSites.delete(site.id);
-    }
-  }));
+  const results = await Promise.allSettled(
+    eligibleSites.map(async (site) => {
+      autoFetchingSites.add(site.id);
+      try {
+        await startSiteFetch(site.id, { mode: 'incremental' }, 'homepage');
+        autoFetchedSites.add(site.id);
+      } finally {
+        autoFetchingSites.delete(site.id);
+      }
+    }),
+  );
   const failures = results.flatMap((result, index) => {
     if (result.status === 'fulfilled') return [];
     const error = result.reason instanceof Error ? result.reason.message : '首页自动抓取失败';
@@ -452,7 +453,7 @@ async function login() {
   try {
     await api.login(username.value, password.value);
     loggedIn.value = true;
-    await refresh();
+    if (!isPlaybackLayout.value) await refresh();
   } catch (error) {
     message.value = error instanceof Error ? error.message : 'Login failed';
   }
@@ -706,7 +707,7 @@ onMounted(async () => {
   try {
     session.value = await api.session();
     loggedIn.value = !session.value.requires_login;
-    if (loggedIn.value) {
+    if (loggedIn.value && !isPlaybackLayout.value) {
       await refresh();
     }
   } catch (error) {
@@ -714,12 +715,32 @@ onMounted(async () => {
     message.value = error instanceof Error ? error.message : 'Failed to connect to service';
   }
 });
+
+watch(isPlaybackLayout, (playbackLayout, previous) => {
+  if (!playbackLayout && previous && loggedIn.value) void refresh();
+});
 </script>
 
 <template>
   <NConfigProvider :theme-overrides="themeOverrides">
     <NGlobalStyle />
-    <NLayout class="app-shell" has-sider>
+    <div v-if="isPlaybackLayout && !showLogin" class="playback-app-shell">
+      <header class="playback-app-header">
+        <RouterLink to="/media" class="playback-brand">
+          <NIcon :component="Database" size="25" class="brand-icon" />
+          <span>
+            <strong>NexusBridge</strong>
+            <small>{{ currentTitle }}</small>
+          </span>
+        </RouterLink>
+        <RouterLink v-slot="{ href, navigate }" to="/media" custom>
+          <NButton tag="a" :href="href" secondary @click="navigate">返回媒体库</NButton>
+        </RouterLink>
+      </header>
+      <RouterView />
+    </div>
+
+    <NLayout v-else class="app-shell" has-sider>
       <NLayoutSider class="desktop-sider" bordered :width="248">
         <div class="brand-block sider-brand">
           <NIcon :component="Database" size="28" class="brand-icon" />
@@ -846,7 +867,7 @@ onMounted(async () => {
       </NLayout>
     </NLayout>
 
-    <nav v-if="!showLogin" class="mobile-bottom-nav">
+    <nav v-if="!showLogin && !isPlaybackLayout" class="mobile-bottom-nav">
       <RouterLink v-for="item in navItems" :key="item.key" :to="item.to" :class="{ active: activePage === item.key }">
         <NIcon :component="item.icon" />
         <span>{{ item.label }}</span>
@@ -854,6 +875,7 @@ onMounted(async () => {
     </nav>
 
     <NModal
+      v-if="!isPlaybackLayout"
       v-model:show="downloadDialogOpen"
       preset="card"
       title="Download"

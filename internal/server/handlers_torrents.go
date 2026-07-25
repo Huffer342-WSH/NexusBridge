@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -79,6 +81,75 @@ func (s *Server) handleTorrentCover(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", `"`+cover.SHA256+`"`)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, filepath.Base(cover.Path), cover.ModTime, file)
+}
+
+// handleTorrentPlayback 返回当前种子的实时媒体清单。
+func (s *Server) handleTorrentPlayback(w http.ResponseWriter, r *http.Request) {
+	result, err := s.playback.GetTorrentPlayback(r.Context(), chi.URLParam(r, "site_id"), chi.URLParam(r, "torrent_id"))
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handlePlaybackTorrents 返回按发布时间倒序的其他可播放种子。
+func (s *Server) handlePlaybackTorrents(w http.ResponseWriter, r *http.Request) {
+	limit, err := queryInt(r, "limit", 20)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if limit < 1 || limit > 50 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("limit must be between 1 and 50"))
+		return
+	}
+	items, err := s.playback.ListPlaybackTorrents(
+		r.Context(),
+		r.URL.Query().Get("exclude_site_id"),
+		r.URL.Query().Get("exclude_torrent_id"),
+		limit,
+	)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+// handleTorrentMedia 使用 Range 友好的方式返回同机 qB 源文件。
+func (s *Server) handleTorrentMedia(w http.ResponseWriter, r *http.Request) {
+	fileIndex, err := strconv.Atoi(chi.URLParam(r, "file_index"))
+	if err != nil || fileIndex < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid media file index"))
+		return
+	}
+	source, err := s.playback.OpenTorrentMedia(r.Context(), chi.URLParam(r, "site_id"), chi.URLParam(r, "torrent_id"), fileIndex)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	defer source.File.Close()
+	w.Header().Set("Content-Type", source.ContentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": source.Name}))
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, source.Name, source.ModTime, source.File)
+}
+
+// writePlaybackError 将播放领域错误映射为稳定的 HTTP 状态码。
+func writePlaybackError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrPlaybackNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case errors.Is(err, core.ErrPlaybackNotAdded), errors.Is(err, core.ErrPlaybackNoData):
+		writeError(w, http.StatusConflict, err)
+	case errors.Is(err, core.ErrPlaybackUnavailable):
+		writeError(w, http.StatusServiceUnavailable, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
+	}
 }
 
 // handleTorrentQBStatus 返回单个本地种子的 qBittorrent 实时状态。

@@ -104,6 +104,18 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 接收 `{ "action": "start" }` 或 `{ "action": "stop" }`，按本地 v1 hash 恢复或暂停对应 qB 任务，操作成功后立即查询并返回最新 `qb_status` 快照。媒体状态条在接口成功后先切换到目标状态，并在短暂保护期后用增量同步结果校准，避免 qB 瞬时旧状态造成界面回跳。
 
+`GET /api/torrents/{site_id}/{torrent_id}/playback`
+
+按本地 hash 实时读取 qB 任务和文件清单，返回种子元数据、qB 状态、图片/视频/音频选集及默认文件索引。选集只包含固定扩展名白名单内的媒体；`available=true` 表示 qB 报告下载进度大于零，并且同机文件通过下载根目录和普通文件校验。qB 状态沿用现有字段，可能包含 `save_path` 和 `content_path` 本机绝对路径；接口不修改文件优先级。
+
+`GET /api/playback/torrents?exclude_site_id={site_id}&exclude_torrent_id={torrent_id}&limit=20`
+
+返回其他已关联 qB、且至少存在一个完整并可读取的音频或视频文件的种子。结果按站点 `published_at DESC` 排序，缺失发布时间的记录置后；`limit` 默认 20、最大 50。只有完整图片的种子不会进入该列表。
+
+`GET|HEAD /api/torrents/{site_id}/{torrent_id}/media/{file_index}`
+
+按 qB 文件索引重新解析同机源文件并使用 `http.ServeContent` 传输，支持浏览器 `Range`、seek、`Content-Length` 和条件请求。请求不接受客户端文件路径；服务端拒绝越出 qB `save_path` 的路径和非普通文件，符号链接解析后的目标仍须位于该目录内。进度大于零的部分文件允许尝试读取，但缺失片段可能导致浏览器停止播放。响应不做转码、解码或格式转换，最终兼容性由浏览器决定。
+
 `GET /api/torrents/{site_id}/{torrent_id}/cover`
 
 使用数据库中的封面地址、站点 user-agent、Referer 和统一 `request_rules` Cookie 策略代理图片，供 WebUI 以同源地址加载 WebP 等受鉴权、防盗链或混合内容限制的封面。跨主机只发送站点定义允许的 Cookie 名称，响应仅允许图片类型，单张最大 10 MiB。

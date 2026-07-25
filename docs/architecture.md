@@ -236,6 +236,21 @@ flowchart LR
 
 进度、状态、速度、流量、ETA 和 ratio 只存在于后端共享内存，使用时从 qB 刷新；SQLite 只保存 hash、分类、标签、保存路径等稳定关联。恢复链路使用单行完整大小多重集签名缩小候选，再读取内容寻址 torrent 文件做精确验证；不维护本地下载目录索引。具体安全边界见[任务恢复](modules/recovery.md)。
 
+### 4.3 同机源文件播放
+
+```mermaid
+flowchart LR
+    Playback[WebUI 播放页] --> Manifest[播放清单 API]
+    Manifest --> QB[qB 文件清单]
+    Manifest --> Catalog[(本地种子与 hash)]
+    Playback -->|Range / HEAD| Stream[源文件流 API]
+    Stream --> Validate[hash + 文件索引<br/>路径与普通文件校验]
+    Validate --> LocalFile[(同机 qB 下载文件)]
+    LocalFile -->|原始字节| Browser[浏览器解码]
+```
+
+播放链路只支持 NexusBridge 能直接访问 qB `save_path` 的同机部署。客户端只提交种子标识和 qB 文件索引；服务端重新读取 qB 清单并验证最终解析路径没有越出下载根目录且为普通文件，位于目录内的符号链接目标可以直接读取。响应使用标准字节范围传输，不转码、不调整下载优先级，也不持久化文件清单。完整流程见[媒体播放](modules/playback.md)。
+
 ## 5. 代码导航
 
 以下按“从入口找到业务，再从业务找到基础设施”的顺序列出主要路径。无需从文件表逐项阅读。
@@ -258,12 +273,12 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点与种子 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`covers.go` |
+| 站点、种子与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`playback.go`、`covers.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |
 | 任务与可选能力 | `task_service.go`、`mihomo.go`、`network.go` |
-| 领域模型 | `models_site.go`、`models_torrent.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
+| 领域模型 | `models_site.go`、`models_torrent.go`、`models_playback.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
 
 ### 5.3 基础设施包
 
@@ -284,9 +299,9 @@ flowchart LR
 | 区域 | 主要路径 |
 | --- | --- |
 | WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
-| 业务界面 | `webui/src/components/MediaView.vue`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
+| 业务界面 | `webui/src/components/MediaView.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
-| 前端行为文档 | `docs/frontend.md` |
+| 前端行为文档 | `docs/frontend.md`、`docs/modules/playback.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |
 | 桌面构建 | `Taskfile.yml`、`desktop/tasks/`、`desktop/resources/` |
 | 发布流水线 | `.github/workflows/build-release.yml`、`publish-release.yml`、`build-docker.yml` |

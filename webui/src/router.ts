@@ -12,6 +12,12 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'media', title: '媒体库' },
   },
   {
+    path: '/play/:site_id/:torrent_id',
+    name: 'playback',
+    component: () => import('./components/PlaybackView.vue'),
+    meta: { page: 'playback', layout: 'playback', title: '媒体播放' },
+  },
+  {
     path: '/files',
     name: 'files',
     component: () => import('./components/FileManagerView.vue'),
