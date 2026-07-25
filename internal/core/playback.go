@@ -61,18 +61,58 @@ var playbackMediaTypes = map[string]struct {
 	".bmp":  {PlaybackMediaImage, "image/bmp"},
 }
 
-// GetTorrentPlayback 实时读取当前种子的 qB 文件清单。
-func (a *App) GetTorrentPlayback(ctx context.Context, siteID, torrentID string) (TorrentPlayback, error) {
+// GetTorrentPlayback 实时读取数据库种子关联的 qB 文件清单。
+func (a *App) GetTorrentPlayback(ctx context.Context, siteID, torrentID, fileName string) (PlaybackContext, error) {
 	torrent, qbTorrent, contents, err := a.playbackTorrentContents(ctx, siteID, torrentID)
 	if err != nil {
-		return TorrentPlayback{}, err
+		return PlaybackContext{}, err
 	}
-	files := playbackMediaList(siteID, torrentID, qbTorrent, contents)
-	status := statusFromQBTorrent(qbTorrent, storage.DownloadTaskRecord{}, "hash", time.Now())
-	torrent.QBStatus = &status
-	return TorrentPlayback{
-		Torrent: torrent, QBStatus: status, Files: files,
-		DefaultFileIndex: defaultPlaybackFileIndex(files),
+	streamBase := fmt.Sprintf("/api/torrents/%s/%s/media", url.PathEscape(siteID), url.PathEscape(torrentID))
+	return buildQBPlaybackContext(ctx, &torrent, qbTorrent, contents, fileName, streamBase)
+}
+
+// GetQBPlayback 实时读取未必关联数据库种子的 qB 文件清单。
+func (a *App) GetQBPlayback(ctx context.Context, hash, fileName string) (PlaybackContext, error) {
+	qbTorrent, contents, err := a.playbackQBContents(ctx, hash)
+	if err != nil {
+		return PlaybackContext{}, err
+	}
+	torrent, _ := a.findTorrentByQBHash(ctx, qbTorrent.Hash)
+	streamBase := fmt.Sprintf("/api/playback/qb/%s/media", url.PathEscape(qbTorrent.Hash))
+	return buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, fileName, streamBase)
+}
+
+// GetFilePlayback 从本机文件建立播放上下文，并优先提升为数据库种子或 qB 任务上下文。
+func (a *App) GetFilePlayback(ctx context.Context, filePath string) (PlaybackContext, error) {
+	resolved, info, mediaType, mimeType, err := resolveLocalPlaybackFile(filePath)
+	if err != nil {
+		if errors.Is(err, ErrPlaybackNotFound) {
+			return PlaybackContext{}, err
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return PlaybackContext{}, ErrPlaybackNotFound
+		}
+		return PlaybackContext{}, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	if qbTorrent, contents, matchedName, found := a.matchQBFile(ctx, resolved); found {
+		torrent, _ := a.findTorrentByQBHash(ctx, qbTorrent.Hash)
+		streamBase := fmt.Sprintf("/api/playback/qb/%s/media", url.PathEscape(qbTorrent.Hash))
+		return buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, matchedName, streamBase)
+	}
+	index := 0
+	files := []PlaybackMedia{{
+		Index: 0, Name: filepath.Base(resolved), MediaType: mediaType, MIMEType: mimeType,
+		Size: info.Size(), Progress: 1, Selected: true, Complete: true, Available: true,
+		StreamURL: "/api/playback/file/media?path=" + url.QueryEscape(resolved),
+	}}
+	files[0].Subtitles = discoverMKVSubtitles(ctx, resolved, func(trackID uint64) string {
+		return fmt.Sprintf("/api/playback/file/subtitles/%d?path=%s", trackID, url.QueryEscape(resolved))
+	})
+	return PlaybackContext{
+		Source: PlaybackSourceFile, Title: filepath.Base(resolved), CurrentPath: resolved,
+		CurrentDirectory: filepath.Dir(resolved),
+		Files:            files, DirectoryFiles: playbackDirectoryFiles(resolved),
+		DefaultFileIndex: &index, CurrentFileIndex: &index,
 	}, nil
 }
 
@@ -82,6 +122,44 @@ func (a *App) OpenTorrentMedia(ctx context.Context, siteID, torrentID string, fi
 	if err != nil {
 		return PlaybackSource{}, err
 	}
+	return openQBPlaybackMedia(qbTorrent, contents, fileIndex)
+}
+
+// OpenQBMedia 按 qB hash 和文件索引打开经过路径边界校验的源文件。
+func (a *App) OpenQBMedia(ctx context.Context, hash string, fileIndex int) (PlaybackSource, error) {
+	qbTorrent, contents, err := a.playbackQBContents(ctx, hash)
+	if err != nil {
+		return PlaybackSource{}, err
+	}
+	return openQBPlaybackMedia(qbTorrent, contents, fileIndex)
+}
+
+// OpenFileMedia 打开文件管理器选择的本机源媒体文件。
+func (a *App) OpenFileMedia(_ context.Context, filePath string) (PlaybackSource, error) {
+	resolved, info, _, mimeType, err := resolveLocalPlaybackFile(filePath)
+	if err != nil {
+		if errors.Is(err, ErrPlaybackNotFound) {
+			return PlaybackSource{}, err
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return PlaybackSource{}, ErrPlaybackNotFound
+		}
+		return PlaybackSource{}, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	file, err := os.Open(resolved)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return PlaybackSource{}, ErrPlaybackNotFound
+		}
+		return PlaybackSource{}, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	return PlaybackSource{
+		File: file, Path: resolved, Name: filepath.Base(resolved), ContentType: mimeType, ModTime: info.ModTime(),
+	}, nil
+}
+
+// openQBPlaybackMedia 从已经实时读取的 qB 文件清单中打开指定索引。
+func openQBPlaybackMedia(qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent.TorrentContent, fileIndex int) (PlaybackSource, error) {
 	var selected *qbittorrent.TorrentContent
 	for i := range contents {
 		if contents[i].Index == fileIndex {
@@ -113,7 +191,9 @@ func (a *App) OpenTorrentMedia(ctx context.Context, siteID, torrentID string, fi
 		}
 		return PlaybackSource{}, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
 	}
-	return PlaybackSource{File: file, Name: path.Base(selected.Name), ContentType: mimeType, ModTime: info.ModTime()}, nil
+	return PlaybackSource{
+		File: file, Path: resolved, Name: path.Base(selected.Name), ContentType: mimeType, ModTime: info.ModTime(),
+	}, nil
 }
 
 // ListPlaybackTorrents 返回至少包含一个完整音频或视频的其他 qB 种子。
@@ -210,9 +290,87 @@ func (a *App) playbackTorrentContents(ctx context.Context, siteID, torrentID str
 	return torrent, matches[0], contents, nil
 }
 
-// playbackMediaList 将 qB 文件清单转换为自然排序的可播放媒体，并在流地址中保留文件名格式提示。
-// playbackMediaList 将 qB 文件清单转换为经过类型识别和路径校验的播放选集。
-func playbackMediaList(siteID, torrentID string, qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent.TorrentContent) []PlaybackMedia {
+// playbackQBContents 按 qB hash 读取实时任务和文件清单。
+func (a *App) playbackQBContents(ctx context.Context, hash string) (qbittorrent.TorrentInfo, []qbittorrent.TorrentContent, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return qbittorrent.TorrentInfo{}, nil, ErrPlaybackNotAdded
+	}
+	qb, err := a.qbClient(ctx)
+	if err != nil {
+		return qbittorrent.TorrentInfo{}, nil, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	torrent, found, err := qb.FindTorrentByHash(ctx, hash)
+	if err != nil {
+		return qbittorrent.TorrentInfo{}, nil, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	if !found {
+		return qbittorrent.TorrentInfo{}, nil, ErrPlaybackNotAdded
+	}
+	contents, err := qb.GetTorrentContents(ctx, torrent.Hash, nil)
+	if err != nil {
+		return qbittorrent.TorrentInfo{}, nil, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
+	}
+	return torrent, contents, nil
+}
+
+// buildQBPlaybackContext 将 qB 任务转换为数据库种子和纯 qB 共用的播放上下文。
+func buildQBPlaybackContext(
+	ctx context.Context,
+	torrent *Torrent,
+	qbTorrent qbittorrent.TorrentInfo,
+	contents []qbittorrent.TorrentContent,
+	fileName, streamBase string,
+) (PlaybackContext, error) {
+	files := playbackMediaList(qbTorrent, contents, streamBase)
+	defaultIndex := defaultPlaybackFileIndex(files)
+	currentIndex := playbackFileIndexByName(files, fileName)
+	if currentIndex == nil {
+		currentIndex = defaultIndex
+	}
+	status := statusFromQBTorrent(qbTorrent, storage.DownloadTaskRecord{}, "hash", time.Now())
+	source := PlaybackSourceQB
+	title := qbTorrent.Name
+	if torrent != nil {
+		source = PlaybackSourceTorrent
+		title = torrent.Title
+		torrent.QBStatus = &status
+	}
+	result := PlaybackContext{
+		Source: source, Title: title, Torrent: torrent, QBStatus: &status, QBHash: qbTorrent.Hash,
+		Files: files, DefaultFileIndex: defaultIndex, CurrentFileIndex: currentIndex,
+		DirectoryFiles: []PlaybackDirectoryFile{},
+	}
+	if currentIndex == nil {
+		return result, nil
+	}
+	for _, content := range contents {
+		if content.Index != *currentIndex {
+			continue
+		}
+		resolved, _, err := resolvePlaybackFile(qbTorrent.SavePath, content.Name)
+		if err == nil {
+			result.CurrentPath = resolved
+			result.CurrentDirectory = filepath.Dir(resolved)
+			result.DirectoryFiles = playbackDirectoryFiles(resolved)
+			for i := range result.Files {
+				if result.Files[i].Index != *currentIndex {
+					continue
+				}
+				subtitleBase := fmt.Sprintf("%s/%d/subtitles", streamBase, *currentIndex)
+				result.Files[i].Subtitles = discoverMKVSubtitles(ctx, resolved, func(trackID uint64) string {
+					return fmt.Sprintf("%s/%d", subtitleBase, trackID)
+				})
+				break
+			}
+		}
+		break
+	}
+	return result, nil
+}
+
+// playbackMediaList 将 qB 文件清单转换为经过类型识别、自然排序和路径校验的播放选集。
+func playbackMediaList(qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent.TorrentContent, streamBase string) []PlaybackMedia {
 	files := make([]PlaybackMedia, 0, len(contents))
 	for _, content := range contents {
 		mediaType, mimeType, ok := playbackMediaType(content.Name)
@@ -226,9 +384,8 @@ func playbackMediaList(siteID, torrentID string, qbTorrent qbittorrent.TorrentIn
 			Size: content.Size, Progress: content.Progress, Selected: content.Priority > 0,
 			Complete: content.Progress >= 1, Available: available,
 			StreamURL: fmt.Sprintf(
-				"/api/torrents/%s/%s/media/%d?filename=%s",
-				url.PathEscape(siteID),
-				url.PathEscape(torrentID),
+				"%s/%d?filename=%s",
+				streamBase,
 				content.Index,
 				url.QueryEscape(path.Base(content.Name)),
 			),
@@ -236,6 +393,21 @@ func playbackMediaList(siteID, torrentID string, qbTorrent qbittorrent.TorrentIn
 	}
 	sort.SliceStable(files, func(i, j int) bool { return naturalLess(files[i].Name, files[j].Name) })
 	return files
+}
+
+// playbackFileIndexByName 按 qB 相对文件名选择 URL 指定且当前可用的媒体文件。
+func playbackFileIndexByName(files []PlaybackMedia, fileName string) *int {
+	fileName = strings.ReplaceAll(strings.TrimSpace(fileName), "\\", "/")
+	if fileName == "" {
+		return nil
+	}
+	for _, file := range files {
+		if strings.ReplaceAll(file.Name, "\\", "/") == fileName && file.Available {
+			index := file.Index
+			return &index
+		}
+	}
+	return nil
 }
 
 // defaultPlaybackFileIndex 按完整视频、完整音频、完整图片和最高进度的顺序选择默认文件。
@@ -281,6 +453,132 @@ func playbackTypeRank(mediaType PlaybackMediaType) int {
 func playbackMediaType(name string) (PlaybackMediaType, string, bool) {
 	value, ok := playbackMediaTypes[strings.ToLower(filepath.Ext(name))]
 	return value.kind, value.mime, ok
+}
+
+// findTorrentByQBHash 从 torrent 元数据和下载任务中反查数据库种子。
+func (a *App) findTorrentByQBHash(ctx context.Context, hash string) (*Torrent, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return nil, nil
+	}
+	var key *storage.TorrentKey
+	records, err := a.store.ListTorrentHashes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		if strings.EqualFold(record.InfoHashV1, hash) || strings.EqualFold(record.InfoHashV2, hash) {
+			value := storage.TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}
+			key = &value
+			break
+		}
+	}
+	if key == nil {
+		tasks, err := a.store.ListDownloadTasks(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, task := range tasks {
+			if strings.EqualFold(strings.TrimSpace(task.QBHash), hash) {
+				value := storage.TorrentKey{SiteID: task.SiteID, TorrentID: task.TorrentID}
+				key = &value
+				break
+			}
+		}
+	}
+	if key == nil {
+		return nil, nil
+	}
+	torrent, err := a.getTorrent(ctx, key.SiteID, key.TorrentID)
+	if err != nil {
+		return nil, err
+	}
+	return &torrent, nil
+}
+
+// matchQBFile 在实时 qB 任务中精确查找拥有指定本机文件的任务和文件名。
+func (a *App) matchQBFile(ctx context.Context, filePath string) (qbittorrent.TorrentInfo, []qbittorrent.TorrentContent, string, bool) {
+	qb, err := a.qbClient(ctx)
+	if err != nil {
+		return qbittorrent.TorrentInfo{}, nil, "", false
+	}
+	torrents, err := qb.ListTorrents(ctx)
+	if err != nil {
+		return qbittorrent.TorrentInfo{}, nil, "", false
+	}
+	for _, torrent := range torrents {
+		root := qbTorrentManagedRoot(torrent)
+		if root == "" || !filesystemPathWithinRoot(filePath, root) {
+			continue
+		}
+		contents, err := qb.GetTorrentContents(ctx, torrent.Hash, nil)
+		if err != nil {
+			continue
+		}
+		for _, content := range contents {
+			resolved, _, err := resolvePlaybackFile(torrent.SavePath, content.Name)
+			if err == nil && sameFilesystemPath(resolved, filePath) {
+				return torrent, contents, content.Name, true
+			}
+		}
+	}
+	return qbittorrent.TorrentInfo{}, nil, "", false
+}
+
+// resolveLocalPlaybackFile 解析文件管理器选择的本机媒体并验证类型和普通文件属性。
+func resolveLocalPlaybackFile(filePath string) (string, os.FileInfo, PlaybackMediaType, string, error) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return "", nil, "", "", fmt.Errorf("%w: local media path is required", ErrPlaybackNotFound)
+	}
+	absolute, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", nil, "", "", err
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", nil, "", "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", nil, "", "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", nil, "", "", fmt.Errorf("%w: local media is not a regular file", ErrPlaybackNotFound)
+	}
+	mediaType, mimeType, ok := playbackMediaType(resolved)
+	if !ok {
+		return "", nil, "", "", fmt.Errorf("%w: unsupported local media type", ErrPlaybackNotFound)
+	}
+	return resolved, info, mediaType, mimeType, nil
+}
+
+// playbackDirectoryFiles 返回当前媒体所在目录中的普通文件及其可播放类型。
+func playbackDirectoryFiles(currentPath string) []PlaybackDirectoryFile {
+	entries, err := os.ReadDir(filepath.Dir(currentPath))
+	if err != nil {
+		return []PlaybackDirectoryFile{}
+	}
+	files := make([]PlaybackDirectoryFile, 0, len(entries))
+	for _, entry := range entries {
+		entryPath := filepath.Join(filepath.Dir(currentPath), entry.Name())
+		info, err := os.Stat(entryPath)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		resolved := entryPath
+		if value, err := filepath.EvalSymlinks(entryPath); err == nil {
+			resolved = value
+		}
+		mediaType, mimeType, playable := playbackMediaType(entry.Name())
+		files = append(files, PlaybackDirectoryFile{
+			Name: entry.Name(), Path: entryPath, Size: info.Size(), ModifiedAt: info.ModTime(),
+			MediaType: mediaType, MIMEType: mimeType, Playable: playable,
+			Current: sameFilesystemPath(resolved, currentPath),
+		})
+	}
+	sort.SliceStable(files, func(i, j int) bool { return naturalLess(files[i].Name, files[j].Name) })
+	return files
 }
 
 // resolvePlaybackFile 解析 qB 相对文件名，确保最终普通文件位于任务保存目录内。

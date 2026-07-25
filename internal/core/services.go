@@ -20,9 +20,16 @@ type TorrentService interface {
 
 // PlaybackService 提供同机 qB 下载文件的媒体清单和只读源文件访问。
 type PlaybackService interface {
-	GetTorrentPlayback(ctx context.Context, siteID, torrentID string) (TorrentPlayback, error)
+	GetTorrentPlayback(ctx context.Context, siteID, torrentID, fileName string) (PlaybackContext, error)
+	GetQBPlayback(ctx context.Context, hash, fileName string) (PlaybackContext, error)
+	GetFilePlayback(ctx context.Context, path string) (PlaybackContext, error)
 	ListPlaybackTorrents(ctx context.Context, excludeSiteID, excludeTorrentID string, limit int) ([]PlaybackTorrent, error)
 	OpenTorrentMedia(ctx context.Context, siteID, torrentID string, fileIndex int) (PlaybackSource, error)
+	OpenQBMedia(ctx context.Context, hash string, fileIndex int) (PlaybackSource, error)
+	OpenFileMedia(ctx context.Context, path string) (PlaybackSource, error)
+	GetTorrentSubtitle(ctx context.Context, siteID, torrentID string, fileIndex int, trackID uint64) ([]byte, error)
+	GetQBSubtitle(ctx context.Context, hash string, fileIndex int, trackID uint64) ([]byte, error)
+	GetFileSubtitle(ctx context.Context, path string, trackID uint64) ([]byte, error)
 }
 
 type FetchService interface {

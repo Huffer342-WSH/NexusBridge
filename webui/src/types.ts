@@ -223,13 +223,42 @@ export type PlaybackMedia = {
   complete: boolean;
   available: boolean;
   stream_url: string;
+  subtitles?: PlaybackSubtitle[];
 };
 
-export type TorrentPlayback = {
-  torrent: Torrent;
-  qb_status: QBTorrentStatus;
+export type PlaybackSubtitle = {
+  track_id: number;
+  label: string;
+  language?: string;
+  codec: string;
+  default: boolean;
+  forced: boolean;
+  stream_url: string;
+};
+
+export type PlaybackDirectoryFile = {
+  name: string;
+  path: string;
+  size: number;
+  modified_at: string;
+  media_type?: PlaybackMediaType;
+  mime_type?: string;
+  playable: boolean;
+  current: boolean;
+};
+
+export type PlaybackContext = {
+  source: 'torrent' | 'qb' | 'file';
+  title: string;
+  current_path: string;
+  current_directory: string;
+  torrent?: Torrent;
+  qb_status?: QBTorrentStatus;
+  qb_hash?: string;
   files: PlaybackMedia[];
+  directory_files: PlaybackDirectoryFile[];
   default_file_index?: number;
+  current_file_index?: number;
 };
 
 export type PlaybackTorrent = {
@@ -601,6 +630,7 @@ export type FileEntry = {
   is_dir: boolean;
   size?: number;
   modified_at?: string;
+  media_type?: PlaybackMediaType;
   qb_tasks: FileQBTask[];
 };
 

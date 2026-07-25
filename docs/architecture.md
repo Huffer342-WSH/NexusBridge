@@ -240,16 +240,21 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    Playback[WebUI 播放页] --> Manifest[播放清单 API]
+    Card[媒体卡片] --> Playback[WebUI 播放页]
+    Files[文件管理器] --> Detect[文件归属识别]
+    Detect --> Playback
+    Playback --> Manifest[统一播放上下文 API]
     Manifest --> QB[qB 文件清单]
     Manifest --> Catalog[(本地种子与 hash)]
+    Playback --> Browse[当前目录浏览]
+    Manifest --> Subtitle[MKV 文本字幕轨]
     Playback -->|Range / HEAD| Stream[源文件流 API]
     Stream --> Validate[hash + 文件索引<br/>路径与普通文件校验]
     Validate --> LocalFile[(同机 qB 下载文件)]
     LocalFile -->|原始字节| Browser[浏览器解码]
 ```
 
-播放链路只支持 NexusBridge 能直接访问 qB `save_path` 的同机部署。客户端只提交种子标识和 qB 文件索引；服务端重新读取 qB 清单并验证最终解析路径没有越出下载根目录且为普通文件，位于目录内的符号链接目标可以直接读取。响应使用标准字节范围传输，不转码、不调整下载优先级，也不持久化文件清单。完整流程见[媒体播放](modules/playback.md)。
+播放入口既可来自数据库种子，也可来自文件管理器。文件路径先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流仍会验证解析路径位于下载根目录；普通文件沿用文件管理器的本机访问边界。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级，也不持久化文件清单。完整流程见[媒体播放](modules/playback.md)。
 
 ## 5. 代码导航
 

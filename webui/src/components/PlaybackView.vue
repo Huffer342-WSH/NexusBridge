@@ -1,29 +1,46 @@
 <!-- 播放视图负责实时选集、媒体画布、简介和其他可播放种子。 -->
 <script setup lang="ts">
-import { ExternalLink, Film, Image, Music2, Play, RefreshCw } from '@lucide/vue';
+import { ExternalLink, File, Film, Folder, Image, Music2, Play, RefreshCw } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { NAlert, NButton, NCard, NEmpty, NIcon, NSpin, NTag } from 'naive-ui';
+import { NAlert, NButton, NCard, NEmpty, NIcon, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
-import type { PlaybackMedia, PlaybackMediaType, PlaybackTorrent, TorrentPlayback } from '../types';
+import type {
+  PlaybackContext,
+  PlaybackMedia,
+  PlaybackMediaType,
+  PlaybackTorrent,
+  FileBrowseResult,
+  FileEntry,
+} from '../types';
 import { formatByteSize } from '../utils/format';
 import MediaCanvas from './player/MediaCanvas.vue';
 
 const route = useRoute();
 const router = useRouter();
 const loading = ref(true);
+const updating = ref(false);
 const error = ref('');
 const otherError = ref('');
-const playback = ref<TorrentPlayback | null>(null);
+const playback = ref<PlaybackContext | null>(null);
 const otherTorrents = ref<PlaybackTorrent[]>([]);
 const selectedIndex = ref<number | null>(null);
 const playerError = ref('');
 const autoplayBlocked = ref(false);
+const mediaTab = ref('episodes');
+const directory = ref<FileBrowseResult | null>(null);
+const directoryLoading = ref(false);
+const directoryError = ref('');
 let generation = 0;
 let pollTimer: number | undefined;
+let skipNextRouteLoad = false;
+let preserveDirectoryOnNextLoad = false;
 
 const siteID = computed(() => routeParam('site_id'));
 const torrentID = computed(() => routeParam('torrent_id'));
+const qbHash = computed(() => routeParam('hash'));
+const routeFileName = computed(() => routeQuery('file'));
+const routeFilePath = computed(() => routeQuery('path'));
 const currentFile = computed(() => playback.value?.files.find((item) => item.index === selectedIndex.value) ?? null);
 const coverURL = computed(() => {
   const torrent = playback.value?.torrent;
@@ -32,7 +49,11 @@ const coverURL = computed(() => {
 });
 const description = computed(() => {
   const torrent = playback.value?.torrent;
-  return torrent?.detail_description?.trim() || torrent?.description?.trim() || torrent?.subtitle?.trim() || '暂无简介';
+  if (!torrent) {
+    if (playback.value?.source === 'qb') return '该文件来自 qB 任务，但没有匹配到数据库种子详情。';
+    return '该文件没有匹配到 qB 任务或数据库种子，仅提供本机源文件播放。';
+  }
+  return torrent.detail_description?.trim() || torrent.description?.trim() || torrent.subtitle?.trim() || '暂无简介';
 });
 const hasActiveDownloads = computed(
   () => playback.value?.files.some((item) => item.selected && item.progress < 1) ?? false,
@@ -40,6 +61,11 @@ const hasActiveDownloads = computed(
 
 function routeParam(name: string) {
   const value = route.params[name];
+  return Array.isArray(value) ? (value[0] ?? '') : String(value ?? '');
+}
+
+function routeQuery(name: string) {
+  const value = route.query[name];
   return Array.isArray(value) ? (value[0] ?? '') : String(value ?? '');
 }
 
@@ -74,18 +100,69 @@ function otherCoverURL(torrent: PlaybackTorrent) {
   return `/api/torrents/${encodeURIComponent(torrent.site_id)}/${encodeURIComponent(torrent.id)}/cover`;
 }
 
-function applyManifest(next: TorrentPlayback, keepSelection: boolean) {
+function applyManifest(next: PlaybackContext, keepSelection: boolean) {
   const previous = keepSelection ? selectedIndex.value : null;
   playback.value = next;
+  if (!keepSelection && next.source === 'file') mediaTab.value = 'files';
   const retained = previous == null ? undefined : next.files.find((item) => item.index === previous && item.available);
-  selectedIndex.value = retained?.index ?? next.default_file_index ?? null;
-  document.title = `${next.torrent.title} - NexusBridge`;
+  selectedIndex.value = retained?.index ?? next.current_file_index ?? next.default_file_index ?? null;
+  document.title = `${next.title} - NexusBridge`;
 }
 
-async function refreshManifest(token: number, keepSelection: boolean) {
-  const next = await api.getTorrentPlayback(siteID.value, torrentID.value);
+async function browsePlaybackDirectory(path: string) {
+  if (!path || directoryLoading.value) return;
+  directoryLoading.value = true;
+  directoryError.value = '';
+  try {
+    directory.value = await api.browseFiles(path);
+  } catch (reason) {
+    directoryError.value = reason instanceof Error ? reason.message : '目录读取失败';
+  } finally {
+    directoryLoading.value = false;
+  }
+}
+
+function playbackRoute(next: PlaybackContext) {
+  const file = next.files.find((item) => item.index === next.current_file_index)?.name;
+  if (next.source === 'torrent' && next.torrent) {
+    return {
+      name: 'playback',
+      params: { site_id: next.torrent.site_id, torrent_id: next.torrent.id },
+      query: file ? { file } : {},
+    };
+  }
+  if (next.source === 'qb' && next.qb_hash) {
+    return {
+      name: 'playback-qb',
+      params: { hash: next.qb_hash },
+      query: file ? { file } : {},
+    };
+  }
+  return { name: 'playback-file', query: { path: next.current_path } };
+}
+
+async function normalizePlaybackURL(next: PlaybackContext) {
+  const target = playbackRoute(next);
+  if (router.resolve(target).fullPath === route.fullPath) return;
+  skipNextRouteLoad = true;
+  await router.replace(target);
+}
+
+async function refreshManifest(token: number, keepSelection: boolean, preserveDirectory = false) {
+  let next: PlaybackContext;
+  if (route.name === 'playback-file') {
+    next = await api.getFilePlayback(routeFilePath.value);
+  } else if (route.name === 'playback-qb') {
+    next = await api.getQBPlayback(qbHash.value, routeFileName.value);
+  } else {
+    next = await api.getTorrentPlayback(siteID.value, torrentID.value, routeFileName.value);
+  }
   if (token !== generation) return;
   applyManifest(next, keepSelection);
+  if (!keepSelection && !preserveDirectory && next.current_directory) {
+    await browsePlaybackDirectory(next.current_directory);
+  }
+  if (!keepSelection) await normalizePlaybackURL(next);
 }
 
 function schedulePolling(token: number) {
@@ -103,30 +180,45 @@ function schedulePolling(token: number) {
 
 async function loadPlayback() {
   const token = ++generation;
+  const hadPlayback = playback.value !== null;
+  const preserveDirectory = preserveDirectoryOnNextLoad;
+  preserveDirectoryOnNextLoad = false;
   if (pollTimer) window.clearTimeout(pollTimer);
-  loading.value = true;
+  loading.value = !hadPlayback;
+  updating.value = hadPlayback;
   error.value = '';
   otherError.value = '';
   playerError.value = '';
   autoplayBlocked.value = false;
-  playback.value = null;
-  otherTorrents.value = [];
-  selectedIndex.value = null;
 
   try {
-    await refreshManifest(token, false);
+    await refreshManifest(token, false, preserveDirectory);
     if (token !== generation) return;
     loading.value = false;
+    updating.value = false;
     schedulePolling(token);
   } catch (reason) {
     if (token !== generation) return;
-    error.value = reason instanceof Error ? reason.message : '播放清单加载失败';
+    const message = reason instanceof Error ? reason.message : '播放清单加载失败';
+    if (hadPlayback) playerError.value = `切换媒体失败：${message}`;
+    else error.value = message;
     loading.value = false;
+    updating.value = false;
+    return;
+  }
+
+  if ((playback.value as PlaybackContext | null)?.source === 'file') {
+    otherTorrents.value = [];
     return;
   }
 
   try {
-    const items = await api.getPlaybackTorrents(siteID.value, torrentID.value, 20);
+    const currentPlayback = playback.value as PlaybackContext | null;
+    const items = await api.getPlaybackTorrents(
+      currentPlayback?.torrent?.site_id ?? '',
+      currentPlayback?.torrent?.id ?? '',
+      20,
+    );
     if (token === generation) otherTorrents.value = items;
   } catch (reason) {
     if (token === generation) {
@@ -135,11 +227,25 @@ async function loadPlayback() {
   }
 }
 
-function selectFile(file: PlaybackMedia) {
+async function selectFile(file: PlaybackMedia) {
   if (!file.available) return;
-  selectedIndex.value = file.index;
   playerError.value = '';
   autoplayBlocked.value = false;
+  const context = playback.value;
+  if (!context) return;
+  const target = playbackRoute({ ...context, current_file_index: file.index });
+  if (router.resolve(target).fullPath !== route.fullPath) await router.push(target);
+}
+
+async function openDirectoryEntry(file: FileEntry) {
+  if (file.is_dir) {
+    await browsePlaybackDirectory(file.path);
+    return;
+  }
+  if (file.media_type && file.path !== playback.value?.current_path) {
+    preserveDirectoryOnNextLoad = true;
+    await router.push({ name: 'playback-file', query: { path: file.path } });
+  }
 }
 
 async function openOther(torrent: PlaybackTorrent) {
@@ -149,7 +255,13 @@ async function openOther(torrent: PlaybackTorrent) {
 
 watch(
   () => route.fullPath,
-  () => void loadPlayback(),
+  () => {
+    if (skipNextRouteLoad) {
+      skipNextRouteLoad = false;
+      return;
+    }
+    void loadPlayback();
+  },
   { immediate: true },
 );
 onBeforeUnmount(() => {
@@ -162,7 +274,7 @@ onBeforeUnmount(() => {
   <section class="playback-view">
     <div v-if="loading" class="playback-loading">
       <NSpin size="large" />
-      <span>正在读取 qB 媒体清单…</span>
+      <span>正在识别媒体和文件归属…</span>
     </div>
 
     <NAlert v-else-if="error" type="error" :bordered="false" class="playback-page-error">
@@ -179,11 +291,15 @@ onBeforeUnmount(() => {
       <main class="playback-main">
         <div class="playback-primary">
           <div class="playback-stage">
+            <div v-if="updating" class="playback-updating">
+              <NSpin size="small" />
+              <span>正在切换…</span>
+            </div>
             <MediaCanvas
               v-if="currentFile"
               :media="currentFile"
               :poster="coverURL"
-              :title="playback.torrent.title"
+              :title="playback.title"
               @error="playerError = $event"
               @autoplay-blocked="autoplayBlocked = true"
             />
@@ -201,16 +317,20 @@ onBeforeUnmount(() => {
           <NCard :bordered="false" class="playback-description">
             <div class="playback-title-row">
               <div>
-                <h1>{{ playback.torrent.title }}</h1>
+                <h1>{{ playback.title }}</h1>
                 <p class="muted">
-                  {{ playback.torrent.site_id }}
-                  <template v-if="playback.torrent.published_at">
-                    · {{ formatDate(playback.torrent.published_at) }}
+                  <template v-if="playback.torrent">
+                    {{ playback.torrent.site_id }}
+                    <template v-if="playback.torrent.published_at">
+                      · {{ formatDate(playback.torrent.published_at) }}
+                    </template>
                   </template>
+                  <template v-else-if="playback.source === 'qb'">qB 任务 · {{ playback.qb_hash }}</template>
+                  <template v-else>本机文件</template>
                 </p>
               </div>
               <NButton
-                v-if="playback.torrent.detail_url"
+                v-if="playback.torrent?.detail_url"
                 tag="a"
                 :href="playback.torrent.detail_url"
                 target="_blank"
@@ -222,53 +342,105 @@ onBeforeUnmount(() => {
               </NButton>
             </div>
             <div class="playback-meta">
-              <NTag v-if="playback.torrent.category" type="info">{{ playback.torrent.category }}</NTag>
-              <NTag>{{ playback.qb_status.state || 'qB 已关联' }}</NTag>
+              <NTag v-if="playback.torrent?.category" type="info">{{ playback.torrent.category }}</NTag>
+              <NTag v-if="playback.qb_status">{{ playback.qb_status.state || 'qB 已关联' }}</NTag>
               <NTag v-if="currentFile" :type="currentFile.complete ? 'success' : 'warning'">
                 {{ mediaLabel(currentFile.media_type) }} · {{ formatByteSize(currentFile.size) }}
               </NTag>
+              <NTag v-if="currentFile?.subtitles?.length" type="info">
+                内嵌字幕 · {{ currentFile.subtitles.length }}
+              </NTag>
             </div>
             <p v-if="currentFile" class="current-media-name">{{ currentFile.name }}</p>
-            <p class="playback-summary">{{ description }}</p>
+            <p v-if="playback.source !== 'file'" class="playback-summary">{{ description }}</p>
           </NCard>
         </div>
 
         <aside class="playback-sidebar">
-          <NCard :bordered="false" class="playback-panel">
-            <template #header>
-              <div class="panel-heading">
-                <span>选集</span>
-                <NTag size="small">{{ playback.files.length }}</NTag>
-              </div>
-            </template>
-            <div v-if="playback.files.length" class="episode-list">
-              <button
-                v-for="file in playback.files"
-                :key="file.index"
-                type="button"
-                class="episode-item"
-                :class="{ active: file.index === selectedIndex, disabled: !file.available }"
-                :disabled="!file.available"
-                @click="selectFile(file)"
-              >
-                <NIcon :component="mediaIcon(file.media_type)" size="18" />
-                <span class="episode-copy">
-                  <strong>{{ baseName(file.name) }}</strong>
-                  <small>
-                    {{ mediaLabel(file.media_type) }} · {{ formatByteSize(file.size) }} ·
-                    {{ file.selected ? formatProgress(file.progress) : '未选择下载' }}
-                  </small>
-                  <span class="episode-progress">
-                    <i :style="{ width: `${Math.max(0, Math.min(100, file.progress * 100))}%` }" />
-                  </span>
-                </span>
-                <NIcon v-if="file.available" :component="Play" size="17" />
-              </button>
-            </div>
-            <NEmpty v-else description="种子中没有支持的图片、视频或音频" />
+          <NCard :bordered="false" class="playback-panel media-browser-panel">
+            <NTabs v-model:value="mediaTab" type="line" animated>
+              <NTabPane v-if="playback.source !== 'file'" name="episodes">
+                <template #tab>
+                  <span>选集</span>
+                  <NTag size="small">{{ playback.files.length }}</NTag>
+                </template>
+                <div v-if="playback.files.length" class="episode-list">
+                  <button
+                    v-for="file in playback.files"
+                    :key="file.index"
+                    type="button"
+                    class="episode-item"
+                    :class="{ active: file.index === selectedIndex, disabled: !file.available }"
+                    :disabled="!file.available"
+                    @click="selectFile(file)"
+                  >
+                    <NIcon :component="mediaIcon(file.media_type)" size="18" />
+                    <span class="episode-copy">
+                      <strong>{{ baseName(file.name) }}</strong>
+                      <small>
+                        {{ mediaLabel(file.media_type) }} · {{ formatByteSize(file.size) }} ·
+                        {{ file.selected ? formatProgress(file.progress) : '未选择下载' }}
+                      </small>
+                      <span class="episode-progress">
+                        <i :style="{ width: `${Math.max(0, Math.min(100, file.progress * 100))}%` }" />
+                      </span>
+                    </span>
+                    <NIcon v-if="file.available" :component="Play" size="17" />
+                  </button>
+                </div>
+                <NEmpty v-else description="种子中没有支持的图片、视频或音频" />
+              </NTabPane>
+
+              <NTabPane name="files">
+                <template #tab>
+                  <span>文件</span>
+                  <NTag size="small">{{ directory?.entries.length ?? 0 }}</NTag>
+                </template>
+                <p class="directory-path" :title="directory?.path">{{ directory?.path }}</p>
+                <NAlert v-if="directoryError" type="warning" :bordered="false">{{ directoryError }}</NAlert>
+                <NSpin :show="directoryLoading">
+                  <div v-if="directory" class="directory-list">
+                    <button
+                      v-if="directory.parent"
+                      type="button"
+                      class="directory-item"
+                      @click="browsePlaybackDirectory(directory.parent)"
+                    >
+                      <NIcon :component="Folder" size="18" />
+                      <span><strong>..</strong><small>上一个目录</small></span>
+                    </button>
+                    <button
+                      v-for="file in directory.entries"
+                      :key="file.path"
+                      type="button"
+                      class="directory-item"
+                      :class="{
+                        active: file.path === playback.current_path,
+                        disabled: !file.is_dir && !file.media_type,
+                      }"
+                      :disabled="(!file.is_dir && !file.media_type) || file.path === playback.current_path"
+                      @click="openDirectoryEntry(file)"
+                    >
+                      <NIcon
+                        :component="file.is_dir ? Folder : file.media_type ? mediaIcon(file.media_type) : File"
+                        size="18"
+                      />
+                      <span>
+                        <strong>{{ file.name }}</strong>
+                        <small>
+                          {{ file.is_dir ? '目录' : file.media_type ? mediaLabel(file.media_type) : '文件' }}
+                          <template v-if="!file.is_dir"> · {{ formatByteSize(file.size ?? 0) }}</template>
+                        </small>
+                      </span>
+                      <NIcon v-if="!file.is_dir && file.media_type" :component="Play" size="17" />
+                    </button>
+                  </div>
+                </NSpin>
+              </NTabPane>
+            </NTabs>
           </NCard>
 
-          <NCard :bordered="false" class="playback-panel other-panel">
+          <NCard v-if="playback.source !== 'file'" :bordered="false" class="playback-panel other-panel">
             <template #header>
               <div class="panel-heading">
                 <span>其他种子</span>

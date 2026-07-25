@@ -8,6 +8,7 @@ import {
   Folder,
   FolderOpen,
   MoreHorizontal,
+  Play,
   RefreshCw,
   RotateCcw,
   Search,
@@ -255,6 +256,13 @@ function handleNavigationMouseButton(event: MouseEvent) {
 
 function activateEntry(entry: FileEntry) {
   if (entry.is_dir) void browse(entry.path);
+  else if (entry.media_type) openPlayback(entry);
+}
+
+function openPlayback(entry: FileEntry) {
+  if (entry.is_dir || !entry.media_type) return;
+  const target = router.resolve({ name: 'playback-file', query: { path: entry.path } });
+  window.open(target.href, '_blank', 'noopener,noreferrer');
 }
 
 function showContextMenu(event: MouseEvent, entry: FileEntry) {
@@ -272,6 +280,8 @@ function handleContextAction(key: string) {
   if (!entry) return;
   if (key === 'open' && entry.is_dir) {
     void browse(entry.path);
+  } else if (key === 'play') {
+    openPlayback(entry);
   } else if (key === 'recover') {
     void openRecovery(entry);
   }
@@ -599,9 +609,14 @@ onBeforeUnmount(() => {
               {{ task.category || '无分类' }} · {{ task.state }}
             </NTag>
           </div>
-          <NButton quaternary circle aria-label="更多操作" @click="showContextMenu($event, entry)">
-            <template #icon><NIcon :component="MoreHorizontal" /></template>
-          </NButton>
+          <NSpace :size="2" :wrap="false">
+            <NButton v-if="entry.media_type" quaternary circle aria-label="播放" @click.stop="openPlayback(entry)">
+              <template #icon><NIcon :component="Play" /></template>
+            </NButton>
+            <NButton quaternary circle aria-label="更多操作" @click="showContextMenu($event, entry)">
+              <template #icon><NIcon :component="MoreHorizontal" /></template>
+            </NButton>
+          </NSpace>
         </div>
       </NSpin>
     </NCard>
@@ -613,6 +628,7 @@ onBeforeUnmount(() => {
       :y="menuY"
       :options="[
         { label: '打开目录', key: 'open', disabled: !contextEntry?.is_dir },
+        { label: '播放', key: 'play', disabled: !contextEntry?.media_type },
         { label: '尝试恢复 qB 任务', key: 'recover', disabled: !!contextEntry?.qb_tasks.length },
       ]"
       @clickoutside="menuVisible = false"
@@ -859,7 +875,7 @@ onBeforeUnmount(() => {
 }
 .file-row {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) 110px 180px minmax(200px, 1fr) 42px;
+  grid-template-columns: minmax(260px, 2fr) 110px 180px minmax(200px, 1fr) 78px;
   gap: 12px;
   align-items: center;
   min-height: 48px;

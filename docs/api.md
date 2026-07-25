@@ -104,9 +104,17 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 接收 `{ "action": "start" }` 或 `{ "action": "stop" }`，按本地 v1 hash 恢复或暂停对应 qB 任务，操作成功后立即查询并返回最新 `qb_status` 快照。媒体状态条在接口成功后先切换到目标状态，并在短暂保护期后用增量同步结果校准，避免 qB 瞬时旧状态造成界面回跳。
 
-`GET /api/torrents/{site_id}/{torrent_id}/playback`
+`GET /api/torrents/{site_id}/{torrent_id}/playback?file={qB_relative_name}`
 
-按本地 hash 实时读取 qB 任务和文件清单，返回种子元数据、qB 状态、图片/视频/音频选集及默认文件索引。选集只包含固定扩展名白名单内的媒体；`available=true` 表示 qB 报告下载进度大于零，并且同机文件通过下载根目录和普通文件校验。qB 状态沿用现有字段，可能包含 `save_path` 和 `content_path` 本机绝对路径；接口不修改文件优先级。
+按数据库种子及本地 hash 实时读取统一播放上下文。可选 `file` 是要选中的 qB 相对文件名。
+
+`GET /api/playback/qb/{hash}?file={qB_relative_name}`
+
+不依赖数据库种子，按实时 qB 任务返回选集、当前文件和所在目录；若 hash 能匹配数据库种子，同时补充详情并返回 `source=torrent`。
+
+`GET /api/playback/file?path={absolute_path}`
+
+读取本机媒体文件，并按规范化路径精确匹配实时 qB 文件清单。匹配后自动提升为数据库种子或 qB-only 上下文；未匹配时返回 `source=file` 的单文件上下文。上下文中的 `current_path`、`current_directory` 和目录文件路径均可能是本机绝对路径。
 
 `GET /api/playback/torrents?exclude_site_id={site_id}&exclude_torrent_id={torrent_id}&limit=20`
 
@@ -114,7 +122,21 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET|HEAD /api/torrents/{site_id}/{torrent_id}/media/{file_index}`
 
-按 qB 文件索引重新解析同机源文件并使用 `http.ServeContent` 传输，支持浏览器 `Range`、seek、`Content-Length` 和条件请求。请求不接受客户端文件路径；服务端拒绝越出 qB `save_path` 的路径和非普通文件，符号链接解析后的目标仍须位于该目录内。进度大于零的部分文件允许尝试读取，但缺失片段可能导致浏览器停止播放。响应不做转码、解码或格式转换，最终兼容性由浏览器决定。
+`GET|HEAD /api/playback/qb/{hash}/media/{file_index}`
+
+两个 qB 源文件接口分别从数据库种子或 qB hash 开始，按实时文件索引重新解析同机源文件。
+
+`GET|HEAD /api/playback/file/media?path={absolute_path}`
+
+传输文件管理器可访问的本机媒体。三类接口均使用 `http.ServeContent`，支持浏览器 `Range`、seek、`Content-Length` 和条件请求。qB 接口额外验证解析后的文件仍位于任务 `save_path` 内。响应不做转码、解码或格式转换，最终兼容性由浏览器决定。
+
+`GET /api/torrents/{site_id}/{torrent_id}/media/{file_index}/subtitles/{track_id}`
+
+`GET /api/playback/qb/{hash}/media/{file_index}/subtitles/{track_id}`
+
+`GET /api/playback/file/subtitles/{track_id}?path={absolute_path}`
+
+从对应 MKV 源文件导出指定内嵌文本字幕轨并返回 `text/vtt`。支持 SubRip/SRT、WebVTT、ASS 和 SSA；ASS/SSA 会扁平化为 WebVTT 文本，PGS、VobSub 等图片字幕不返回。该过程只解析容器和字幕数据，不转码或解码音视频。
 
 `GET /api/torrents/{site_id}/{torrent_id}/cover`
 

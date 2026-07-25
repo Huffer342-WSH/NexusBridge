@@ -42,6 +42,7 @@ const renderer = computed(() => {
       :name="media.name"
       :poster="poster"
       :title="title"
+      v-bind="media.media_type === 'video' ? { subtitles: media.subtitles ?? [] } : {}"
       @error="emit('error', $event)"
       @autoplay-blocked="emit('autoplayBlocked')"
     />

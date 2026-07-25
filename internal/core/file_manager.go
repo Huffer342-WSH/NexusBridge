@@ -52,10 +52,14 @@ func (a *App) BrowseFiles(ctx context.Context, request FileBrowseRequest) (FileB
 		if err != nil {
 			continue
 		}
-		entries = append(entries, FileEntry{
+		item := FileEntry{
 			Name: entry.Name(), Path: filepath.Join(target, entry.Name()), IsDir: entry.IsDir(),
 			Size: entryInfo.Size(), ModifiedAt: entryInfo.ModTime(), QBTasks: []FileQBTask{},
-		})
+		}
+		if !item.IsDir {
+			item.MediaType, _, _ = playbackMediaType(item.Name)
+		}
+		entries = append(entries, item)
 	}
 	sortFileEntries(entries)
 	attachQBTasks(entries, qbTasks)

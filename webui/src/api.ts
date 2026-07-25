@@ -48,7 +48,7 @@ import type {
   SubscriptionPreview,
   SubscriptionRun,
   Torrent,
-  TorrentPlayback,
+  PlaybackContext,
   TorrentPage,
   TorrentPageQuery,
   SiteFetchJob,
@@ -118,8 +118,24 @@ export const api = {
     if (query.q?.trim()) params.set('q', query.q.trim());
     return request<TorrentPage>(`/api/torrents?${params.toString()}`);
   },
-  getTorrentPlayback: (siteID: string, torrentID: string) =>
-    request<TorrentPlayback>(`/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/playback`),
+  getTorrentPlayback: (siteID: string, torrentID: string, fileName = '') => {
+    const params = new URLSearchParams();
+    if (fileName) params.set('file', fileName);
+    const query = params.size ? `?${params.toString()}` : '';
+    return request<PlaybackContext>(
+      `/api/torrents/${encodeURIComponent(siteID)}/${encodeURIComponent(torrentID)}/playback${query}`,
+    );
+  },
+  getQBPlayback: (hash: string, fileName = '') => {
+    const params = new URLSearchParams();
+    if (fileName) params.set('file', fileName);
+    const query = params.size ? `?${params.toString()}` : '';
+    return request<PlaybackContext>(`/api/playback/qb/${encodeURIComponent(hash)}${query}`);
+  },
+  getFilePlayback: (path: string) => {
+    const params = new URLSearchParams({ path });
+    return request<PlaybackContext>(`/api/playback/file?${params.toString()}`);
+  },
   getPlaybackTorrents: (excludeSiteID: string, excludeTorrentID: string, limit = 20) => {
     const params = new URLSearchParams({
       exclude_site_id: excludeSiteID,

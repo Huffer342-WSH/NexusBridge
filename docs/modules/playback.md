@@ -1,198 +1,110 @@
 # 媒体播放
 
-NexusBridge 提供独立播放页 `/play/:site_id/:torrent_id`，直接读取同机 qBittorrent 下载目录并向浏览器传输源文件。服务端不转码、不解码、不调整文件优先级；容器和编码兼容性由浏览器决定。
+播放页统一处理数据库种子、qB 任务和本机文件。NexusBridge 只读取同机源文件并使用 HTTP Range 传给浏览器，不转码、不解码、不调整 qB 文件优先级。
 
-首版要求 NexusBridge 能按 qB 返回的 `save_path` 直接访问文件，不处理远程 qB、容器路径映射、字幕匹配、缩略图生成或转码回退。
+## 入口与规范 URL
 
-## 工作流程
+| 来源 | 页面 URL | 清单 API |
+| --- | --- | --- |
+| 数据库种子 | `/play/:site_id/:torrent_id?file=<qB 相对文件名>` | `GET /api/torrents/{site_id}/{torrent_id}/playback?file=...` |
+| 仅 qB 任务 | `/play/qb/:hash?file=<qB 相对文件名>` | `GET /api/playback/qb/{hash}?file=...` |
+| 本机文件 | `/play/file?path=<绝对路径>` | `GET /api/playback/file?path=...` |
+
+媒体卡片从数据库种子入口打开。文件管理器对识别出的图片、视频和音频提供播放按钮、双击和右键播放，并从本机文件入口打开新标签页。
+
+文件入口按以下顺序识别归属：
+
+1. 将文件规范化为本机绝对路径。
+2. 遍历实时 qB 任务及其文件清单，对解析后的文件路径做精确匹配。
+3. 匹配 qB 后，再用 hash 查找本地数据库种子。
+4. 匹配数据库时规范化为数据库种子 URL；只匹配 qB 时规范化为 qB URL。
+5. 都未匹配时保留本机文件 URL，只显示播放器和文件浏览。
+
+当前播放文件始终写入 URL。选集切换使用 qB 相对文件名，目录文件切换先进入文件 URL，再由后端重新识别并规范化，因此刷新和直接打开都能恢复同一文件。
 
 ```mermaid
 flowchart LR
-    Media[媒体卡片] -->|新标签页| Route[/play/:site_id/:torrent_id]
-    Route --> View[PlaybackView]
-    View --> Manifest[播放清单 API]
-    Manifest --> Catalog[(本地种子与 hash)]
-    Manifest --> QBFiles[qB 实时文件清单]
-    QBFiles --> Files[自然排序的媒体选集]
-    Files --> Selected[selectedIndex]
-    Selected --> Canvas[MediaCanvas]
-    Canvas --> Engine[视频 / 音频 / 图片播放器]
-    Engine -->|GET / HEAD / Range| Stream[源文件 API]
-    Stream --> QBVerify[按 hash 和文件索引重新查询 qB]
-    QBVerify --> Local[(同机源文件)]
-    Local -->|原始字节| Browser[浏览器解码]
+    Card[媒体卡片] --> TorrentRoute[数据库种子 URL]
+    Manager[文件管理器] --> FileRoute[本机文件 URL]
+    FileRoute --> Match{实时路径归属}
+    Match -->|数据库 + qB| TorrentRoute
+    Match -->|仅 qB| QBRoute[qB URL]
+    Match -->|未匹配| Local[单文件上下文]
+    TorrentRoute --> Context[统一播放上下文]
+    QBRoute --> Context
+    Local --> Context
+    Context --> Canvas[MediaCanvas]
+    Context --> Episodes[选集]
+    Context --> Browser[文件浏览]
 ```
 
-媒体卡片只在 `qb_status.added=true` 时显示播放入口。入口由 Vue Router 生成地址，并使用 `window.open(..., '_blank', 'noopener,noreferrer')` 打开，不影响媒体页已有的下载、暂停和恢复操作。
+## 统一播放上下文
 
-播放路由使用独立页面外壳，只保留品牌、当前页面名称和返回媒体库入口。直接打开播放页时，`App.vue` 不初始化普通 Dashboard 数据，也不会触发媒体首页的自动抓取。
+`PlaybackContext` 的主要模块为：
 
-## 播放清单
+- `source`：`torrent`、`qb` 或 `file`。
+- `torrent`：可选数据库详情；qB-only 和本机单文件可以没有。
+- `qb_status`、`qb_hash`：可选 qB 归属。
+- `files`：qB 媒体选集；单文件上下文只有当前文件。
+- `current_file_index`、`default_file_index`：当前和默认媒体。
+- `current_path`、`current_directory`：当前本机文件及目录。
+- `directory_files`：清单生成时的目录快照；前端文件标签后续使用文件浏览 API 导航。
 
-前端进入页面或切换其他种子后，请求：
+qB 选集展示固定扩展名白名单识别出的图片、视频和音频。文件进度大于零且同机文件可读取时允许尝试播放；零进度禁用。默认文件依次选择完整视频、完整音频、完整图片，没有完整文件时选择进度最高的可用文件。
 
-```http
-GET /api/torrents/{site_id}/{torrent_id}/playback
-```
+## 页面模块
 
-后端按以下顺序生成清单：
+播放页使用连续区块布局，不使用悬浮卡片画布：
 
-1. 从本地种子记录解析 qB hash。
-2. 按 hash 查询实时 qB 任务和文件清单。
-3. 使用固定扩展名白名单识别视频、音频和图片。
-4. 根据 qB `save_path` 检查同机文件是否存在、是否仍位于保存目录内且为普通文件。
-5. 按文件名执行不区分大小写的自然排序。
-6. 生成默认文件索引和同源 `stream_url`。
+- 左侧上方是稳定比例的媒体画布，下方是当前标题、状态和可选数据库简介。
+- 右侧上方是一个带“选集 / 文件”标签的媒体浏览区块。
+- “选集”只在存在 qB 上下文时显示。
+- “文件”使用 `POST /api/files/browse` 读取当前目录；完整路径限制在窗格宽度内并以省略号截断，悬停可查看原值。
+- 文件列表采用类似 Windows 文件资源管理器的紧凑行布局，没有卡片边框或明显的文件间分界；`..` 导航父目录，文件夹只负责继续浏览，不显示播放按钮。
+- 从文件窗格切换媒体时保留当前标签和浏览目录。旧播放器、简介和侧栏会持续显示到新上下文返回，只在播放器内显示局部切换状态，避免整页加载闪烁。
+- 右侧下方是其他含完整音视频的数据库种子；纯本机文件不显示。
+- 窄屏按媒体画布、简介、媒体浏览、其他种子的顺序纵向排列。
 
-每个媒体文件包含：
+页面路由和播放器按需加载。`MediaCanvas` 根据 `media_type` 分派播放器，切换文件时卸载旧播放器：
 
-| 字段 | 含义 |
-| --- | --- |
-| `index` | qB 文件索引，也是源文件接口使用的稳定选择值 |
-| `name` | qB 返回的种子内相对文件名 |
-| `media_type` | `video`、`audio` 或 `image` |
-| `mime_type` | 按扩展名白名单确定的 MIME |
-| `size` | qB 文件大小 |
-| `progress` | qB 实时下载进度，范围为 `0` 到 `1` |
-| `selected` | qB 是否选择下载该文件，不表示播放页当前选集 |
-| `complete` | 文件进度是否达到 `1` |
-| `available` | 进度大于零且同机文件通过路径和普通文件检查 |
-| `stream_url` | 使用 qB 文件索引的同源源文件地址 |
-
-`stream_url` 的 `filename` 查询参数只向播放器提供扩展名提示，例如帮助 Vidstack 识别无扩展名 API 地址中的 WAV；后端不会使用该参数解析本机路径。
-
-播放清单中的 `qb_status` 沿用现有 qB 状态模型，因此可能包含 `save_path` 和 `content_path` 本机绝对路径。
-
-### 默认文件
-
-后端在自然排序后的文件中依次选择：
-
-1. 第一个完整且可用的视频。
-2. 第一个完整且可用的音频。
-3. 第一个完整且可用的图片。
-4. 没有完整文件时，选择下载进度最高的可用文件；同进度按视频、音频、图片排序。
-
-没有可用文件时不返回 `default_file_index`，播放画布显示空状态。
-
-## 前端选集
-
-`PlaybackView.vue` 使用两个不同状态：
-
-- `file.selected` 表示 qB 是否选择下载该文件。
-- `selectedIndex` 表示播放页当前展示的 qB 文件索引。
-
-首次加载时，`selectedIndex` 使用后端的 `default_file_index`。用户点击右侧选集后，前端只在 `file.available=true` 时更新 `selectedIndex`；进度为零或同机不可读取的文件保持禁用。
-
-`currentFile` 根据 `selectedIndex` 从当前清单中查找，并传给 `MediaCanvas`。选集切换不会修改 qB 文件优先级。
-
-只要清单中仍有 qB 已选择但未完成的媒体文件，页面每 5 秒刷新一次清单。刷新时优先保留当前仍可用的文件索引；当前文件失效时回退到新的默认文件。轮询失败不会清空已经加载的清单。
-
-## 播放器选择与生命周期
-
-构建配置位于 `webui/src/config/mediaPlayer.ts`：
-
-```ts
-export const mediaPlayerConfig = {
-  video: 'artplayer',
-  audio: 'vidstack',
-  image: 'native',
-};
-```
-
-支持的配置为：
-
-| 媒体类型 | 默认实现 | 可选实现 |
+| 类型 | 默认播放器 | 可选配置 |
 | --- | --- | --- |
 | 视频 | Artplayer | `artplayer`、`native` |
-| 音频 | Vidstack | `vidstack`、`native` |
+| 音频 | Vidstack 原生 audio provider | `vidstack`、`native` |
 | 图片 | 原生查看器 | `native` |
 
-播放路由和各播放器组件都按需加载。`MediaCanvas` 根据 `currentFile.media_type` 和构建配置选择异步组件，并使用媒体类型、qB 文件索引和流地址组成组件 key。切换文件时 Vue 会卸载旧组件并创建新组件：
+配置位于 `webui/src/config/mediaPlayer.ts`。WAV 通过正确 MIME 和带扩展名的流地址交给浏览器原生音频解码。图片查看器初始等比例适应画布，支持缩放、拖动、重置和全屏。
 
-- Artplayer 在卸载时显式执行 `destroy()`。
-- 原生 `<video>`、`<audio>` 和 Vidstack 随组件卸载释放。
-- 图片查看器随组件卸载清理 `ResizeObserver` 和动画帧。
+### MKV 内嵌字幕
 
-### 视频
+播放清单只对当前 MKV 文件读取容器头部，列出可转换的内嵌文本字幕轨。支持 `S_TEXT/UTF8`、`S_TEXT/WEBVTT`、`S_TEXT/ASS` 和 `S_TEXT/SSA`；PGS、VobSub 等图片字幕不做 OCR 或转换。
 
-Artplayer 使用 HTML5 视频源，启用中文、主题色、快捷键、倍速、画中画、网页全屏和系统全屏，不加载转流插件。构建配置切换为 `native` 后使用原生 `<video>`。
+字幕接口按播放来源重新解析受控源文件和轨道 ID，将文本轨导出为 WebVTT。单条响应最大 32 MiB，不生成持久字幕文件，也不读取或转换音视频轨。Artplayer 默认选择 forced 轨、default 轨或第一条文本轨，并在设置面板提供多字幕切换和时间偏移；原生视频播放器使用标准 `<track>` 元素。
 
-### 音频
+## 源文件传输与边界
 
-Vidstack 使用浏览器原生 audio provider，并接收包含 URL 和 MIME 的 source 对象。流地址同时携带原文件扩展名提示，以支持 WAV 等无法仅从 API 路径判断格式的音频。构建配置切换为 `native` 后使用原生 `<audio>`。
-
-原生音视频只在第一次 `canplay` 时尝试自动播放，避免后续缓冲恢复覆盖用户的暂停操作。浏览器阻止自动播放时，页面显示点击播放提示。
-
-### 图片
-
-图片打开后按原始宽高比例缩小到媒体画布范围，小图不主动放大。查看器支持：
-
-- 滚轮和按钮缩放。
-- 放大后的鼠标或触摸拖动。
-- 受画布边界约束的平移。
-- 重置或双击恢复适应画布。
-- 全屏查看。
-- 画布尺寸变化后重新计算适应尺寸。
-
-控制栏是独立覆盖层，不参与图片尺寸布局。
-
-## 源文件传输
-
-播放器通过以下接口读取源文件：
-
-```http
-GET|HEAD /api/torrents/{site_id}/{torrent_id}/media/{file_index}
-```
-
-服务端不接受客户端路径。每次请求都会重新解析本地种子、qB hash 和实时 qB 文件清单，再按 `file_index` 取得文件名。
-
-路径检查分为两层：
-
-1. 清理 qB 相对文件名，拒绝绝对路径、`.`、`..` 和越出 `save_path` 的字面路径。
-2. 解析 `save_path` 和候选文件中的符号链接，再次确认最终目标位于实际保存目录内。
-
-符号链接可以直接使用，但最终目标不能越出 `save_path`，并且必须是普通文件。
-
-文件由 `http.ServeContent` 返回，支持 `Range`、seek、`Content-Length`、`Last-Modified` 和 HEAD。响应设置正确 MIME、`inline`、私有缓存策略和 `nosniff`。浏览器请求不支持的容器或编码时，只显示加载或解码错误，不进行格式转换。
-
-主要失败状态：
-
-| 状态 | 场景 |
+| 上下文 | 源文件 API |
 | --- | --- |
-| `404` | 种子、文件索引、文件或符号链接目标不存在 |
-| `409` | 未关联 qB，或文件下载进度为零 |
-| `503` | qB 不可用、路径越界、权限错误或源文件不可访问 |
+| 数据库种子 | `GET\|HEAD /api/torrents/{site_id}/{torrent_id}/media/{file_index}` |
+| qB 任务 | `GET\|HEAD /api/playback/qb/{hash}/media/{file_index}` |
+| 本机文件 | `GET\|HEAD /api/playback/file/media?path=...` |
 
-## 其他种子
+字幕 URL 由当前媒体的 `subtitles[].stream_url` 提供，三类来源分别使用数据库种子、qB hash 或绝对文件路径重新定位同一个 MKV。
 
-页面另外请求：
+qB 接口每次都按 hash 和文件索引重新读取实时清单，不信任客户端提交的相对路径。qB 文件先拒绝绝对相对名、`.`、`..` 和字面越界，再解析符号链接并确认最终普通文件仍在实际 `save_path` 内；目录内的符号链接可直接使用。
 
-```http
-GET /api/playback/torrents?exclude_site_id=...&exclude_torrent_id=...&limit=20
-```
+本机文件接口接受绝对路径，与文件管理器具有相同的本机文件访问边界。路径会出现在页面 URL 和播放上下文中，不应公开分享含敏感目录名的地址。
 
-列表只包含已关联 qB 且至少有一个完整、可读取音频或视频文件的种子。只有完整图片的种子不会进入列表。结果按 `published_at` 倒序，缺失发布时间的记录置后；点击后在当前播放标签页切换播放路由。
+所有源文件使用 `http.ServeContent` 返回，支持 Range、seek、HEAD、`Content-Length` 和 `Last-Modified`。浏览器不支持的容器或编码只显示播放错误，不提供转换回退。
 
 ## 代码导航
 
 | 职责 | 代码 |
 | --- | --- |
+| 上下文、归属识别、目录和流文件解析 | `internal/core/playback.go` |
 | 播放领域模型 | `internal/core/models_playback.go` |
-| 清单、默认选集、路径和其他种子 | `internal/core/playback.go` |
-| HTTP 路由与源文件响应 | `internal/server/server.go`、`internal/server/handlers_torrents.go` |
-| 前端路由与独立外壳 | `webui/src/router.ts`、`webui/src/App.vue` |
-| 播放页状态和选集 | `webui/src/components/PlaybackView.vue` |
-| 播放器分派 | `webui/src/components/player/MediaCanvas.vue` |
-| 各媒体播放器 | `webui/src/components/player/` |
-| 构建配置 | `webui/src/config/mediaPlayer.ts` |
-| API 定义 | `docs/api.md`、`docs/api/openapi.yaml` |
-
-修改后至少运行：
-
-```powershell
-go test ./...
-go vet ./...
-Set-Location webui
-pnpm run format:check
-pnpm run build
-```
+| HTTP 路由与响应 | `internal/server/server.go`、`internal/server/handlers_torrents.go` |
+| 页面路由和状态 | `webui/src/router.ts`、`webui/src/components/PlaybackView.vue` |
+| 文件管理器入口 | `webui/src/components/FileManagerView.vue` |
+| 播放器分派和实现 | `webui/src/components/player/` |
+| API | `docs/api.md`、`docs/api/openapi.yaml` |

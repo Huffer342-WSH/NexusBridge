@@ -116,12 +116,13 @@ type FileQBTask struct {
 
 // FileEntry 描述一个可浏览的文件或目录。
 type FileEntry struct {
-	Name       string       `json:"name"`
-	Path       string       `json:"path"`
-	IsDir      bool         `json:"is_dir"`
-	Size       int64        `json:"size,omitempty"`
-	ModifiedAt time.Time    `json:"modified_at,omitempty"`
-	QBTasks    []FileQBTask `json:"qb_tasks"`
+	Name       string            `json:"name"`
+	Path       string            `json:"path"`
+	IsDir      bool              `json:"is_dir"`
+	Size       int64             `json:"size,omitempty"`
+	ModifiedAt time.Time         `json:"modified_at,omitempty"`
+	MediaType  PlaybackMediaType `json:"media_type,omitempty"`
+	QBTasks    []FileQBTask      `json:"qb_tasks"`
 }
 
 // FileBrowseResult 返回目录内容和 qB 连接诊断。

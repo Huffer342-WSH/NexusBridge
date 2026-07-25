@@ -85,7 +85,36 @@ func (s *Server) handleTorrentCover(w http.ResponseWriter, r *http.Request) {
 
 // handleTorrentPlayback 返回当前种子的实时媒体清单。
 func (s *Server) handleTorrentPlayback(w http.ResponseWriter, r *http.Request) {
-	result, err := s.playback.GetTorrentPlayback(r.Context(), chi.URLParam(r, "site_id"), chi.URLParam(r, "torrent_id"))
+	result, err := s.playback.GetTorrentPlayback(
+		r.Context(),
+		chi.URLParam(r, "site_id"),
+		chi.URLParam(r, "torrent_id"),
+		r.URL.Query().Get("file"),
+	)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleQBPlayback 返回可能没有数据库种子详情的 qB 播放上下文。
+func (s *Server) handleQBPlayback(w http.ResponseWriter, r *http.Request) {
+	result, err := s.playback.GetQBPlayback(r.Context(), chi.URLParam(r, "hash"), r.URL.Query().Get("file"))
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleFilePlayback 自动识别本机媒体文件的 qB 和数据库种子归属。
+func (s *Server) handleFilePlayback(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(r.URL.Query().Get("path")) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("media file path is required"))
+		return
+	}
+	result, err := s.playback.GetFilePlayback(r.Context(), r.URL.Query().Get("path"))
 	if err != nil {
 		writePlaybackError(w, err)
 		return
@@ -119,9 +148,8 @@ func (s *Server) handlePlaybackTorrents(w http.ResponseWriter, r *http.Request) 
 
 // handleTorrentMedia 使用 Range 友好的方式返回同机 qB 源文件。
 func (s *Server) handleTorrentMedia(w http.ResponseWriter, r *http.Request) {
-	fileIndex, err := strconv.Atoi(chi.URLParam(r, "file_index"))
-	if err != nil || fileIndex < 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid media file index"))
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
 		return
 	}
 	source, err := s.playback.OpenTorrentMedia(r.Context(), chi.URLParam(r, "site_id"), chi.URLParam(r, "torrent_id"), fileIndex)
@@ -129,6 +157,129 @@ func (s *Server) handleTorrentMedia(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, err)
 		return
 	}
+	servePlaybackSource(w, r, source)
+}
+
+// handleQBMedia 按 qB hash 和文件索引传输源媒体。
+func (s *Server) handleQBMedia(w http.ResponseWriter, r *http.Request) {
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
+		return
+	}
+	source, err := s.playback.OpenQBMedia(r.Context(), chi.URLParam(r, "hash"), fileIndex)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSource(w, r, source)
+}
+
+// handleFileMedia 传输文件管理器选择的本机源媒体。
+func (s *Server) handleFileMedia(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(r.URL.Query().Get("path")) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("media file path is required"))
+		return
+	}
+	source, err := s.playback.OpenFileMedia(r.Context(), r.URL.Query().Get("path"))
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSource(w, r, source)
+}
+
+// handleTorrentSubtitle 导出数据库种子 MKV 文件的内嵌文本字幕。
+func (s *Server) handleTorrentSubtitle(w http.ResponseWriter, r *http.Request) {
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
+		return
+	}
+	trackID, ok := playbackSubtitleTrackID(w, r)
+	if !ok {
+		return
+	}
+	content, err := s.playback.GetTorrentSubtitle(
+		r.Context(),
+		chi.URLParam(r, "site_id"),
+		chi.URLParam(r, "torrent_id"),
+		fileIndex,
+		trackID,
+	)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSubtitle(w, content)
+}
+
+// handleQBSubtitle 导出 qB 任务 MKV 文件的内嵌文本字幕。
+func (s *Server) handleQBSubtitle(w http.ResponseWriter, r *http.Request) {
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
+		return
+	}
+	trackID, ok := playbackSubtitleTrackID(w, r)
+	if !ok {
+		return
+	}
+	content, err := s.playback.GetQBSubtitle(r.Context(), chi.URLParam(r, "hash"), fileIndex, trackID)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSubtitle(w, content)
+}
+
+// handleFileSubtitle 导出文件管理器 MKV 文件的内嵌文本字幕。
+func (s *Server) handleFileSubtitle(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(r.URL.Query().Get("path")) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("media file path is required"))
+		return
+	}
+	trackID, ok := playbackSubtitleTrackID(w, r)
+	if !ok {
+		return
+	}
+	content, err := s.playback.GetFileSubtitle(r.Context(), r.URL.Query().Get("path"), trackID)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSubtitle(w, content)
+}
+
+// playbackFileIndex 解析播放源接口共用的 qB 文件索引。
+func playbackFileIndex(w http.ResponseWriter, r *http.Request) (int, bool) {
+	fileIndex, err := strconv.Atoi(chi.URLParam(r, "file_index"))
+	if err != nil || fileIndex < 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid media file index"))
+		return 0, false
+	}
+	return fileIndex, true
+}
+
+// playbackSubtitleTrackID 解析 MKV 字幕接口共用的轨道 ID。
+func playbackSubtitleTrackID(w http.ResponseWriter, r *http.Request) (uint64, bool) {
+	trackID, err := strconv.ParseUint(chi.URLParam(r, "track_id"), 10, 64)
+	if err != nil || trackID == 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("invalid subtitle track id"))
+		return 0, false
+	}
+	return trackID, true
+}
+
+// servePlaybackSubtitle 返回 Artplayer 可直接加载的 WebVTT 文本字幕。
+func servePlaybackSubtitle(w http.ResponseWriter, content []byte) {
+	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+	w.Header().Set("Content-Disposition", `inline; filename="subtitle.vtt"`)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
+}
+
+// servePlaybackSource 使用统一响应头和 Range 语义传输已经打开的媒体源。
+func servePlaybackSource(w http.ResponseWriter, r *http.Request, source core.PlaybackSource) {
 	defer source.File.Close()
 	w.Header().Set("Content-Type", source.ContentType)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": source.Name}))

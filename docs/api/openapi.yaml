@@ -364,18 +364,74 @@ paths:
     get:
       tags: [torrents, qbittorrent]
       summary: 获取当前种子的实时媒体播放清单
+      parameters:
+        - name: file
+          in: query
+          required: false
+          description: 要选中的 qB 相对文件名；省略时使用默认媒体。
+          schema:
+            type: string
       responses:
         "200":
           description: 种子元数据、qB 状态、媒体选集和默认文件
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TorrentPlayback"
+                $ref: "#/components/schemas/PlaybackContext"
         "404":
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
         "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/qb/{hash}:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [qbittorrent]
+      summary: 按 qB hash 获取实时媒体播放上下文
+      parameters:
+        - name: file
+          in: query
+          required: false
+          description: 要选中的 qB 相对文件名；省略时使用默认媒体。
+          schema:
+            type: string
+      responses:
+        "200":
+          description: qB 选集、当前文件、所在目录及可选数据库种子详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackContext"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/file:
+    get:
+      tags: [files, qbittorrent]
+      summary: 按本机文件自动识别播放上下文
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 自动归一到数据库种子、qB 任务或单文件播放上下文
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackContext"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
   /api/torrents/{site_id}/{torrent_id}/media/{file_index}:
     parameters:
@@ -425,6 +481,172 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/qb/{hash}/media/{file_index}:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: file_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      tags: [qbittorrent]
+      summary: 按 qB hash 和文件索引传输源媒体
+      responses:
+        "200":
+          description: 完整文件或 Range 响应
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: 字节范围响应
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+    head:
+      tags: [qbittorrent]
+      summary: 查询 qB 源媒体响应头
+      responses:
+        "200":
+          description: 文件长度、类型、修改时间和 Range 能力
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/file/media:
+    get:
+      tags: [files]
+      summary: 传输本机源媒体文件
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 完整文件或 Range 响应
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: 字节范围响应
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    head:
+      tags: [files]
+      summary: 查询本机源媒体响应头
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 文件长度、类型、修改时间和 Range 能力
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/media/{file_index}/subtitles/{track_id}:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+      - name: file_index
+        in: path
+        required: true
+        schema: { type: integer, minimum: 0 }
+      - name: track_id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, format: int64 }
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 导出数据库种子 MKV 文件的内嵌文本字幕
+      responses:
+        "200":
+          description: WebVTT 字幕
+          content:
+            text/vtt:
+              schema: { type: string }
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/qb/{hash}/media/{file_index}/subtitles/{track_id}:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        schema: { type: string }
+      - name: file_index
+        in: path
+        required: true
+        schema: { type: integer, minimum: 0 }
+      - name: track_id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, format: int64 }
+    get:
+      tags: [qbittorrent]
+      summary: 导出 qB 任务 MKV 文件的内嵌文本字幕
+      responses:
+        "200":
+          description: WebVTT 字幕
+          content:
+            text/vtt:
+              schema: { type: string }
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/file/subtitles/{track_id}:
+    parameters:
+      - name: track_id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, format: int64 }
+    get:
+      tags: [files]
+      summary: 导出本机 MKV 文件的内嵌文本字幕
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: WebVTT 字幕
+          content:
+            text/vtt:
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
@@ -1596,19 +1818,71 @@ components:
           description: 下载进度大于零且同机普通文件通过路径安全校验。
         stream_url:
           type: string
-    TorrentPlayback:
+        subtitles:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlaybackSubtitle"
+    PlaybackSubtitle:
       type: object
-      required: [torrent, qb_status, files]
+      required: [track_id, label, codec, default, forced, stream_url]
       properties:
+        track_id:
+          type: integer
+          minimum: 1
+          format: int64
+        label: { type: string }
+        language: { type: string }
+        codec: { type: string }
+        default: { type: boolean }
+        forced: { type: boolean }
+        stream_url: { type: string }
+    PlaybackDirectoryFile:
+      type: object
+      required: [name, path, size, modified_at, playable, current]
+      properties:
+        name: { type: string }
+        path:
+          type: string
+          description: NexusBridge 本机路径。
+        size: { type: integer, format: int64 }
+        modified_at: { type: string, format: date-time }
+        media_type:
+          type: string
+          enum: [video, audio, image]
+        mime_type: { type: string }
+        playable: { type: boolean }
+        current: { type: boolean }
+    PlaybackContext:
+      type: object
+      required: [source, title, current_path, current_directory, files, directory_files]
+      properties:
+        source:
+          type: string
+          enum: [torrent, qb, file]
+        title: { type: string }
+        current_path:
+          type: string
+          description: 当前源文件的 NexusBridge 本机路径。
+        current_directory:
+          type: string
+          description: 当前源文件所在的 NexusBridge 本机目录。
         torrent:
           $ref: "#/components/schemas/Torrent"
         qb_status:
           $ref: "#/components/schemas/QBTorrentStatus"
+        qb_hash: { type: string }
         files:
           type: array
           items:
             $ref: "#/components/schemas/PlaybackMedia"
+        directory_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlaybackDirectoryFile"
         default_file_index:
+          type: integer
+          minimum: 0
+        current_file_index:
           type: integer
           minimum: 0
     PlaybackTorrent:
@@ -2380,6 +2654,9 @@ components:
         modified_at:
           type: string
           format: date-time
+        media_type:
+          type: string
+          enum: [video, audio, image]
         qb_tasks:
           type: array
           items:
