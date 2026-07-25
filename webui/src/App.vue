@@ -1,7 +1,7 @@
 <!-- 应用壳负责页面导航、共享状态和跨组件操作协调。 -->
 <script setup lang="ts">
 import { BellRing, Bot, CloudDownload, Database, FolderKanban, FolderOpen, KeyRound, Network, RefreshCw, Settings, ShieldCheck } from '@lucide/vue';
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import {
   createDiscreteApi,
   NAlert,
@@ -21,17 +21,11 @@ import {
   NSpace,
   type GlobalThemeOverrides,
 } from 'naive-ui';
+import { RouterLink, RouterView, useRoute } from 'vue-router';
 import { api } from './api';
 import { useQBStatusPolling } from './composables/useQBStatusPolling';
 import { useSiteFetchJobs } from './composables/useSiteFetchJobs';
 import { createDefaultQBittorrentConfig } from './config/qbittorrent';
-import MediaView from './components/MediaView.vue';
-import SettingsLLM from './components/SettingsLLM.vue';
-import SettingsMihomo from './components/SettingsMihomo.vue';
-import SettingsNetwork from './components/SettingsNetwork.vue';
-import SettingsQB from './components/SettingsQB.vue';
-import SettingsSites from './components/SettingsSites.vue';
-import TasksView from './components/TasksView.vue';
 import { openExternalURL } from './utils/runtime';
 import type {
   DownloadPreview,
@@ -55,9 +49,6 @@ type PageKey = 'media' | 'files' | 'subscriptions' | 'tasks' | 'settings';
 type SettingsPageKey = 'sites' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
-const SubscriptionsView = defineAsyncComponent(() => import('./components/SubscriptionsView.vue'));
-const FileManagerView = defineAsyncComponent(() => import('./components/FileManagerView.vue'));
-
 const themeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#2563eb',
@@ -73,26 +64,25 @@ const themeOverrides: GlobalThemeOverrides = {
   },
 };
 
-const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload }> = [
-  { key: 'media', label: '媒体', icon: CloudDownload },
-  { key: 'files', label: '文件', icon: FolderOpen },
-  { key: 'subscriptions', label: '订阅', icon: BellRing },
-  { key: 'tasks', label: '任务', icon: FolderKanban },
-  { key: 'settings', label: '设置', icon: Settings },
+const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload; to: string }> = [
+  { key: 'media', label: '媒体', icon: CloudDownload, to: '/media' },
+  { key: 'files', label: '文件', icon: FolderOpen, to: '/files' },
+  { key: 'subscriptions', label: '订阅', icon: BellRing, to: '/subscriptions' },
+  { key: 'tasks', label: '任务', icon: FolderKanban, to: '/tasks' },
+  { key: 'settings', label: '设置', icon: Settings, to: '/settings/sites' },
 ];
 
-const settingsItems: Array<{ key: SettingsPageKey; label: string; icon: typeof KeyRound }> = [
-  { key: 'sites', label: '站点', icon: KeyRound },
-  { key: 'network', label: '网络代理', icon: Network },
-  { key: 'llm', label: 'LLM', icon: Bot },
-  { key: 'qbittorrent', label: 'qBittorrent', icon: Database },
-  { key: 'mihomo', label: 'Mihomo', icon: Network },
+const settingsItems: Array<{ key: SettingsPageKey; label: string; icon: typeof KeyRound; to: string }> = [
+  { key: 'sites', label: '站点', icon: KeyRound, to: '/settings/sites' },
+  { key: 'network', label: '网络代理', icon: Network, to: '/settings/network' },
+  { key: 'llm', label: 'LLM', icon: Bot, to: '/settings/llm' },
+  { key: 'qbittorrent', label: 'qBittorrent', icon: Database, to: '/settings/qbittorrent' },
+  { key: 'mihomo', label: 'Mihomo', icon: Network, to: '/settings/mihomo' },
 ];
 
+const route = useRoute();
 const session = ref<Session | null>(null);
 const loggedIn = ref(false);
-const activePage = ref<PageKey>('media');
-const activeSettingsPage = ref<SettingsPageKey>('sites');
 const health = ref<Health | null>(null);
 const sites = ref<Site[]>([]);
 const torrents = ref<Torrent[]>([]);
@@ -131,21 +121,95 @@ const autoFetchedSites = new Set<string>();
 const showLogin = computed(() => session.value?.requires_login && !loggedIn.value);
 const activeDownloads = computed(() => downloadTasks.value.filter((task) => task.status !== 'completed').length);
 const pendingOrganize = computed(() => organizeTasks.value.filter((task) => task.status !== 'completed').length);
-const currentTitle = computed(() => {
-  if (activePage.value === 'media') {
-    return '媒体库';
+const activePage = computed(() => route.meta.page as PageKey | 'not-found');
+const activeSettingsPage = computed(() => route.meta.settingsPage as SettingsPageKey | undefined);
+const currentTitle = computed(() => typeof route.meta.title === 'string' ? route.meta.title : 'NexusBridge');
+
+/** 为当前路由组件提供所需状态，避免页面组件接管全局状态。 */
+const currentViewProps = computed<Record<string, unknown>>(() => {
+  switch (route.name) {
+  case 'media':
+    return {
+      sites: sites.value,
+      torrents: torrents.value,
+      total: torrentTotal.value,
+      loading: loading.value,
+      qbUrl: qbConfig.value.url,
+      qbSyncing: qbSyncing.value,
+      qbActioning: qbActioning.value,
+    };
+  case 'tasks':
+    return {
+      downloadTasks: downloadTasks.value,
+      organizeTasks: organizeTasks.value,
+      activeDownloads: activeDownloads.value,
+      pendingOrganize: pendingOrganize.value,
+    };
+  case 'files':
+    return { sites: sites.value };
+  case 'subscriptions':
+    return { sites: sites.value, torrents: torrents.value };
+  case 'settings-sites':
+    return {
+      sites: sites.value,
+      credentials: siteCredentials.value,
+      actions: siteActions.value,
+      fetchSettings: fetchSettings.value,
+      fetchJobs: fetchJobs.value,
+    };
+  case 'settings-llm':
+    return { config: llmConfig.value };
+  case 'settings-network':
+    return { config: networkConfig.value };
+  case 'settings-qbittorrent':
+    return {
+      config: qbConfig.value,
+      tagsText: qbTagsText.value,
+      connected: qbConnected.value,
+      polling: qbPolling.value,
+    };
+  default:
+    return {};
   }
-  if (activePage.value === 'subscriptions') {
-    return '订阅与筛选';
+});
+
+/** 为当前路由组件连接现有业务动作。 */
+const currentViewListeners = computed((): Record<string, CallableFunction> => {
+  switch (route.name) {
+  case 'media':
+    return {
+      download: openDownloadDialog,
+      syncQb: syncQBittorrent,
+      openQb: openQBittorrent,
+      controlQb: controlTorrentQB,
+      queryChange: handleMediaQueryChange,
+    };
+  case 'tasks':
+    return { organize: organizePending };
+  case 'files':
+  case 'settings-mihomo':
+    return { message: setMessage };
+  case 'settings-sites':
+    return {
+      updateCredential: updateSiteCredential,
+      save: saveSiteCredential,
+      fetch: fetchSite,
+      saveFetchSettings,
+    };
+  case 'settings-llm':
+    return { update: updateLLMConfig, save: saveLLM };
+  case 'settings-network':
+    return { update: updateNetworkConfig, save: saveNetwork };
+  case 'settings-qbittorrent':
+    return {
+      update: updateQBConfig,
+      updateTags: setQBTagsText,
+      save: saveQBittorrent,
+      sync: syncQBittorrent,
+    };
+  default:
+    return {};
   }
-  if (activePage.value === 'files') {
-    return '文件与恢复';
-  }
-  if (activePage.value === 'tasks') {
-    return '任务';
-  }
-  const item = settingsItems.find((option) => option.key === activeSettingsPage.value);
-  return `设置 / ${item?.label ?? '站点'}`;
 });
 
 /** 将 qB 增量结果合并到当前媒体列表。 */
@@ -175,15 +239,14 @@ watch(message, (value) => {
   message.value = '';
 });
 
-/** 切换主导航页面。 */
-function selectPage(page: PageKey) {
-  activePage.value = page;
+/** 更新跨页面提示消息。 */
+function setMessage(value: string) {
+  message.value = value;
 }
 
-/** 切换设置子页面。 */
-function selectSettingsPage(page: SettingsPageKey) {
-  activePage.value = 'settings';
-  activeSettingsPage.value = page;
+/** 更新 qB 标签文本。 */
+function setQBTagsText(value: string) {
+  qbTagsText.value = value;
 }
 
 /** 更新站点凭据草稿。 */
@@ -566,26 +629,29 @@ onMounted(async () => {
         </div>
 
       <nav class="side-nav">
-         <NButton v-for="item in navItems" :key="item.key" :type="activePage === item.key ? 'primary' : 'default'"
-            :secondary="activePage !== item.key" block @click="selectPage(item.key)">
-            <template #icon>
-              <NIcon :component="item.icon" />
-            </template>
-            {{ item.label }}
-          </NButton>
+        <RouterLink v-for="item in navItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
+          <NButton tag="a" :href="href" :type="activePage === item.key ? 'primary' : 'default'"
+            :secondary="activePage !== item.key" block @click="navigate">
+              <template #icon>
+                <NIcon :component="item.icon" />
+              </template>
+              {{ item.label }}
+            </NButton>
+        </RouterLink>
         </nav>
 
       <div class="side-section">
           <p>设置</p>
-         <NButton v-for="item in settingsItems" :key="item.key"
-            :type="activePage === 'settings' && activeSettingsPage === item.key ? 'primary' : 'default'"
-           :secondary="activePage !== 'settings' || activeSettingsPage !== item.key" block
-            @click="selectSettingsPage(item.key)">
-            <template #icon>
-              <NIcon :component="item.icon" />
-            </template>
-            {{ item.label }}
-          </NButton>
+        <RouterLink v-for="item in settingsItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
+          <NButton tag="a" :href="href"
+              :type="activePage === 'settings' && activeSettingsPage === item.key ? 'primary' : 'default'"
+            :secondary="activePage !== 'settings' || activeSettingsPage !== item.key" block @click="navigate">
+              <template #icon>
+                <NIcon :component="item.icon" />
+              </template>
+              {{ item.label }}
+            </NButton>
+        </RouterLink>
         </div>
       </NLayoutSider>
 
@@ -630,51 +696,35 @@ onMounted(async () => {
           </NCard>
 
         <template v-else>
-           <MediaView v-if="activePage === 'media'" :sites="sites" :torrents="torrents" :total="torrentTotal" :loading="loading"
-              :qb-url="qbConfig.url" :qb-syncing="qbSyncing" :qb-actioning="qbActioning" @download="openDownloadDialog"
-              @sync-qb="syncQBittorrent" @open-qb="openQBittorrent" @control-qb="controlTorrentQB" @query-change="handleMediaQueryChange" />
-            <TasksView v-else-if="activePage === 'tasks'" :download-tasks="downloadTasks"
-              :organize-tasks="organizeTasks" :active-downloads="activeDownloads" :pending-organize="pendingOrganize"
-              @organize="organizePending" />
-            <FileManagerView v-else-if="activePage === 'files'" :sites="sites"
-              @message="(value) => (message = value)" />
-            <SubscriptionsView v-else-if="activePage === 'subscriptions'" :sites="sites" :torrents="torrents" />
-            <section v-else class="settings-page">
+          <RouterView v-slot="{ Component }">
+            <section v-if="activePage === 'settings'" class="settings-page">
               <nav class="settings-tabs">
-               <NButton v-for="item in settingsItems" :key="item.key"
-                  :type="activeSettingsPage === item.key ? 'primary' : 'default'"
-                 :secondary="activeSettingsPage !== item.key" @click="selectSettingsPage(item.key)">
-                  <template #icon>
-                    <NIcon :component="item.icon" />
-                  </template>
-                  {{ item.label }}
-                </NButton>
+                <RouterLink v-for="item in settingsItems" :key="item.key" v-slot="{ href, navigate }"
+                  :to="item.to" custom>
+                  <NButton tag="a" :href="href" :type="activeSettingsPage === item.key ? 'primary' : 'default'"
+                    :secondary="activeSettingsPage !== item.key" @click="navigate">
+                      <template #icon>
+                        <NIcon :component="item.icon" />
+                      </template>
+                      {{ item.label }}
+                  </NButton>
+                </RouterLink>
               </nav>
 
-            <SettingsSites v-if="activeSettingsPage === 'sites'" :sites="sites" :credentials="siteCredentials"
-                :actions="siteActions" :fetch-settings="fetchSettings" :fetch-jobs="fetchJobs"
-				@update-credential="updateSiteCredential" @save="saveSiteCredential"
-				@fetch="fetchSite" @save-fetch-settings="saveFetchSettings" />
-              <SettingsLLM v-else-if="activeSettingsPage === 'llm'" :config="llmConfig" @update="updateLLMConfig"
-                @save="saveLLM" />
-              <SettingsNetwork v-else-if="activeSettingsPage === 'network'" :config="networkConfig"
-                @update="updateNetworkConfig" @save="saveNetwork" />
-              <SettingsQB v-else-if="activeSettingsPage === 'qbittorrent'" :config="qbConfig" :tags-text="qbTagsText"
-                :connected="qbConnected" :polling="qbPolling" @update="updateQBConfig"
-                @update-tags="(value) => (qbTagsText = value)" @save="saveQBittorrent" @sync="syncQBittorrent" />
-              <SettingsMihomo v-else @message="(value) => (message = value)" />
+              <component :is="Component" v-bind="currentViewProps" v-on="currentViewListeners" />
             </section>
-          </template>
+            <component :is="Component" v-else v-bind="currentViewProps" v-on="currentViewListeners" />
+          </RouterView>
+        </template>
         </NLayoutContent>
       </NLayout>
     </NLayout>
 
   <nav v-if="!showLogin" class="mobile-bottom-nav">
-     <button v-for="item in navItems" :key="item.key" type="button" :class="{ active: activePage === item.key }"
-        @click="selectPage(item.key)">
+    <RouterLink v-for="item in navItems" :key="item.key" :to="item.to" :class="{ active: activePage === item.key }">
         <NIcon :component="item.icon" />
         <span>{{ item.label }}</span>
-      </button>
+    </RouterLink>
     </nav>
 
   <NModal v-model:show="downloadDialogOpen" preset="card" title="Download" class="download-modal"

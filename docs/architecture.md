@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)和[任务恢复](modules/recovery.md)；HTTP API、运行配置、存储设计和测试边界分别见 [API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
@@ -245,7 +245,7 @@ flowchart LR
 | `cmd/nexusbridge/main.go` | 服务版进程入口。 |
 | `internal/cli/root.go` | Cobra 命令、参数和进程生命周期。 |
 | `desktop/main.go` | Wails 窗口、托盘和单实例入口。 |
-| `internal/desktop/runtime.go` | 桌面端共享 core/server 生命周期。 |
+| `internal/desktop/runtime.go`、`internal/desktop/assets.go` | 桌面端共享 core/server 生命周期与前端 History 路由回退。 |
 | `internal/server/server.go` | HTTP 服务组装和路由。 |
 | `internal/server/handlers_*.go` | 按 session、torrent、automation、recovery、settings、task 分组的 JSON 适配。 |
 | `internal/server/http_helpers.go` | JSON 响应、查询参数和静态 WebUI 服务。 |
@@ -281,9 +281,10 @@ flowchart LR
 
 | 区域 | 主要路径 |
 | --- | --- |
-| WebUI 入口 | `webui/src/main.ts`、`App.vue`、`api.ts`、`types.ts` |
+| WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
 | 业务界面 | `webui/src/components/MediaView.vue`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
+| 前端行为文档 | `docs/frontend.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |
 | 桌面构建 | `Taskfile.yml`、`desktop/tasks/`、`desktop/resources/` |
 | 发布流水线 | `.github/workflows/build-release.yml`、`publish-release.yml`、`build-docker.yml` |

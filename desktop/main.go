@@ -24,7 +24,7 @@ func main() {
 		Description: "NexusPHP 种子检索、qBittorrent 同步与媒体整理工具",
 		Icon:        icon,
 		Assets: application.AssetOptions{
-			Handler:    application.AssetFileServerFS(webuiassets.Dist()),
+			Handler:    desktop.SPAAssetFallback(application.AssetFileServerFS(webuiassets.Dist())),
 			Middleware: application.Middleware(desktop.APIMiddleware(apiSlot)),
 		},
 		SingleInstance: &application.SingleInstanceOptions{

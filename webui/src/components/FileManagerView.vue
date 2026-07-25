@@ -12,7 +12,7 @@ import {
 	RotateCcw,
 	Search,
 } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
 	NAlert,
 	NButton,
@@ -33,6 +33,7 @@ import {
 	NSwitch,
 	NTag,
 } from 'naive-ui';
+import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import type {
 	FileBrowseResult,
@@ -55,6 +56,8 @@ const emit = defineEmits<{ message: [value: string] }>();
 
 type RecoveryMode = Exclude<RecoverySearchMode, 'url'> | 'url';
 
+const route = useRoute();
+const router = useRouter();
 const browser = ref<FileBrowseResult>({ path: '', is_root: true, qb_connected: false, entries: [] });
 const pathDraft = ref('');
 const browsing = ref(false);
@@ -65,6 +68,9 @@ const menuY = ref(0);
 const contextEntry = ref<FileEntry | null>(null);
 const backHistory = ref<string[]>([]);
 const forwardHistory = ref<string[]>([]);
+const consumedNavigationButtons = new Set<number>();
+let pendingRoutePath: string | undefined;
+let routePathInitialized = false;
 
 const recoveryOpen = ref(false);
 const recoveryTarget = ref<FileEntry | null>(null);
@@ -145,6 +151,20 @@ function formatDate(value?: string) {
 	return value ? new Date(value).toLocaleString() : '—';
 }
 
+function routePath() {
+	const value = route.query.path;
+	return String(Array.isArray(value) ? value[0] ?? '' : value ?? '').trim();
+}
+
+function replacePathURL(currentPath: string) {
+	if (route.name !== 'files') return;
+	const query = currentPath ? { path: currentPath } : {};
+	const target = { name: 'files', query };
+	if (router.resolve(target).fullPath !== route.fullPath) {
+		void router.replace(target);
+	}
+}
+
 async function browse(path: string, recordHistory = true) {
 	if (browsing.value) return false;
 	browsing.value = true;
@@ -154,7 +174,8 @@ async function browse(path: string, recordHistory = true) {
 		const result = await api.browseFiles(path.trim());
 		browser.value = result;
 		pathDraft.value = result.path;
-		if (recordHistory && previousPath && previousPath !== result.path) {
+		if (pendingRoutePath === undefined) replacePathURL(result.path);
+		if (pendingRoutePath === undefined && recordHistory && previousPath && previousPath !== result.path) {
 			backHistory.value.push(previousPath);
 			forwardHistory.value = [];
 		}
@@ -164,8 +185,29 @@ async function browse(path: string, recordHistory = true) {
 		return false;
 	} finally {
 		browsing.value = false;
+		if (pendingRoutePath !== undefined) {
+			const target = pendingRoutePath;
+			pendingRoutePath = undefined;
+			if (target !== browser.value.path) void browse(target, false);
+		}
 	}
 }
+
+watch(() => route.query.path, () => {
+	if (route.name !== 'files') return;
+	const target = routePath();
+	if (!routePathInitialized) {
+		routePathInitialized = true;
+		void browse(target, false);
+		return;
+	}
+	if (target === browser.value.path) return;
+	if (browsing.value) {
+		pendingRoutePath = target;
+		return;
+	}
+	void browse(target, false);
+}, { immediate: true });
 
 async function goBack() {
 	const target = backHistory.value.at(-1);
@@ -189,6 +231,15 @@ async function goForward() {
 
 function handleNavigationMouseButton(event: MouseEvent) {
 	if (event.button !== 3 && event.button !== 4) return;
+	if (event.type === 'mousedown') {
+		consumedNavigationButtons.delete(event.button);
+		const hasInternalTarget = event.button === 3
+			? backHistory.value.length > 0
+			: forwardHistory.value.length > 0;
+		if (!hasInternalTarget) return;
+		consumedNavigationButtons.add(event.button);
+	}
+	if (!consumedNavigationButtons.has(event.button)) return;
 	event.preventDefault();
 	event.stopPropagation();
 	if (event.type !== 'mousedown') return;
@@ -432,7 +483,6 @@ onMounted(() => {
 	window.addEventListener('mousedown', handleNavigationMouseButton, true);
 	window.addEventListener('mouseup', handleNavigationMouseButton, true);
 	window.addEventListener('auxclick', handleNavigationMouseButton, true);
-	void browse('');
 	void loadSizeIndex();
 });
 

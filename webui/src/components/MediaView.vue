@@ -1,8 +1,9 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
 import { ExternalLink, Film, RadioTower, RefreshCw, Search } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { NButton, NCard, NEmpty, NIcon, NInput, NPagination, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 import { useMediaDisplaySettings } from '../composables/useMediaDisplaySettings';
 import type { Site, Torrent } from '../types';
 import { formatByteSize, formatByteSpeed } from '../utils/format';
@@ -27,6 +28,8 @@ const emit = defineEmits<{
 	queryChange: [query: { site_id?: string; q?: string; offset: number; limit: number; include_pinned: boolean }];
 }>();
 
+const route = useRoute();
+const router = useRouter();
 const activeSite = ref('all');
 const query = ref('');
 const includePinned = ref(true);
@@ -35,6 +38,8 @@ const pageSize = ref(50);
 const failedCovers = ref(new Set<string>());
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const { settings: displaySettings, layoutClass, layoutStyle } = useMediaDisplaySettings();
+const pageSizes = new Set([20, 50, 100]);
+let applyingRoute = false;
 
 const siteOptions = computed(() => [
   { label: '全部站点', value: 'all' },
@@ -62,18 +67,76 @@ function emitQuery() {
 	});
 }
 
-function resetPageAndEmit() {
-	if (page.value !== 1) page.value = 1;
-	else emitQuery();
+function routeQueryValue(name: string) {
+	const value = route.query[name];
+	return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
-watch([activeSite, includePinned, pageSize], resetPageAndEmit);
-watch(page, emitQuery);
+function positiveInteger(value: string, fallback: number) {
+	const parsed = Number(value);
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function mediaURLQuery(): LocationQueryRaw {
+	const result: LocationQueryRaw = {};
+	if (page.value !== 1) result.page = String(page.value);
+	if (pageSize.value !== 50) result.page_size = String(pageSize.value);
+	if (activeSite.value !== 'all') result.site = activeSite.value;
+	const normalizedQuery = query.value.trim();
+	if (normalizedQuery) result.q = normalizedQuery;
+	if (!includePinned.value) result.pinned = '0';
+	return result;
+}
+
+function replaceMediaURL() {
+	if (route.name !== 'media') return;
+	const target = { name: 'media', query: mediaURLQuery() };
+	if (router.resolve(target).fullPath === route.fullPath) {
+		emitQuery();
+		return;
+	}
+	void router.replace(target);
+}
+
+function applyRouteQuery() {
+	if (route.name !== 'media') return;
+	const routePageSize = positiveInteger(String(routeQueryValue('page_size')), 50);
+	if (searchTimer) {
+		clearTimeout(searchTimer);
+		searchTimer = undefined;
+	}
+	applyingRoute = true;
+	activeSite.value = String(routeQueryValue('site')).trim() || 'all';
+	query.value = String(routeQueryValue('q')).trim();
+	includePinned.value = routeQueryValue('pinned') !== '0';
+	page.value = positiveInteger(String(routeQueryValue('page')), 1);
+	pageSize.value = pageSizes.has(routePageSize) ? routePageSize : 50;
+	applyingRoute = false;
+
+	const target = { name: 'media', query: mediaURLQuery() };
+	if (router.resolve(target).fullPath !== route.fullPath) {
+		void router.replace(target);
+		return;
+	}
+	emitQuery();
+}
+
+function resetPageAndSyncURL() {
+	if (applyingRoute) return;
+	if (page.value !== 1) page.value = 1;
+	else replaceMediaURL();
+}
+
+watch(() => route.fullPath, applyRouteQuery, { immediate: true, flush: 'sync' });
+watch([activeSite, includePinned, pageSize], resetPageAndSyncURL, { flush: 'sync' });
+watch(page, () => {
+	if (!applyingRoute) replaceMediaURL();
+}, { flush: 'sync' });
 watch(query, () => {
+	if (applyingRoute) return;
 	if (searchTimer) clearTimeout(searchTimer);
-	searchTimer = setTimeout(resetPageAndEmit, 300);
-});
-onMounted(emitQuery);
+	searchTimer = setTimeout(resetPageAndSyncURL, 300);
+}, { flush: 'sync' });
 onBeforeUnmount(() => {
 	if (searchTimer) clearTimeout(searchTimer);
 });

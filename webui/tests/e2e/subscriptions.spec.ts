@@ -90,7 +90,11 @@ test.beforeEach(async ({ page }) => {
 	await page.route('**/api/sites', (route) => route.fulfill({
 		json: [{ id: 'demo', name: 'Demo Site', base_url: 'https://example.test', has_cookie: true }],
 	}));
-	await page.route('**/api/torrents', (route) => route.fulfill({ json: [torrent] }));
+	await page.route('**/api/torrents?*', (route) => route.fulfill({
+		json: { items: [torrent], total: 1, offset: 0, limit: 50 },
+	}));
+	await page.route('**/api/settings/fetch', (route) => route.fulfill({ json: { max_pages: 3 } }));
+	await page.route('**/api/site-fetch-jobs?*', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/settings/qbittorrent', (route) => route.fulfill({
 		json: {
 			auth_mode: 'uid', url: 'http://127.0.0.1:8080', api_key: '', username: '', user_id: '', password: '',
@@ -99,6 +103,9 @@ test.beforeEach(async ({ page }) => {
 		},
 	}));
 	await page.route('**/api/settings/llm', (route) => route.fulfill({ json: { base_url: '', api_key: '', model: '' } }));
+	await page.route('**/api/settings/network', (route) => route.fulfill({
+		json: { mode: 'system', proxy_url: '', no_proxy: '' },
+	}));
 	await page.route('**/api/download-tasks', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/organize-tasks', (route) => route.fulfill({ json: [] }));
 	await page.route('**/api/qb/poll?*', (route) => route.fulfill({
@@ -178,7 +185,8 @@ test.beforeEach(async ({ page }) => {
 
 test('previews a rule and subscription, manages qB resources, and executes a batch', async ({ page }) => {
 	await page.goto('/');
-	await page.getByRole('button', { name: '订阅', exact: true }).click();
+	await page.getByRole('link', { name: '订阅', exact: true }).click();
+	await expect(page).toHaveURL(/\/subscriptions$/);
 	await expect(page.getByRole('heading', { name: '订阅与筛选' })).toBeVisible();
 	await expect(page.getByTestId('rule-list')).toContainText('近期免费 ASMR');
 

@@ -31,9 +31,10 @@ test.beforeEach(async ({ page }) => {
       ],
     });
   });
-  await page.route('**/api/torrents', async (route) => {
+  await page.route('**/api/torrents?*', async (route) => {
     await route.fulfill({
-      json: [
+      json: {
+        items: [
         {
           id: '1001',
           site_id: 'demo',
@@ -76,8 +77,18 @@ test.beforeEach(async ({ page }) => {
 			id: '1003', site_id: 'demo', title: 'Pending Torrent', category: 'Movies',
 			download_url: 'https://example.test/download/1003', torrent_file_saved: true,
 		},
-      ],
+        ],
+        total: 3,
+        offset: 0,
+        limit: 50,
+      },
     });
+  });
+  await page.route('**/api/settings/fetch', async (route) => {
+    await route.fulfill({ json: { max_pages: 3 } });
+  });
+  await page.route('**/api/site-fetch-jobs?*', async (route) => {
+    await route.fulfill({ json: [] });
   });
 	await page.route('**/api/torrents/demo/1001/cover', async (route) => {
 		await route.fulfill({
@@ -105,6 +116,9 @@ test.beforeEach(async ({ page }) => {
   });
   await page.route('**/api/settings/llm', async (route) => {
     await route.fulfill({ json: { base_url: '', api_key: '', model: '' } });
+  });
+  await page.route('**/api/settings/network', async (route) => {
+    await route.fulfill({ json: { mode: 'system', proxy_url: '', no_proxy: '' } });
   });
   await page.route('**/api/download-tasks', async (route) => {
     await route.fulfill({ json: [] });
@@ -252,14 +266,17 @@ test('renders media and settings pages with API data', async ({ page }) => {
 	await page.getByRole('button', { name: '打开 qB WebUI' }).click();
 	await expect.poll(() => page.evaluate(() => (window as typeof window & { __openedQB?: string }).__openedQB)).toBe('http://127.0.0.1:8080');
 
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('link', { name: '设置', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings\/sites$/);
   await expect(page.getByRole('heading', { name: '站点设置' })).toBeVisible();
   await expect(page.getByText('Demo Site')).toBeVisible();
 
-  await page.getByRole('button', { name: 'LLM' }).last().click();
+  await page.getByRole('link', { name: 'LLM' }).last().click();
+  await expect(page).toHaveURL(/\/settings\/llm$/);
   await expect(page.getByRole('heading', { name: 'LLM 设置' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'qBittorrent' }).last().click();
+  await page.getByRole('link', { name: 'qBittorrent' }).last().click();
+  await expect(page).toHaveURL(/\/settings\/qbittorrent$/);
   await expect(page.getByRole('heading', { name: 'qBittorrent 设置' })).toBeVisible();
 	await expect(page.getByText('状态自动刷新')).toBeVisible();
 	await expect(page.getByRole('switch')).toBeChecked();
@@ -297,7 +314,7 @@ test('file manager keeps its own back and forward history for mouse side buttons
 	});
 
 	await page.goto('/');
-	await page.getByRole('button', { name: '文件', exact: true }).click();
+	await page.getByRole('link', { name: '文件', exact: true }).click();
 	await expect(page.getByText(/Torrent 大小索引 2\/3/)).toBeVisible();
 	await page.getByRole('button', { name: '手动重建' }).click();
 	await expect(page.getByText(/Torrent 大小索引 3\/3/)).toBeVisible();
@@ -305,10 +322,11 @@ test('file manager keeps its own back and forward history for mouse side buttons
 	await expect(pathInput).toHaveValue('C:/');
 	await page.getByTestId('file-entry-Folder A').dblclick();
 	await expect(pathInput).toHaveValue('C:/Folder A');
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A');
 	await page.getByTestId('file-entry-Folder B').dblclick();
 	await expect(pathInput).toHaveValue('C:/Folder A/Folder B');
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A/Folder B');
 
-	const pageURL = page.url();
 	const backPrevented = await page.evaluate(() => {
 		const event = new MouseEvent('mousedown', { button: 3, bubbles: true, cancelable: true });
 		window.dispatchEvent(event);
@@ -316,7 +334,7 @@ test('file manager keeps its own back and forward history for mouse side buttons
 	});
 	expect(backPrevented).toBe(true);
 	await expect(pathInput).toHaveValue('C:/Folder A');
-	expect(page.url()).toBe(pageURL);
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A');
 
 	const forwardPrevented = await page.evaluate(() => {
 		const event = new MouseEvent('mousedown', { button: 4, bubbles: true, cancelable: true });
@@ -325,12 +343,14 @@ test('file manager keeps its own back and forward history for mouse side buttons
 	});
 	expect(forwardPrevented).toBe(true);
 	await expect(pathInput).toHaveValue('C:/Folder A/Folder B');
-	expect(page.url()).toBe(pageURL);
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A/Folder B');
 
 	await page.getByTestId('file-back').click();
 	await expect(pathInput).toHaveValue('C:/Folder A');
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A');
 	await page.getByTestId('file-forward').click();
 	await expect(pathInput).toHaveValue('C:/Folder A/Folder B');
+	await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('C:/Folder A/Folder B');
 });
 
 test('file manager scans once and automatically recovers unique candidates with optional web search', async ({ page }) => {
@@ -383,7 +403,7 @@ test('file manager scans once and automatically recovers unique candidates with 
 	});
 
 	await page.goto('/');
-	await page.getByRole('button', { name: '文件', exact: true }).click();
+	await page.getByRole('link', { name: '文件', exact: true }).click();
 	await page.getByRole('button', { name: '扫描丢失任务' }).click();
 	await expect.poll(() => scanModes).toEqual(['database']);
 	await expect(page.getByRole('button', { name: '自动恢复 1 项' })).toBeVisible();

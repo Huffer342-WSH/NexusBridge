@@ -969,7 +969,7 @@ h3 {
     backdrop-filter: blur(14px);
   }
 
-  .mobile-bottom-nav button {
+  .mobile-bottom-nav a {
     display: grid;
     justify-items: center;
     gap: 3px;
@@ -980,9 +980,10 @@ h3 {
     background: transparent;
     font: inherit;
     font-size: 12px;
+    text-decoration: none;
   }
 
-  .mobile-bottom-nav button.active {
+  .mobile-bottom-nav a.active {
     color: #1d4ed8;
     background: #eff6ff;
   }
