@@ -39,7 +39,7 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 
 当前开发版不执行旧库迁移。启动时若精确识别到旧 NexusBridge BLOB schema，会删除配置路径对应的主库、WAL/SHM 和派生索引并创建新库；未知数据库会拒绝覆盖。`synchronous=NORMAL` 是默认的 WAL 平衡策略；`VACUUM` 不自动执行，`PRAGMA optimize` 每日及正常关闭时执行。
 
-站点设置页另有保存到 SQLite `app_settings` 的全局抓取设置 `max_pages`，默认 `3`、范围 `1` 至 `100`。增量、固定页数、首页自动抓取、周期计划和 CLI 抓取统一受该上限约束，不写入主 JSON 配置。
+站点设置页另有保存到 SQLite `app_settings` 的全局抓取设置 `max_pages`，默认 `3`、范围 `1` 至 `100`。增量、固定页数、首页自动抓取、周期计划和 CLI 抓取统一受该上限约束，不写入主 JSON 配置。媒体页选择单站点时自动抓取该站点，选择“全部站点”时并发抓取所有已保存 Cookie 的站点。
 
 示例：
 

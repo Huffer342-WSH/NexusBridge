@@ -137,6 +137,7 @@ const { message: floatingMessage } = createDiscreteApi(['message']);
 const qbOptimisticUntil = new Map<string, number>();
 const qbOptimisticUpdateDelayMs = 800;
 const autoFetchedSites = new Set<string>();
+const autoFetchingSites = new Set<string>();
 
 const showLogin = computed(() => session.value?.requires_login && !loggedIn.value);
 const activeDownloads = computed(() => downloadTasks.value.filter((task) => task.status !== 'completed').length);
@@ -373,6 +374,7 @@ async function refresh(clearMessage = true) {
     networkConfig.value = networkData;
     downloadTasks.value = downloadData;
     organizeTasks.value = organizeData;
+    if (activePage.value === 'media') void triggerMediaAutoFetch(mediaQuery.value.site_id);
   } catch (error) {
     message.value = error instanceof Error ? error.message : 'Failed to load dashboard data';
   } finally {
@@ -398,7 +400,7 @@ async function loadTorrentPage(query: TorrentPageQuery = mediaQuery.value) {
 const { merge: mergeFetchJobs, monitor: monitorFetchJob } = useSiteFetchJobs({
   jobs: fetchJobs,
   onCompleted: async (siteID) => {
-    if (mediaQuery.value.site_id === siteID) await loadTorrentPage();
+    if (!mediaQuery.value.site_id || mediaQuery.value.site_id === siteID) await loadTorrentPage();
   },
 });
 
@@ -409,19 +411,39 @@ async function startSiteFetch(siteID: string, request: SiteFetchRequest, trigger
   return job;
 }
 
-/** 响应媒体分页、筛选和单站点首页自动抓取。 */
+/** 并发提交媒体页当前范围内尚未触发的站点抓取。 */
+async function triggerMediaAutoFetch(siteID?: string) {
+  const candidates = siteID
+    ? sites.value.filter((site) => site.id === siteID)
+    : sites.value;
+  const eligibleSites = candidates.filter(
+    (site) => site.has_cookie && !autoFetchedSites.has(site.id) && !autoFetchingSites.has(site.id),
+  );
+  if (!eligibleSites.length) return;
+
+  const results = await Promise.allSettled(eligibleSites.map(async (site) => {
+    autoFetchingSites.add(site.id);
+    try {
+      await startSiteFetch(site.id, { mode: 'incremental' }, 'homepage');
+      autoFetchedSites.add(site.id);
+    } finally {
+      autoFetchingSites.delete(site.id);
+    }
+  }));
+  const failures = results.flatMap((result, index) => {
+    if (result.status === 'fulfilled') return [];
+    const error = result.reason instanceof Error ? result.reason.message : '首页自动抓取失败';
+    return [`${eligibleSites[index].name}: ${error}`];
+  });
+  if (failures.length) {
+    message.value = siteID ? failures[0] : `部分站点自动抓取提交失败：${failures.join('；')}`;
+  }
+}
+
+/** 响应媒体分页、筛选和首页自动抓取。 */
 async function handleMediaQueryChange(query: Omit<TorrentPageQuery, 'sort_by' | 'sort_direction'>) {
   await loadTorrentPage({ ...query, sort_by: 'published_at', sort_direction: 'desc' });
-  const siteID = query.site_id;
-  if (!siteID || autoFetchedSites.has(siteID)) return;
-  const site = sites.value.find((item) => item.id === siteID);
-  if (!site?.has_cookie) return;
-  try {
-    await startSiteFetch(siteID, { mode: 'incremental' }, 'homepage');
-    autoFetchedSites.add(siteID);
-  } catch (error) {
-    message.value = error instanceof Error ? error.message : '首页自动抓取失败';
-  }
+  await triggerMediaAutoFetch(query.site_id);
 }
 
 /** 登录需要鉴权的本地服务。 */
