@@ -54,7 +54,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 接收 `{ "mode": "incremental" }` 或 `{ "mode": "pages", "pages": 3 }`；空 Body 默认增量。接口创建后台扫描任务并立即返回 `SiteFetchJob` 和 HTTP `202`，同站点已有活动任务时直接返回该任务。`incremental` 使用全局最大页数并在连续 5 条既有普通种子时提前停止；`pages` 请求页数不得超过全局上限。
 
-扫描逐页持久化种子、更新第一页置顶状态、补抓首次入库种子的 torrent 文件，并消费该站点订阅队列。每页新种子都可能按照已启用订阅、配额和幂等规则向 qB 添加任务；请求或解析失败结束扫描，已完成页面不回滚。可传 `trigger=homepage` 标记媒体页自动触发来源。
+扫描逐页持久化种子、用第一页结果更新内存置顶状态、补抓首次入库种子的 torrent 文件，并消费该站点订阅队列。每页新种子都可能按照已启用订阅、配额和幂等规则向 qB 添加任务；请求或解析失败结束扫描，已完成页面不回滚。可传 `trigger=homepage` 标记媒体页自动触发来源。
 
 `GET /api/site-fetch-jobs?site_id={site_id}&limit=100`
 
@@ -76,7 +76,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/torrents`
 
-先在 SQLite 全库执行站点和关键词筛选、排序与计数，再返回范围数据；不会返回 torrent BLOB，普通请求不会访问 qB。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含 `sticky_level`。
+先在 SQLite 执行站点筛选、普通记录排序与计数，再由核心层合并内存置顶快照；三个及以上字符的子串搜索使用独立索引库的 FTS5 trigram，短关键词回退 `LIKE`。接口不会读取 torrent 文件，普通请求不会访问 qB。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含仅在本次进程有效的 `sticky_level`。
 
 查询参数：
 
@@ -86,11 +86,11 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 - `include_pinned`：默认 `true`；关闭时排除置顶种子。
 - `sort_by`、`sort_direction`：默认 `published_at/desc`。
 
-默认排序先按 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。关键词搜索只读取数据库，不触发站点抓取或自动订阅。
+默认排序先按内存 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。关键词搜索不触发站点抓取或自动订阅。
 
 `GET /api/torrents/{site_id}/{torrent_id}/qb-status`
 
-按本地 v1 hash 实时查询单个 qB 任务并回写状态快照；只有显式传入 `weak_match=true` 时才允许标题兼容匹配。
+按本地 v1 hash 实时查询单个 qB 任务；只有显式传入 `weak_match=true` 时才允许标题兼容匹配。实时进度、状态、速度和 ETA 只更新内存，数据库仅在分类、标签、保存路径等稳定关联变化时写入。
 
 `POST /api/torrents/{site_id}/{torrent_id}/qb-control`
 
@@ -197,7 +197,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `POST /api/settings/qbittorrent`
 
-保存 qBittorrent WebUI 配置，字段包括 `auth_mode`、`url`、`api_key`、`user_id`、`username`、`password`、`category`、`tags`。`auth_mode=uid` 使用账号密码登录；`auth_mode=api_key` 使用 API Key 请求头。如果 `password` 或 `api_key` 为空，服务端会保留数据库中已有值。
+保存 qBittorrent WebUI 配置，字段包括 `auth_mode`、`url`、`api_key`、`user_id`、`username`、`password`、`category`、`tags` 和三个轮询间隔。非敏感字段写回当前 JSON 配置，密码和 API Key 只写 SQLite；两者为空时保留数据库中的已有值。`auth_mode=uid` 使用账号密码登录，`auth_mode=api_key` 使用 API Key 请求头。
 
 `GET /api/settings/llm`
 
@@ -233,7 +233,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/qb/poll?rid={rid}`
 
-代理 qB `sync/maindata` 增量接口，按 hash 将完整或部分 torrent 字段合并到数据库快照，返回新的 `rid` 和前端需要更新的本地种子状态。qB 不可连接时返回 `502`，前端按断连间隔退避；该轻量接口不查询 properties，也不创建整理任务。
+代理 qB `sync/maindata` 增量接口，按 hash 将完整或部分 torrent 字段合并到内存状态，返回新的 `rid` 和前端需要更新的本地种子状态。仅进度、速度、状态等实时字段变化时不写数据库；分类、标签、保存位置等稳定字段变化时才批量更新派生索引库。qB 不可连接时返回 `502`，前端按断连间隔退避；该轻量接口不查询 properties，也不创建整理任务。
 
 `GET /api/qb/categories?refresh=true`
 
@@ -255,17 +255,17 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `POST /api/qb/recovery/preview`
 
-接收 `{ "path": "D:/Downloads/example", "site_ids": ["kamept"], "search_mode": "database_then_site" }`。`site_ids` 可选；`search_mode` 支持仅数据库 `database`、仅站点网页 `site` 和数据库未命中再查站点 `database_then_site`，省略时使用最后一种。`path` 可以是 NexusBridge 可直接读取的完整数据目录或单个文件。三种检索来源以及直接 URL 最终都要求目标的完整文件大小多重集合与 torrent 一致，文件数量和重复大小次数也必须相同。数据库通过大小倒排索引只读取可能匹配的 BLOB；站点网页模式合并最多 5 个完整名称、去扩展名、括号标题和分词变体的第一页结果，站点展示总大小按 5%（最少 1 MiB）容差预筛 torrent 下载候选，最终仍以 torrent 内精确文件大小为准。
+接收 `{ "path": "D:/Downloads/example", "site_ids": ["kamept"], "search_mode": "database_then_site" }`。`site_ids` 可选；`search_mode` 支持仅数据库 `database`、仅站点网页 `site` 和数据库未命中再查站点 `database_then_site`，省略时使用最后一种。`path` 可以是 NexusBridge 可直接读取的完整数据目录或单个文件。三种检索来源以及直接 URL 最终都要求目标的完整文件大小多重集合与 torrent 一致，文件数量和重复大小次数也必须相同。数据库通过完整多重集的单行 SHA-256 签名只读取可能匹配的内容寻址 torrent 文件；站点网页模式合并最多 5 个完整名称、去扩展名、括号标题和分词变体的第一页结果，站点展示总大小按 5%（最少 1 MiB）容差预筛 torrent 下载候选，最终仍以 torrent 内精确文件大小为准。
 
 也可传入 `{ "path": "D:/Downloads/example", "torrent_url": "https://tracker.example/download.php?id=123", "site_ids": ["kamept"] }`。URL 模式跳过数据库和搜索页；指定站点时 URL 必须命中该站主域名或 `request_rules`，未指定时自动从全部站点中选择最长匹配。私站 URL 复用统一站点请求入口和 Cookie 白名单策略；未匹配任何站点的 HTTP(S) URL 才使用无 Cookie 请求。路径和文件名只用于优先建立同尺寸文件映射；无名称线索时使用稳定的一一映射，最终由 qB 强制校验确认内容。响应中的 `match_method` 为 `size`，`mapping_complete=true` 表示全部 torrent 文件均已映射。`category` 来自显式覆盖，或 `save_path` 与 qB 分类有效保存路径的精确匹配；空分类路径会继承最近的非空父分类路径，没有可继承父路径时使用 qB `defaultSavePath`，并追加剩余分类层级。预览不调用 qB 写接口。
 
 `GET /api/qb/recovery/index`
 
-返回已保存 torrent BLOB 的大小索引版本、总数、已索引数、待处理数和失败数。数据库恢复和数据库扫描要求 `pending=0`；站点模式与直接 URL 不依赖旧数据索引。
+返回已保存 torrent 文件的大小签名版本、总数、已索引数、待处理数和失败数。数据库恢复和数据库扫描要求 `pending=0`；站点模式与直接 URL 不依赖该索引。
 
 `POST /api/qb/recovery/index/rebuild`
 
-由用户手动同步触发一次旧 BLOB 重建，不启动后台任务。接口逐个解析现有 torrent，并以短事务替换单个种子的索引；单项解析失败会记录在该 BLOB 上并继续其他项。后续正常保存、覆盖或通过存储接口删除 torrent BLOB 时会自动维护，不需要再次批量补齐。
+由用户手动触发一次已保存 torrent 文件的签名重建，不启动后台任务。接口逐个解析文件，并以短事务替换单个种子的签名；单项解析失败会记录在元数据上并继续其他项。后续正常保存、覆盖或通过存储接口删除 torrent 引用时会自动维护。
 
 `POST /api/qb/recovery`
 

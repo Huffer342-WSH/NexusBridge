@@ -14,7 +14,7 @@ import (
 	"nexusbridge/internal/storage"
 )
 
-// TestTorrentSizeIndexAPI 验证旧 BLOB 在手动重建前后的 API 状态。
+// TestTorrentSizeIndexAPI 验证已保存 torrent 文件在手动重建前后的 API 状态。
 func TestTorrentSizeIndexAPI(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "index-api.db")

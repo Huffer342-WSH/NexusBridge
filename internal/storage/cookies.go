@@ -14,10 +14,11 @@ func (s *SQLiteStore) SaveCookies(ctx context.Context, scope string, cookies []*
 		return fmt.Errorf("cookie scope is required")
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM cookies WHERE scope = ?`, scope); err != nil {

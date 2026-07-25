@@ -21,13 +21,13 @@ SQLite 凭据 -> requestpolicy -> fetcher -> parser -> core -> SQLite
 | `internal/core/site_requests.go` | 把站点、凭据、策略和 fetcher 组合为统一请求入口。 |
 | `internal/core/site_fetch.go` | 持久化扫描任务、逐页抓取、增量边界和订阅触发。 |
 | `internal/core/torrent_files.go` | 下载 torrent，解析元数据并交给 storage。 |
-| `internal/storage` | 保存凭据、种子元数据、扫描任务和 torrent BLOB。 |
+| `internal/storage` | 保存凭据、种子元数据、扫描任务和 torrent 文件索引；原文件写入数据库同目录的 `torrents/`。 |
 
 ## 列表扫描
 
-首页、手动、CLI 和周期计划复用同一流程。每页解析后立即写入 SQLite、消费该站点的持久化订阅队列并执行已启用订阅，再请求下一页；订阅或 qB 错误只记录到任务，不回滚已完成页面。只有首次入库的种子主动补抓 `.torrent`，缺失文件仍可由订阅发送时的按需逻辑重试。
+首页、手动、CLI 和周期计划复用同一流程。每页解析后批量写入 SQLite，未变化记录不执行 UPSERT；随后消费该站点的持久化订阅队列并执行已启用订阅，再请求下一页。订阅或 qB 错误只记录到任务，不回滚已完成页面。只有首次入库的种子主动补抓 `.torrent`；相同载荷按 SHA-256 复用同一文件，实际读取发现文件缺失时按需重新下载。
 
-`incremental` 和 `pages` 都受全局 `max_pages` 限制，默认 3、范围 1–100。增量扫描在连续遇到 5 条既有普通种子时停止；`sticky_level > 0` 的置顶种子正常入库但不参与边界判断。第一页成功解析和写入时会在同一事务中清除该站点旧置顶状态，并保存网页当前状态。跨页种子按联合键去重，`source_order` 在整个任务内连续。
+`incremental` 和 `pages` 都受全局 `max_pages` 限制，默认 3、范围 1–100。增量扫描在连续遇到 5 条既有普通种子时停止；`sticky_level > 0` 的置顶种子正常入库但不参与边界判断。第一页成功解析和写入后会替换该站点的内存置顶快照，置顶等级不写 SQLite。跨页种子按联合键去重，`source_order` 在整个任务内连续。
 
 扫描任务持久化到 `site_fetch_jobs`。单个 NexusBridge 进程内同一站点只运行一个任务，API、CLI 和周期入口的重复触发都会复用活动任务；进程启动时遗留的活动任务会标为中断，每站点保留最近 100 条结束记录。
 

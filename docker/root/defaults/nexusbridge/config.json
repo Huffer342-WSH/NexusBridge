@@ -4,7 +4,14 @@
     "port": 8090
   },
   "storage": {
-    "path": "nexusbridge.db"
+    "path": "nexusbridge.db",
+    "sqlite": {
+      "busy_timeout_millis": 10000,
+      "max_open_conns": 4,
+      "cache_kib": 16384,
+      "mmap_bytes": 67108864,
+      "synchronous": "NORMAL"
+    }
   },
   "sites_dir": "sites/html",
   "logging": {

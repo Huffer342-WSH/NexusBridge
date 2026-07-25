@@ -8,7 +8,7 @@ import (
 
 // SaveSubscriptionRun 新增或更新订阅运行记录。
 func (s *SQLiteStore) SaveSubscriptionRun(ctx context.Context, record SubscriptionRunRecord) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO subscription_runs (
 	id, subscription_id, site_id, trigger, status, fetched_count, inserted_count, matched_count, attempted_count, sent_count,
 	exists_count, failed_count, skipped_count, error, started_at, finished_at, created_at, updated_at

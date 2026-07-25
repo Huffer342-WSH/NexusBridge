@@ -11,7 +11,7 @@ func (s *SQLiteStore) CreateSubscriptionCandidateIfAbsent(ctx context.Context, r
 	if record.Status == "" {
 		record.Status = SubscriptionCandidateUnread
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 INSERT OR IGNORE INTO subscription_candidates (
 	site_id, torrent_id, subscription_id, rule_name, source_order, status, reason_code, error,
 	created_at, updated_at, processed_at
@@ -116,7 +116,7 @@ func (s *SQLiteStore) UpdateSubscriptionCandidateStatus(ctx context.Context, key
 		clauses += ` AND status = ?`
 		args = append(args, fromStatus)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 UPDATE subscription_candidates
 SET status = ?, reason_code = ?, error = ?,
 	processed_at = CASE WHEN ? IN ('processed', 'failed') THEN CURRENT_TIMESTAMP ELSE CASE WHEN ? = 'unread' THEN '' ELSE processed_at END END,

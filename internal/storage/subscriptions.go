@@ -52,10 +52,11 @@ ON CONFLICT(id) DO UPDATE SET
 
 // SaveSubscriptionAndRequeueCandidates 原子保存订阅，并将旧配置下未完成的候选写入待匹配队列。
 func (s *SQLiteStore) SaveSubscriptionAndRequeueCandidates(ctx context.Context, record SubscriptionRecord) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if err := s.saveSubscription(ctx, tx, record); err != nil {
 		return err
@@ -115,7 +116,7 @@ ORDER BY priority DESC, id ASC`)
 
 // DeleteSubscription 删除订阅；运行记录和下载任务由独立表保留。
 func (s *SQLiteStore) DeleteSubscription(ctx context.Context, id string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
+	result, err := s.execWriteContext(ctx, `DELETE FROM subscriptions WHERE id = ?`, id)
 	if err != nil {
 		return false, err
 	}
@@ -125,10 +126,11 @@ func (s *SQLiteStore) DeleteSubscription(ctx context.Context, id string) (bool, 
 
 // DeleteSubscriptionAndRequeueCandidates 原子删除订阅，并释放所有尚未成功处理的候选供当前配置重新匹配。
 func (s *SQLiteStore) DeleteSubscriptionAndRequeueCandidates(ctx context.Context, id string) (bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return false, err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if err := requeueSubscriptionCandidates(ctx, tx, id); err != nil {
 		return false, err

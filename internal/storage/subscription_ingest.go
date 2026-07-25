@@ -45,7 +45,7 @@ func (s *SQLiteStore) DeletePendingSubscriptionIngest(ctx context.Context, recor
 		clauses = append(clauses, "(site_id = ? AND torrent_id = ?)")
 		args = append(args, record.SiteID, record.TorrentID)
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM subscription_ingest_queue WHERE `+strings.Join(clauses, " OR "), args...)
+	_, err := s.execWriteContext(ctx, `DELETE FROM subscription_ingest_queue WHERE `+strings.Join(clauses, " OR "), args...)
 	return err
 }
 

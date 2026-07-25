@@ -89,16 +89,13 @@ func (a *App) searchRecoverySite(ctx context.Context, siteID, keyword string, ta
 	}
 	allTorrents := make([]Torrent, 0, len(records))
 	torrents := make([]Torrent, 0, len(records))
-	a.mu.Lock()
 	for _, record := range records {
 		torrent := torrentFromRecord(record)
 		allTorrents = append(allTorrents, torrent)
 		if recoverySiteSizeCompatible(torrent.SizeBytes, targetTotalSize) {
 			torrents = append(torrents, torrent)
 		}
-		a.cache[torrentKey(torrent)] = torrent
 	}
-	a.mu.Unlock()
 	attempt.Candidates = len(allTorrents)
 	attempt.FilesSaved, attempt.FilesFailed, err = a.ensureTorrentFiles(ctx, torrents)
 	if err != nil {

@@ -1347,7 +1347,7 @@ components:
         sticky_level:
           type: integer
           minimum: 0
-          description: 大于 0 表示置顶，数值较高者优先。
+          description: 当前进程最近一次站点抓取的内存置顶等级；大于 0 时数值较高者优先。
         torrent_file_saved:
           type: boolean
         info_hash_v1:

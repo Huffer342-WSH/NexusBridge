@@ -43,10 +43,11 @@ func (s *SQLiteStore) ReplaceQBCategories(ctx context.Context, records []QBCateg
 	if syncedAt.IsZero() {
 		syncedAt = time.Now()
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM qb_categories`); err != nil {
 		return err
@@ -99,10 +100,11 @@ func (s *SQLiteStore) ReplaceQBTags(ctx context.Context, records []QBTagRecord, 
 	if syncedAt.IsZero() {
 		syncedAt = time.Now()
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM qb_tags`); err != nil {
 		return err
@@ -170,10 +172,11 @@ FROM qb_cache_state WHERE kind = ?
 }
 
 func (s *SQLiteStore) markQBCacheSyncError(ctx context.Context, kind, table, errText string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET last_error = ?, updated_at = CURRENT_TIMESTAMP`, errText); err != nil {
 		return err

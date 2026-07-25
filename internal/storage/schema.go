@@ -2,17 +2,13 @@ package storage
 
 import (
 	"context"
-	"fmt"
-	"strings"
 )
 
-// Migrate 创建当前 schema，并为旧数据库补齐兼容列。
-func (s *SQLiteStore) Migrate(ctx context.Context) error {
+// InitializeSchema 创建当前版本完整且独立的数据库结构。
+func (s *SQLiteStore) InitializeSchema(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS schema_migrations (
-	version INTEGER PRIMARY KEY,
-	applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+PRAGMA application_id = 1314406994;
+PRAGMA user_version = 1;
 
 CREATE TABLE IF NOT EXISTS cookies (
 	scope TEXT NOT NULL,
@@ -70,7 +66,6 @@ CREATE TABLE IF NOT EXISTS torrents (
 	comments INTEGER NOT NULL DEFAULT 0,
 	published_at TEXT NOT NULL DEFAULT '',
 	published_text TEXT NOT NULL DEFAULT '',
-	sticky_level INTEGER NOT NULL DEFAULT 0,
 	bookmarked INTEGER NOT NULL DEFAULT 0,
 	first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -100,54 +95,21 @@ CREATE TABLE IF NOT EXISTS cover_cache (
 CREATE TABLE IF NOT EXISTS torrent_files (
 	site_id TEXT NOT NULL,
 	torrent_id TEXT NOT NULL,
-	data BLOB,
+	relative_path TEXT NOT NULL DEFAULT '',
+	payload_sha256 TEXT NOT NULL DEFAULT '',
 	info_hash_v1 TEXT NOT NULL DEFAULT '',
 	info_hash_v2 TEXT NOT NULL DEFAULT '',
 	original_name TEXT NOT NULL DEFAULT '',
 	byte_size INTEGER NOT NULL DEFAULT 0,
 	fetched_at TEXT NOT NULL DEFAULT '',
 	last_error TEXT NOT NULL DEFAULT '',
+	content_file_count INTEGER NOT NULL DEFAULT 0,
+	content_total_size INTEGER NOT NULL DEFAULT 0,
+	size_signature TEXT NOT NULL DEFAULT '',
+	size_index_version INTEGER NOT NULL DEFAULT 0,
+	size_indexed_at TEXT NOT NULL DEFAULT '',
+	size_index_error TEXT NOT NULL DEFAULT '',
 	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	PRIMARY KEY (site_id, torrent_id)
-);
-
-CREATE TABLE IF NOT EXISTS torrent_file_size_index (
-	site_id TEXT NOT NULL,
-	torrent_id TEXT NOT NULL,
-	file_size INTEGER NOT NULL,
-	occurrence_count INTEGER NOT NULL,
-	PRIMARY KEY (site_id, torrent_id, file_size)
-);
-
-CREATE TABLE IF NOT EXISTS torrent_qb_snapshots (
-	site_id TEXT NOT NULL,
-	torrent_id TEXT NOT NULL,
-	added INTEGER NOT NULL DEFAULT 0,
-	qb_hash TEXT NOT NULL DEFAULT '',
-	name TEXT NOT NULL DEFAULT '',
-	state TEXT NOT NULL DEFAULT '',
-	progress REAL NOT NULL DEFAULT 0,
-	category TEXT NOT NULL DEFAULT '',
-	tags_json TEXT NOT NULL DEFAULT '[]',
-	save_path TEXT NOT NULL DEFAULT '',
-	content_path TEXT NOT NULL DEFAULT '',
-	total_size INTEGER NOT NULL DEFAULT 0,
-	amount_left INTEGER NOT NULL DEFAULT 0,
-	downloaded INTEGER NOT NULL DEFAULT 0,
-	uploaded INTEGER NOT NULL DEFAULT 0,
-	download_speed INTEGER NOT NULL DEFAULT 0,
-	upload_speed INTEGER NOT NULL DEFAULT 0,
-	eta INTEGER NOT NULL DEFAULT 0,
-	ratio REAL NOT NULL DEFAULT 0,
-	tracker TEXT NOT NULL DEFAULT '',
-	is_private INTEGER NOT NULL DEFAULT 0,
-	added_on INTEGER NOT NULL DEFAULT 0,
-	completion_on INTEGER NOT NULL DEFAULT 0,
-	creation_date INTEGER NOT NULL DEFAULT 0,
-	piece_size INTEGER NOT NULL DEFAULT 0,
-	comment TEXT NOT NULL DEFAULT '',
-	created_by TEXT NOT NULL DEFAULT '',
-	synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	PRIMARY KEY (site_id, torrent_id)
 );
 
@@ -341,68 +303,14 @@ CREATE TABLE IF NOT EXISTS organize_tasks (
 CREATE INDEX IF NOT EXISTS idx_download_tasks_site_torrent ON download_tasks (site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_qb_hash ON download_tasks (qb_hash);
 CREATE INDEX IF NOT EXISTS idx_torrent_files_info_hash_v1 ON torrent_files (info_hash_v1 COLLATE NOCASE);
-CREATE INDEX IF NOT EXISTS idx_torrent_qb_snapshots_hash ON torrent_qb_snapshots (qb_hash COLLATE NOCASE);
 `)
 	if err != nil {
 		return err
-	}
-	tableColumns := map[string][]struct {
-		name       string
-		definition string
-	}{
-		"torrents": {
-			{"source_order", "INTEGER NOT NULL DEFAULT 0"},
-			{"detail_title", "TEXT NOT NULL DEFAULT ''"},
-			{"subtitle", "TEXT NOT NULL DEFAULT ''"},
-			{"tag_ids_json", "TEXT NOT NULL DEFAULT '[]'"},
-			{"product_url", "TEXT NOT NULL DEFAULT ''"},
-			{"detail_info_hash", "TEXT NOT NULL DEFAULT ''"},
-			{"detail_description", "TEXT NOT NULL DEFAULT ''"},
-			{"detail_raw_text", "TEXT NOT NULL DEFAULT ''"},
-			{"detail_fetched_at", "TEXT NOT NULL DEFAULT ''"},
-		},
-		"torrent_files": {
-			{"original_name", "TEXT NOT NULL DEFAULT ''"},
-			{"content_file_count", "INTEGER NOT NULL DEFAULT 0"},
-			{"content_total_size", "INTEGER NOT NULL DEFAULT 0"},
-			{"size_index_version", "INTEGER NOT NULL DEFAULT 0"},
-			{"size_indexed_at", "TEXT NOT NULL DEFAULT ''"},
-			{"size_index_error", "TEXT NOT NULL DEFAULT ''"},
-		},
-		"cover_cache": {
-			{"attempt_version", "INTEGER NOT NULL DEFAULT 0"},
-		},
-		"download_tasks": {
-			{"subscription_id", "TEXT NOT NULL DEFAULT ''"},
-			{"trigger", "TEXT NOT NULL DEFAULT ''"},
-			{"plan_category", "TEXT NOT NULL DEFAULT ''"},
-			{"plan_save_path", "TEXT NOT NULL DEFAULT ''"},
-			{"plan_tags_json", "TEXT NOT NULL DEFAULT '[]'"},
-			{"plan_rename", "TEXT NOT NULL DEFAULT ''"},
-			{"plan_paused", "INTEGER NOT NULL DEFAULT 0"},
-			{"reason_code", "TEXT NOT NULL DEFAULT ''"},
-			{"attempt_count", "INTEGER NOT NULL DEFAULT 0"},
-			{"retry_count", "INTEGER NOT NULL DEFAULT 0"},
-			{"last_attempt_at", "TEXT NOT NULL DEFAULT ''"},
-			{"sent_at", "TEXT NOT NULL DEFAULT ''"},
-		},
-		"subscription_runs": {
-			{"inserted_count", "INTEGER NOT NULL DEFAULT 0"},
-			{"attempted_count", "INTEGER NOT NULL DEFAULT 0"},
-		},
-	}
-	for table, columns := range tableColumns {
-		for _, column := range columns {
-			if err := s.addColumnIfMissing(ctx, table, column.name, column.definition); err != nil {
-				return err
-			}
-		}
 	}
 	_, err = s.db.ExecContext(ctx, `
 CREATE INDEX IF NOT EXISTS idx_torrents_site_source_order ON torrents (site_id, source_order, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_torrents_published ON torrents (published_at DESC, site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_torrents_site_published ON torrents (site_id, published_at DESC, torrent_id);
-CREATE INDEX IF NOT EXISTS idx_torrents_site_sticky_published ON torrents (site_id, sticky_level DESC, published_at DESC, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled_priority ON subscriptions (enabled, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_site_schedules_due ON site_schedules (enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_site_fetch_jobs_site_created ON site_fetch_jobs (site_id, created_at DESC);
@@ -411,12 +319,6 @@ CREATE INDEX IF NOT EXISTS idx_subscription_candidates_status ON subscription_ca
 CREATE INDEX IF NOT EXISTS idx_subscription_ingest_site_order ON subscription_ingest_queue (site_id, source_order, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_runs_subscription ON subscription_runs (subscription_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_subscription_status ON download_tasks (subscription_id, status, sent_at);
-CREATE INDEX IF NOT EXISTS idx_torrent_file_size_lookup ON torrent_file_size_index (file_size, occurrence_count, site_id, torrent_id);
-CREATE TRIGGER IF NOT EXISTS cleanup_torrent_file_size_index
-AFTER DELETE ON torrent_files
-BEGIN
-	DELETE FROM torrent_file_size_index WHERE site_id = OLD.site_id AND torrent_id = OLD.torrent_id;
-END;
 CREATE TRIGGER IF NOT EXISTS prevent_duplicate_download_task_rule
 BEFORE INSERT ON download_tasks
 WHEN EXISTS (
@@ -426,42 +328,79 @@ WHEN EXISTS (
 BEGIN
 	SELECT RAISE(IGNORE);
 END;
+PRAGMA optimize = 0x10002;
 `)
-	return err
-}
-
-// addColumnIfMissing 为旧数据库补齐缺失列。
-func (s *SQLiteStore) addColumnIfMissing(ctx context.Context, table, column, definition string) error {
-	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
 	if err != nil {
 		return err
 	}
-	found := false
-	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if strings.EqualFold(name, column) {
-			found = true
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if found {
-		return nil
-	}
-	_, err = s.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition))
+	_, err = s.indexDB.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS torrent_search (
+	site_id TEXT NOT NULL,
+	torrent_id TEXT NOT NULL,
+	title TEXT NOT NULL,
+	category TEXT NOT NULL DEFAULT '',
+	promotion TEXT NOT NULL DEFAULT '',
+	source_order INTEGER NOT NULL DEFAULT 0,
+	published_at TEXT NOT NULL DEFAULT '',
+	size_bytes INTEGER NOT NULL DEFAULT 0,
+	seeders INTEGER NOT NULL DEFAULT 0,
+	leechers INTEGER NOT NULL DEFAULT 0,
+	snatches INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (site_id, torrent_id)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS torrent_search_fts USING fts5(
+	site_id UNINDEXED,
+	torrent_id UNINDEXED,
+	search_text,
+	tokenize = 'trigram'
+);
+
+CREATE TABLE IF NOT EXISTS torrent_size_signatures (
+	site_id TEXT NOT NULL,
+	torrent_id TEXT NOT NULL,
+	signature TEXT NOT NULL,
+	file_count INTEGER NOT NULL,
+	total_size INTEGER NOT NULL,
+	version INTEGER NOT NULL,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (site_id, torrent_id)
+);
+
+CREATE TABLE IF NOT EXISTS torrent_qb_associations (
+	site_id TEXT NOT NULL,
+	torrent_id TEXT NOT NULL,
+	added INTEGER NOT NULL DEFAULT 0,
+	qb_hash TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL DEFAULT '',
+	category TEXT NOT NULL DEFAULT '',
+	tags_json TEXT NOT NULL DEFAULT '[]',
+	save_path TEXT NOT NULL DEFAULT '',
+	content_path TEXT NOT NULL DEFAULT '',
+	total_size INTEGER NOT NULL DEFAULT 0,
+	tracker TEXT NOT NULL DEFAULT '',
+	is_private INTEGER NOT NULL DEFAULT 0,
+	added_on INTEGER NOT NULL DEFAULT 0,
+	completion_on INTEGER NOT NULL DEFAULT 0,
+	creation_date INTEGER NOT NULL DEFAULT 0,
+	piece_size INTEGER NOT NULL DEFAULT 0,
+	comment TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL DEFAULT '',
+	synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (site_id, torrent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_torrent_search_published
+	ON torrent_search (published_at DESC, site_id, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrent_search_size
+	ON torrent_search (size_bytes, site_id, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrent_size_signature_lookup
+	ON torrent_size_signatures (signature, file_count, total_size, site_id, torrent_id);
+CREATE INDEX IF NOT EXISTS idx_torrent_qb_associations_hash
+	ON torrent_qb_associations (qb_hash COLLATE NOCASE);
+PRAGMA application_id = 1314406985;
+PRAGMA user_version = 1;
+PRAGMA optimize = 0x10002;
+`)
 	return err
 }

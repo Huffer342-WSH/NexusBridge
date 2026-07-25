@@ -139,9 +139,8 @@ go test ./tests -run TestFetchTorrentsPageHTML -v
 - `TestQBittorrentRenameRealAPI` 通过 `go test -args` 指定已有任务 hash、完整旧路径和新路径，可选择 `file` 或 `folder` 验证 `renameFile`/`renameFolder`。测试默认在验证后反向重命名恢复原路径；这是会短暂修改真实任务的实验测试，运行前应暂停任务并核对参数。
 - `TestQBittorrentClientClosedLoopRealAPI` 执行读取、新增、读取、删除、读取闭环，测试任务使用独立分类、标签并以 `paused=true` 添加，结束后始终以 `deleteFiles=false` 删除本次新增任务。
 - `TestQBittorrentTorrentFileHashRealAPI` 下载 `.torrent` 文件并验证本地 hash、qB 添加响应和重复添加协调。
-- `TestTorrentFileAndQBSnapshotPersistence`、`TestQBPollUpdatesTorrentSnapshot` 覆盖本地 BLOB/hash、qB 快照和增量同步。
-- `TestTorrentFileSizeIndexLifecycle` 覆盖文件大小倒排行、重复大小计数、站点过滤、完整多重集合查询，以及 torrent BLOB 保存、覆盖和删除时的事务内维护；它还验证旧 BLOB 的重建结果不能覆盖并发保存的新索引。`TestManualTorrentSizeIndexRebuild` 覆盖旧 BLOB 的显式重建和单项解析失败隔离。
-- `TestRecoverRealAPI` 先显式重建一次旧数据大小索引，再对 `NEXUSBRIDGE_TEST_RECOVERY_HASH` 指定的 v1 hash 依次运行 `site`、`database`、`database_then_site`、`torrent_url`，以及网页搜索关闭/开启的两个自动批量恢复子测试。删除前验证文件管理器标记任务；首次删除后验证只读扫描能发现候选；每次都调用 `deleteFiles=false`。所有入口都必须按完整大小集合命中，并用 qB `renameFile` 映射回原磁盘路径；恢复必须暂停且跳过初始校验添加，配置完成后强制校验，并断言至少触发一次校验、结果完整且已开始做种。当原任务分类的保存目录与恢复 `save_path` 一致时，还会断言恢复结果和 qB 任务都自动设置该分类。失败路径会用已确认的数据库候选尝试恢复，但运行前仍应确认目标文件或目录已完整保留。
+- `TestTorrentSizeIndexAPI` 覆盖内容寻址 torrent 文件的手动大小签名重建和 API 状态；`TestSQLiteLockContentionRecovers` 覆盖外部独占写锁释放后的恢复。
+- `TestRecoverRealAPI` 对 `NEXUSBRIDGE_TEST_RECOVERY_HASH` 指定的 v1 hash 依次运行 `site`、`database`、`database_then_site`、`torrent_url`，以及网页搜索关闭/开启的两个自动批量恢复子测试。删除前验证文件管理器标记任务；首次删除后验证只读扫描能发现候选；每次都调用 `deleteFiles=false`。所有入口都必须按完整大小集合命中，并用 qB `renameFile` 映射回原磁盘路径；恢复必须暂停且跳过初始校验添加，配置完成后强制校验，并断言至少触发一次校验、结果完整且已开始做种。当原任务分类的保存目录与恢复 `save_path` 一致时，还会断言恢复结果和 qB 任务都自动设置该分类。失败路径会用已确认的数据库候选尝试恢复，但运行前仍应确认目标文件或目录已完整保留。
 - 订阅真实闭环需要使用本次测试唯一的分类、标签和名称，按本地 v1 hash 验证；如果 hash 在测试前已经存在则跳过写入和清理，绝不修改预先存在的任务。纯 v2 输入应明确失败。
 
 指令：
@@ -152,7 +151,7 @@ $env:NEXUSBRIDGE_TEST_QB_HASH = "<existing-qb-torrent-hash>"
 go test ./tests -run TestQBittorrentTorrentDetailsRealAPI -v
 go test ./tests -run TestQBittorrentRenameRealAPI -count=1 -v -args -hash="<hash>" -oldpath="<old-relative-path>" -newpath="<new-relative-path>" -kind=file -restore=true
 go test ./tests -run TestQBittorrentTorrentFileHashRealAPI -v
-go test ./tests -run "TestTorrentFileAndQBSnapshotPersistence|TestQBPoll" -v
+go test ./tests -run "TestTorrentSizeIndexAPI|TestQBPollingConfigDefaults" -v
 $env:NEXUSBRIDGE_TEST_RECOVERY_HASH = "<40-character-v1-info-hash>"
 $env:NEXUSBRIDGE_TEST_RECOVERY_REAL = "1"
 go test ./tests -run TestRecoverRealAPI -v

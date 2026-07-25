@@ -13,31 +13,36 @@ import (
 )
 
 const (
-	DefaultHost                              = "0.0.0.0"
-	DefaultPort                              = 8090
-	DefaultStoragePath                       = "nexusbridge.db"
-	defaultQBSyncIntervalSeconds             = 3
-	minQBSyncIntervalSeconds                 = 2
-	maxQBSyncIntervalSeconds                 = 60
-	defaultQBInactiveSyncIntervalSeconds     = 30
-	minQBInactiveSyncIntervalSeconds         = 10
-	maxQBInactiveSyncIntervalSeconds         = 300
-	defaultQBDisconnectedSyncIntervalSeconds = 60
-	minQBDisconnectedSyncIntervalSeconds     = 15
-	maxQBDisconnectedSyncIntervalSeconds     = 600
+	DefaultHost                                    = "0.0.0.0"
+	DefaultPort                                    = 8090
+	DefaultStoragePath                             = "nexusbridge.db"
+	defaultSQLiteBusyTimeoutMillis                 = 10_000
+	defaultSQLiteMaxOpenConnections                = 4
+	defaultSQLiteCacheKiB                          = 16 * 1024
+	defaultSQLiteMmapBytes                   int64 = 64 * 1024 * 1024
+	defaultQBSyncIntervalSeconds                   = 3
+	minQBSyncIntervalSeconds                       = 2
+	maxQBSyncIntervalSeconds                       = 60
+	defaultQBInactiveSyncIntervalSeconds           = 30
+	minQBInactiveSyncIntervalSeconds               = 10
+	maxQBInactiveSyncIntervalSeconds               = 300
+	defaultQBDisconnectedSyncIntervalSeconds       = 60
+	minQBDisconnectedSyncIntervalSeconds           = 15
+	maxQBDisconnectedSyncIntervalSeconds           = 600
 )
 
 type Config struct {
-	Server       ServerConfig       `json:"server"`
-	Storage      StorageConfig      `json:"storage"`
-	SitesDir     string             `json:"sites_dir"`
-	Logging      LoggingConfig      `json:"logging"`
-	Auth         AuthConfig         `json:"auth"`
-	QBittorrent  QBittorrentConfig  `json:"qbittorrent"`
-	LLM          LLMConfig          `json:"llm"`
-	Network      NetworkConfig      `json:"network"`
-	MediaLibrary MediaLibraryConfig `json:"media_library"`
-	Rules        []RuleConfig       `json:"rules"`
+	RuntimeConfigPath string             `json:"-"`
+	Server            ServerConfig       `json:"server"`
+	Storage           StorageConfig      `json:"storage"`
+	SitesDir          string             `json:"sites_dir"`
+	Logging           LoggingConfig      `json:"logging"`
+	Auth              AuthConfig         `json:"auth"`
+	QBittorrent       QBittorrentConfig  `json:"qbittorrent"`
+	LLM               LLMConfig          `json:"llm"`
+	Network           NetworkConfig      `json:"network"`
+	MediaLibrary      MediaLibraryConfig `json:"media_library"`
+	Rules             []RuleConfig       `json:"rules"`
 }
 
 type ServerConfig struct {
@@ -46,7 +51,17 @@ type ServerConfig struct {
 }
 
 type StorageConfig struct {
-	Path string `json:"path"`
+	Path   string       `json:"path"`
+	SQLite SQLiteConfig `json:"sqlite"`
+}
+
+// SQLiteConfig 描述本地 SQLite 的可调连接与缓存参数。
+type SQLiteConfig struct {
+	BusyTimeoutMillis int    `json:"busy_timeout_millis"`
+	MaxOpenConns      int    `json:"max_open_conns"`
+	CacheKiB          int    `json:"cache_kib"`
+	MmapBytes         int64  `json:"mmap_bytes"`
+	Synchronous       string `json:"synchronous"`
 }
 
 type LoggingConfig struct {
@@ -124,6 +139,13 @@ func Default() Config {
 		},
 		Storage: StorageConfig{
 			Path: DefaultStoragePath,
+			SQLite: SQLiteConfig{
+				BusyTimeoutMillis: defaultSQLiteBusyTimeoutMillis,
+				MaxOpenConns:      defaultSQLiteMaxOpenConnections,
+				CacheKiB:          defaultSQLiteCacheKiB,
+				MmapBytes:         defaultSQLiteMmapBytes,
+				Synchronous:       "NORMAL",
+			},
 		},
 		SitesDir: filepath.ToSlash(filepath.Join("sites", "html")),
 		Logging: LoggingConfig{
@@ -159,7 +181,68 @@ func Load(path string) (Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
+	cfg.RuntimeConfigPath = path
 	return cfg, nil
+}
+
+// SaveQBittorrentConfigFile 仅替换 JSON 中的 qB 非敏感配置，并保留其他顶层配置。
+func SaveQBittorrentConfigFile(path string, cfg QBittorrentConfig) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("runtime config path is required")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read runtime config: %w", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil {
+		return fmt.Errorf("parse runtime config: %w", err)
+	}
+	cfg.APIKey = ""
+	cfg.Password = ""
+	qbData, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("encode qbittorrent config: %w", err)
+	}
+	document["qbittorrent"] = qbData
+	output, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode runtime config: %w", err)
+	}
+	output = append(output, '\n')
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("inspect runtime config: %w", err)
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".config.json.*")
+	if err != nil {
+		return fmt.Errorf("create temporary runtime config: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(info.Mode().Perm()); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set runtime config permissions: %w", err)
+	}
+	if _, err := temporary.Write(output); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write runtime config: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync runtime config: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close runtime config: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err == nil {
+		return nil
+	}
+	if err := os.WriteFile(path, output, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("replace runtime config: %w", err)
+	}
+	return nil
 }
 
 func applyDefaults(cfg *Config) {
@@ -172,6 +255,22 @@ func applyDefaults(cfg *Config) {
 	if cfg.Storage.Path == "" {
 		cfg.Storage.Path = DefaultStoragePath
 	}
+	if cfg.Storage.SQLite.BusyTimeoutMillis <= 0 {
+		cfg.Storage.SQLite.BusyTimeoutMillis = defaultSQLiteBusyTimeoutMillis
+	}
+	if cfg.Storage.SQLite.MaxOpenConns <= 0 {
+		cfg.Storage.SQLite.MaxOpenConns = defaultSQLiteMaxOpenConnections
+	}
+	if cfg.Storage.SQLite.CacheKiB <= 0 {
+		cfg.Storage.SQLite.CacheKiB = defaultSQLiteCacheKiB
+	}
+	if cfg.Storage.SQLite.MmapBytes < 0 {
+		cfg.Storage.SQLite.MmapBytes = defaultSQLiteMmapBytes
+	}
+	if strings.TrimSpace(cfg.Storage.SQLite.Synchronous) == "" {
+		cfg.Storage.SQLite.Synchronous = "NORMAL"
+	}
+	cfg.Storage.SQLite.Synchronous = strings.ToUpper(strings.TrimSpace(cfg.Storage.SQLite.Synchronous))
 	if strings.TrimSpace(cfg.SitesDir) == "" {
 		cfg.SitesDir = filepath.ToSlash(filepath.Join("sites", "html"))
 	}
@@ -243,6 +342,23 @@ func (cfg Config) Validate() error {
 	}
 	if strings.TrimSpace(cfg.Storage.Path) == "" {
 		return errors.New("storage.path is required")
+	}
+	if cfg.Storage.SQLite.BusyTimeoutMillis < 1 || cfg.Storage.SQLite.BusyTimeoutMillis > 120_000 {
+		return errors.New("storage.sqlite.busy_timeout_millis must be between 1 and 120000")
+	}
+	if cfg.Storage.SQLite.MaxOpenConns < 1 || cfg.Storage.SQLite.MaxOpenConns > 32 {
+		return errors.New("storage.sqlite.max_open_conns must be between 1 and 32")
+	}
+	if cfg.Storage.SQLite.CacheKiB < 1024 || cfg.Storage.SQLite.CacheKiB > 262_144 {
+		return errors.New("storage.sqlite.cache_kib must be between 1024 and 262144")
+	}
+	if cfg.Storage.SQLite.MmapBytes < 0 || cfg.Storage.SQLite.MmapBytes > 1<<30 {
+		return errors.New("storage.sqlite.mmap_bytes must be between 0 and 1073741824")
+	}
+	switch strings.ToUpper(strings.TrimSpace(cfg.Storage.SQLite.Synchronous)) {
+	case "NORMAL", "FULL", "EXTRA":
+	default:
+		return errors.New("storage.sqlite.synchronous must be NORMAL, FULL, or EXTRA")
 	}
 	if cfg.Auth.Enabled {
 		if strings.TrimSpace(cfg.Auth.Username) == "" {

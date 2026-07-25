@@ -121,43 +121,24 @@ func (a *App) ScanRecoveryCandidates(ctx context.Context, request RecoveryScanRe
 		}
 	}
 	result := RecoveryScanResult{Path: root, Items: []RecoveryScanItem{}}
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
+	candidates, truncated, err := buildRecoveryScanCandidates(ctx, root, maxDepth, limit, qbRoots)
+	if err != nil {
+		return RecoveryScanResult{}, err
+	}
+	result.Truncated = truncated
+	matchedDirectories := []string{}
+	for _, candidate := range candidates {
+		if filesystemPathManagedByRoots(candidate.target.Path, matchedDirectories) {
+			continue
 		}
-		if sameFilesystemPath(path, root) {
-			return nil
-		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
-		if depth > maxDepth {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if result.Evaluated >= limit {
-			result.Truncated = true
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filesystemPathManagedByRoots(path, qbRoots) {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
 		result.Evaluated++
-		preview, previewErr := a.PreviewRecovery(ctx, RecoveryPreviewRequest{
-			Path: path, SiteIDs: request.SiteIDs, SearchMode: searchMode,
-		})
-		item := RecoveryScanItem{Path: path, Name: entry.Name(), IsDir: entry.IsDir(), Preview: preview}
+		preview, previewErr := a.previewRecoveryTarget(ctx, RecoveryPreviewRequest{
+			Path: candidate.target.Path, SiteIDs: request.SiteIDs, SearchMode: searchMode,
+		}, *candidate.target)
+		item := RecoveryScanItem{
+			Path: candidate.target.Path, Name: candidate.target.SearchName,
+			IsDir: !candidate.target.IsFile, Preview: preview,
+		}
 		switch {
 		case previewErr != nil:
 			item.Status, item.Reason = "error", previewErr.Error()
@@ -170,18 +151,95 @@ func (a *App) ScanRecoveryCandidates(ctx context.Context, request RecoveryScanRe
 			item.Status, item.Reason = "none", "no torrent has the same complete file-size set"
 		}
 		result.Items = append(result.Items, item)
-		if entry.IsDir() && item.Status == "matched" {
-			return filepath.SkipDir
+		if !candidate.target.IsFile && item.Status == "matched" {
+			matchedDirectories = append(matchedDirectories, candidate.target.Path)
 		}
-		if entry.IsDir() && depth >= maxDepth {
-			return filepath.SkipDir
+	}
+	return result, nil
+}
+
+type recoveryScanCandidate struct {
+	target *recoveryTarget
+}
+
+// buildRecoveryScanCandidates 用一次目录遍历为候选文件和目录汇总大小集合。
+func buildRecoveryScanCandidates(ctx context.Context, root string, maxDepth, limit int, managedRoots []string) ([]recoveryScanCandidate, bool, error) {
+	candidates := make([]recoveryScanCandidate, 0, limit)
+	directoryTargets := map[string]*recoveryTarget{}
+	truncated := false
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return nil
+		}
+		if sameFilesystemPath(path, root) {
+			return nil
+		}
+		if filesystemPathManagedByRoots(path, managedRoots) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil
+		}
+		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
+		eligible := depth <= maxDepth
+		if eligible && len(candidates) >= limit {
+			truncated = true
+			eligible = false
+		}
+		if entry.IsDir() {
+			if eligible {
+				target := recoveryTarget{
+					Path: path, SearchName: entry.Name(),
+					DiskFiles: map[string]int64{}, DiskFilePaths: map[string]string{},
+				}
+				directoryTargets[path] = &target
+				candidates = append(candidates, recoveryScanCandidate{target: &target})
+			}
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return nil
+		}
+		for parent := filepath.Dir(path); !sameFilesystemPath(parent, root); parent = filepath.Dir(parent) {
+			target, ok := directoryTargets[parent]
+			if !ok {
+				continue
+			}
+			relativePath, err := filepath.Rel(parent, path)
+			if err != nil {
+				continue
+			}
+			normalized, ok := normalizeRecoveryRelativePath(filepath.ToSlash(relativePath))
+			if !ok {
+				continue
+			}
+			target.DiskFiles[normalized] = info.Size()
+			target.DiskFilePaths[normalized] = filepath.ToSlash(relativePath)
+		}
+		if eligible {
+			normalized, ok := normalizeRecoveryRelativePath(entry.Name())
+			if ok {
+				candidates = append(candidates, recoveryScanCandidate{target: &recoveryTarget{
+					Path: path, SearchName: entry.Name(), IsFile: true,
+					DiskFiles:     map[string]int64{normalized: info.Size()},
+					DiskFilePaths: map[string]string{normalized: entry.Name()},
+				}})
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return RecoveryScanResult{}, err
+		return nil, false, err
 	}
-	return result, nil
+	return candidates, truncated, nil
 }
 
 func (a *App) fileManagerQBTorrents(ctx context.Context) ([]qbittorrent.TorrentInfo, bool, string) {

@@ -25,7 +25,7 @@ func (s *SQLiteStore) SaveSetting(ctx context.Context, key string, value any) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.execWriteContext(ctx, `
 INSERT INTO app_settings (key, value, updated_at)
 VALUES (?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP

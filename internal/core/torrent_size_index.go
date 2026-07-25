@@ -1,4 +1,4 @@
-// Package core 中的本文件负责恢复用 torrent 文件大小倒排索引。
+// Package core 中的本文件负责恢复用 torrent 文件大小签名索引。
 package core
 
 import (
@@ -19,7 +19,7 @@ func (a *App) GetTorrentSizeIndexStatus(ctx context.Context) (TorrentSizeIndexSt
 	return torrentSizeIndexStatusFromRecord(record), nil
 }
 
-// RebuildTorrentSizeIndex 手动解析全部已保存 BLOB 并重建大小索引。
+// RebuildTorrentSizeIndex 手动解析全部已保存 torrent 文件并重建大小签名。
 func (a *App) RebuildTorrentSizeIndex(ctx context.Context) (TorrentSizeIndexStatus, error) {
 	keys, err := a.store.ListPersistedTorrentFileKeys(ctx)
 	if err != nil {

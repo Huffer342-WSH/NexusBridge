@@ -42,7 +42,7 @@ func (s *SQLiteStore) CreateDownloadTaskIfAbsent(ctx context.Context, task Downl
 	if err != nil {
 		return false, err
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 INSERT INTO download_tasks (
 	id, site_id, torrent_id, rule_name, subscription_id, trigger, status, torrent_title, download_url,
 	qb_hash, error, content_path, plan_category, plan_save_path, plan_tags_json, plan_rename,
@@ -65,7 +65,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURREN
 
 // UpdateDownloadTask 更新下载任务的主要执行状态。
 func (s *SQLiteStore) UpdateDownloadTask(ctx context.Context, id, status, qbHash, contentPath, errText string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE download_tasks
 SET status = ?, qb_hash = COALESCE(NULLIF(?, ''), qb_hash), content_path = COALESCE(NULLIF(?, ''), content_path), error = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
@@ -78,7 +78,7 @@ func (s *SQLiteStore) UpdateDownloadTaskHash(ctx context.Context, id, qbHash str
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(qbHash) == "" {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE download_tasks
 SET qb_hash = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
@@ -201,7 +201,7 @@ func (s *SQLiteStore) ClaimDownloadTask(ctx context.Context, id string, fromStat
 		placeholders = append(placeholders, "?")
 		args = append(args, status)
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 UPDATE download_tasks
 SET status = 'processing', attempt_count = attempt_count + 1,
 	retry_count = retry_count + ?, last_attempt_at = CURRENT_TIMESTAMP,
@@ -242,7 +242,7 @@ func (s *SQLiteStore) UpdateDownloadTaskRecordIfStatus(ctx context.Context, task
 		}
 		where += " AND status IN (" + strings.Join(placeholders, ",") + ")"
 	}
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 UPDATE download_tasks
 SET subscription_id = ?, trigger = ?, status = ?, torrent_title = ?, download_url = ?, qb_hash = ?,
 	error = ?, content_path = ?, plan_category = ?, plan_save_path = ?, plan_tags_json = ?,

@@ -36,7 +36,7 @@ qB 任务被意外删除，但完整数据目录仍保留在 NexusBridge 可访�
 }
 ```
 
-`site_ids` 可选；未指定时，数据库模式查询全部站点索引，站点模式遍历全部已配置站点。`search_mode` 可选，支持仅本地数据库 `database`、仅站点网页 `site`、先数据库再站点 `database_then_site`，默认使用 `database_then_site`。数据库使用文件大小倒排索引缩小 BLOB 候选；站点网页合并最多 5 个文件名或标题变体的第一页结果，先按站点展示总大小的 5%（最少 1 MiB）容差缩小 torrent 文件下载候选，再以 torrent 内精确大小集合确认。响应包含标准化路径、实际模式、`save_path`、可恢复候选、已评估候选数和站点搜索诊断。预览不调用 qB 写接口。
+`site_ids` 可选；未指定时，数据库模式查询全部站点索引，站点模式遍历全部已配置站点。`search_mode` 可选，支持仅本地数据库 `database`、仅站点网页 `site`、先数据库再站点 `database_then_site`，默认使用 `database_then_site`。数据库使用完整文件大小多重集签名缩小内容寻址 torrent 候选；站点网页合并最多 5 个文件名或标题变体的第一页结果，先按站点展示总大小的 5%（最少 1 MiB）容差缩小 torrent 文件下载候选，再以 torrent 内精确大小集合确认。响应包含标准化路径、实际模式、`save_path`、可恢复候选、已评估候选数和站点搜索诊断。预览不调用 qB 写接口。
 
 `POST /api/qb/recovery`
 
@@ -81,7 +81,7 @@ qB 任务被意外删除，但完整数据目录仍保留在 NexusBridge 可访�
 
 `GET /api/qb/recovery/index` 与 `POST /api/qb/recovery/index/rebuild`
 
-文件管理器展示大小索引覆盖状态，并提供一次手动重建入口。没有后台补齐；旧数据完成重建后，torrent BLOB 的保存、覆盖和删除会事务内自动维护索引。
+文件管理器展示大小签名覆盖状态，并提供一次手动重建入口。没有后台补齐；torrent 文件引用的保存、覆盖和删除会自动维护派生签名。
 
 `POST /api/qb/recovery/scan`
 
@@ -331,7 +331,7 @@ GET 接受可选 `refresh=true` 并返回 `items/stale/connected/error/synced_at
 
 ### 验收标准
 
-- 后端使用 qB `sync/maindata`，正确合并部分字段并持久化快照。
+- 后端为全部标签页共享一个 qB `sync/maindata` RID，正确合并部分字段；进度、状态、速度、流量、ETA 和 ratio 只保存在内存，SQLite 仅在 hash、分类、标签或保存路径等稳定关联变化时写入。
 - 页面前台且连接正常时按高频间隔轮询，后台和断连状态使用独立可配置间隔。
 - qB URL 为空或用户关闭自动同步时停止轮询。
 - 暂停、恢复和新增下载后立即触发一次增量同步。

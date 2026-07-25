@@ -3,6 +3,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -97,15 +98,35 @@ func (a *App) SaveQBittorrentConfig(ctx context.Context, cfg config.QBittorrentC
 	if cfg.UserID == "" && cfg.Username != "" {
 		cfg.UserID = cfg.Username
 	}
-	if err := a.store.SaveSetting(ctx, storage.QBittorrentSettingKey, cfg); err != nil {
+	if a.cfg.RuntimeConfigPath != "" {
+		if err := config.SaveQBittorrentConfigFile(a.cfg.RuntimeConfigPath, cfg); err != nil {
+			return config.QBittorrentConfig{}, err
+		}
+	}
+	if err := a.store.SaveSetting(ctx, storage.QBittorrentSettingKey, qbSecrets{
+		APIKey: cfg.APIKey, Password: cfg.Password,
+	}); err != nil {
 		return config.QBittorrentConfig{}, err
 	}
+	nonSecret := cfg
+	nonSecret.APIKey = ""
+	nonSecret.Password = ""
+	a.qbConfigMu.Lock()
+	a.cfg.QBittorrent = nonSecret
+	a.qbConfigMu.Unlock()
 	if err := a.applyNetworkConfig(ctx); err != nil {
 		return config.QBittorrentConfig{}, err
 	}
 	a.qbMu.Lock()
 	a.qbCached, a.qbCacheKey = nil, ""
 	a.qbMu.Unlock()
+	a.qbPollMu.Lock()
+	a.qbPollRID, a.qbPollRevision = 0, 0
+	a.qbPollLastAt = time.Time{}
+	a.qbRuntimeMu.Lock()
+	clear(a.qbRuntime)
+	a.qbRuntimeMu.Unlock()
+	a.qbPollMu.Unlock()
 	return cfg, nil
 }
 
@@ -276,12 +297,60 @@ func (a *App) qbClient(ctx context.Context) (*qbittorrent.Client, error) {
 	return client, nil
 }
 
-// effectiveQBConfig 合并配置文件和数据库中的 qB 设置。
+type qbSecrets struct {
+	APIKey   string `json:"api_key"`
+	Password string `json:"password"`
+}
+
+func (a *App) initializeQBConfig(ctx context.Context) error {
+	a.qbConfigMu.RLock()
+	fileConfig := a.cfg.QBittorrent
+	a.qbConfigMu.RUnlock()
+	var stored qbSecrets
+	var storedDocument map[string]json.RawMessage
+	found, err := a.store.LoadSetting(ctx, storage.QBittorrentSettingKey, &storedDocument)
+	if err != nil {
+		return err
+	}
+	if found {
+		_ = json.Unmarshal(storedDocument["api_key"], &stored.APIKey)
+		_ = json.Unmarshal(storedDocument["password"], &stored.Password)
+	}
+	importedFileSecret := stored.APIKey == "" && fileConfig.APIKey != "" ||
+		stored.Password == "" && fileConfig.Password != ""
+	if stored.APIKey == "" {
+		stored.APIKey = fileConfig.APIKey
+	}
+	if stored.Password == "" {
+		stored.Password = fileConfig.Password
+	}
+	secretOnly := len(storedDocument) == 2 && storedDocument["api_key"] != nil && storedDocument["password"] != nil
+	if (!found && (stored.APIKey != "" || stored.Password != "")) || found && (!secretOnly || importedFileSecret) {
+		if err := a.store.SaveSetting(ctx, storage.QBittorrentSettingKey, stored); err != nil {
+			return err
+		}
+	}
+	if a.cfg.RuntimeConfigPath != "" && (fileConfig.APIKey != "" || fileConfig.Password != "") {
+		if err := config.SaveQBittorrentConfigFile(a.cfg.RuntimeConfigPath, fileConfig); err != nil {
+			return err
+		}
+	}
+	a.qbConfigMu.Lock()
+	a.cfg.QBittorrent.APIKey = ""
+	a.cfg.QBittorrent.Password = ""
+	a.qbConfigMu.Unlock()
+	return nil
+}
+
+// effectiveQBConfig 合并 JSON 中的非敏感配置和数据库中的 qB 密钥。
 func (a *App) effectiveQBConfig(ctx context.Context) config.QBittorrentConfig {
+	a.qbConfigMu.RLock()
 	cfg := a.cfg.QBittorrent
-	var stored config.QBittorrentConfig
+	a.qbConfigMu.RUnlock()
+	var stored qbSecrets
 	if ok, err := a.store.LoadSetting(ctx, storage.QBittorrentSettingKey, &stored); err == nil && ok {
-		cfg = stored
+		cfg.APIKey = stored.APIKey
+		cfg.Password = stored.Password
 	}
 	if cfg.AuthMode == "" {
 		cfg.AuthMode = "uid"

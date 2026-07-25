@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"nexusbridge/internal/config"
 	"nexusbridge/internal/core/covercache"
@@ -20,12 +21,19 @@ type App struct {
 	store              *storage.SQLiteStore
 	ctx                context.Context
 	cancel             context.CancelFunc
-	mu                 sync.RWMutex
 	qbMu               sync.Mutex
+	qbConfigMu         sync.RWMutex
+	qbPollMu           sync.Mutex
+	qbPollRID          int
+	qbPollRevision     int
+	qbPollLastAt       time.Time
+	qbRuntimeMu        sync.RWMutex
+	qbRuntime          map[storage.TorrentKey]storage.QBSnapshotRecord
+	pinnedMu           sync.RWMutex
+	pinnedBySite       map[string]map[storage.TorrentKey]int
 	mihomoMu           sync.Mutex
 	qbCached           *qbittorrent.Client
 	qbCacheKey         string
-	cache              map[string]Torrent
 	coverCache         *covercache.Service
 	sites              map[string]runtimeSite
 	siteIDs            []string
@@ -34,6 +42,7 @@ type App struct {
 	automationMu       sync.Mutex
 	automationCancel   context.CancelFunc
 	automationWG       sync.WaitGroup
+	maintenanceWG      sync.WaitGroup
 	siteLockMu         sync.Mutex
 	siteLocks          map[string]*contextMutex
 	subscriptionLockMu sync.Mutex
@@ -55,7 +64,13 @@ type runtimeSite struct {
 
 // NewApp 创建核心应用服务。
 func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
-	store, err := storage.OpenSQLite(ctx, cfg.Storage.Path)
+	store, err := storage.OpenSQLiteWithOptions(ctx, cfg.Storage.Path, storage.SQLiteOptions{
+		BusyTimeoutMillis: cfg.Storage.SQLite.BusyTimeoutMillis,
+		MaxOpenConns:      cfg.Storage.SQLite.MaxOpenConns,
+		CacheKiB:          cfg.Storage.SQLite.CacheKiB,
+		MmapBytes:         cfg.Storage.SQLite.MmapBytes,
+		Synchronous:       cfg.Storage.SQLite.Synchronous,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +81,9 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 	}
 	appCtx, cancel := context.WithCancel(ctx)
 	app := &App{
-		cfg: cfg, store: store, cache: map[string]Torrent{}, sites: sites, siteIDs: siteIDs,
-		ctx: appCtx, cancel: cancel,
+		cfg: cfg, store: store, sites: sites, siteIDs: siteIDs,
+		ctx: appCtx, cancel: cancel, qbRuntime: map[storage.TorrentKey]storage.QBSnapshotRecord{},
+		pinnedBySite:   map[string]map[storage.TorrentKey]int{},
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
 		hashLocks: map[string]*contextMutex{}, activeFetches: map[string]*activeSiteFetch{},
 	}
@@ -78,6 +94,11 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	app.coverCache = coverCache
+	if err := app.initializeQBConfig(ctx); err != nil {
+		cancel()
+		_ = store.Close()
+		return nil, err
+	}
 	if err := app.applyNetworkConfig(ctx); err != nil {
 		cancel()
 		_ = store.Close()
@@ -113,12 +134,25 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 			return nil, err
 		}
 	}
-	if err := app.loadCache(ctx); err != nil {
-		cancel()
-		_ = store.Close()
-		return nil, err
-	}
+	app.startStorageMaintenance()
 	return app, nil
+}
+
+func (a *App) startStorageMaintenance() {
+	a.maintenanceWG.Add(1)
+	go func() {
+		defer a.maintenanceWG.Done()
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			case <-ticker.C:
+				_ = a.store.Optimize(a.ctx)
+			}
+		}
+	}()
 }
 
 // Close 关闭应用持有的资源。
@@ -132,5 +166,6 @@ func (a *App) Close() error {
 	}
 	a.automationWG.Wait()
 	a.fetchWG.Wait()
+	a.maintenanceWG.Wait()
 	return a.store.Close()
 }

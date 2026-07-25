@@ -1,10 +1,10 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)和[任务恢复](modules/recovery.md)；HTTP API、运行配置和测试边界分别见 [API](api.md)、[配置](config.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)和[任务恢复](modules/recovery.md)；HTTP API、运行配置、存储设计和测试边界分别见 [API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
-NexusBridge 通过同一套 `core` 服务支持 Web、CLI 和桌面端。外部系统只经基础设施适配器接入，SQLite 保存业务状态和任务进度。
+NexusBridge 通过同一套 `core` 服务支持 Web、CLI 和桌面端。外部系统只经基础设施适配器接入；业务元数据、派生索引和 torrent 原文件分层保存。
 
 ```mermaid
 flowchart TB
@@ -17,13 +17,17 @@ flowchart TB
         Desktop[Wails Desktop]
         Adapter[HTTP / Desktop 适配层]
         Core[Core 业务服务]
-        DB[(SQLite)]
+        Metadata[(metadata SQLite)]
+        Index[(derived index SQLite)]
+        TorrentFiles[(torrent files)]
 
         UI --> Adapter
         CLI --> Adapter
         Desktop --> Adapter
         Adapter --> Core
-        Core --> DB
+        Core --> Metadata
+        Core --> Index
+        Core --> TorrentFiles
     end
 
     Sites[PT 站点] -->|HTML / torrent| Core
@@ -212,21 +216,23 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    QB[qBittorrent] -->|增量轮询 / 全量同步| Snapshot[(qB snapshots)]
-    Snapshot --> Status[本地任务状态]
+    QB[qBittorrent] -->|后端单 RID 增量轮询| Runtime[内存实时状态]
+    Runtime --> Status[Web 实时任务状态]
+    QB -->|稳定字段变化| Association[(qB 关联索引)]
+    Association --> Status
     Status -->|下载完成| Organize[整理任务]
     Organize -.->|可选建议| LLM[LLM demo]
     Organize --> Files[媒体文件]
 
     Files --> Scan[恢复路径扫描]
-    TorrentIndex[(torrent 元数据与大小索引)] --> Match[候选匹配]
+    TorrentIndex[(torrent 元数据与大小签名)] --> Match[候选匹配]
     Scan --> Match
     Match --> Validate[路径映射与文件校验]
     Validate -->|唯一有效候选| ReAdd[重新添加并校验 torrent]
     ReAdd --> QB
 ```
 
-同步链路以 qB 快照为状态事实来源；恢复链路优先使用本地 torrent 元数据和文件大小索引，必要时再搜索站点。具体安全边界见[任务恢复](modules/recovery.md)。
+进度、状态、速度、流量、ETA 和 ratio 只存在于后端共享内存，使用时从 qB 刷新；SQLite 只保存 hash、分类、标签、保存路径等稳定关联。恢复链路使用单行完整大小多重集签名缩小候选，再读取内容寻址 torrent 文件做精确验证；不维护本地下载目录索引。具体安全边界见[任务恢复](modules/recovery.md)。
 
 ## 5. 代码导航
 
@@ -261,7 +267,7 @@ flowchart LR
 
 | 包 | 职责与主要文件 |
 | --- | --- |
-| `internal/storage` | `sqlite.go` 管理连接，`migrations.go` 管理 schema；其余文件按 torrent、rule、subscription、task、qB snapshot、credential 和 cover cache 分域持久化。 |
+| `internal/storage` | `sqlite.go` 管理 WAL、单写者和双数据库，`schema.go` 定义完整新库；其余文件按 torrent、搜索/恢复索引、rule、subscription、task、qB 稳定关联、credential 和 cover cache 分域持久化。 |
 | `internal/parser` | `definitions.go` 加载站点定义，`parser.go` 提供解析入口，`search_form.go`、`torrent_rows.go`、`pagination.go` 分解页面解析。 |
 | `internal/fetcher` | HTTP 请求、重定向和 curl 输入解析。 |
 | `internal/requestpolicy` | 域名规则、Cookie 白名单和请求决策。 |

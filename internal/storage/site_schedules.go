@@ -11,7 +11,7 @@ func (s *SQLiteStore) SaveSiteSchedule(ctx context.Context, record SiteScheduleR
 	if record.IntervalMinutes <= 0 {
 		record.IntervalMinutes = 15
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO site_schedules (
 	site_id, enabled, interval_minutes, last_run_at, next_run_at, last_error, created_at, updated_at
 )
@@ -66,7 +66,7 @@ LIMIT ?`, formatDBTime(now), limit)
 
 // ClaimDueSiteSchedule 条件更新下次执行时间，避免同一到期计划被重复领取。
 func (s *SQLiteStore) ClaimDueSiteSchedule(ctx context.Context, siteID string, now, nextRunAt time.Time) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execWriteContext(ctx, `
 UPDATE site_schedules
 SET next_run_at = ?, updated_at = CURRENT_TIMESTAMP
 WHERE site_id = ? AND enabled = 1 AND (next_run_at = '' OR next_run_at <= ?)
@@ -80,7 +80,7 @@ WHERE site_id = ? AND enabled = 1 AND (next_run_at = '' OR next_run_at <= ?)
 
 // UpdateSiteScheduleResult 保存站点计划最近一次执行结果。
 func (s *SQLiteStore) UpdateSiteScheduleResult(ctx context.Context, siteID string, lastRunAt, nextRunAt time.Time, lastError string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE site_schedules
 SET last_run_at = ?, next_run_at = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP
 WHERE site_id = ?

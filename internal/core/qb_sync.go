@@ -1,4 +1,4 @@
-// Package core 提供基于 info hash 的 qBittorrent 快照同步服务。
+// Package core 提供基于 info hash 的 qBittorrent 状态与稳定关联同步服务。
 package core
 
 import (
@@ -11,7 +11,7 @@ import (
 	"nexusbridge/internal/storage"
 )
 
-// syncTorrentQBSnapshots 按 v1 info hash 匹配并持久化全部 qB 状态快照。
+// syncTorrentQBSnapshots 按 v1 info hash 匹配实时状态并批量保存稳定关联。
 func (a *App) syncTorrentQBSnapshots(ctx context.Context, qb *qbittorrent.Client, qbTorrents []qbittorrent.TorrentInfo) (int, int, int, int, error) {
 	files, err := a.store.ListTorrentHashes(ctx)
 	if err != nil {
@@ -59,10 +59,15 @@ func (a *App) syncTorrentQBSnapshots(ctx context.Context, qb *qbittorrent.Client
 	if err != nil {
 		return matched, 0, 0, detailFailed, err
 	}
+	a.qbRuntimeMu.Lock()
+	for _, snapshot := range snapshots {
+		a.qbRuntime[storage.TorrentKey{SiteID: snapshot.SiteID, TorrentID: snapshot.TorrentID}] = snapshot
+	}
+	a.qbRuntimeMu.Unlock()
 	return matched, len(snapshots), removed, detailFailed, nil
 }
 
-// refreshTorrentQBSnapshot 实时查询单个种子的 qB 状态并回写数据库。
+// refreshTorrentQBSnapshot 实时查询单个种子，并仅在稳定关联变化时写数据库。
 func (a *App) refreshTorrentQBSnapshot(ctx context.Context, torrent Torrent, weakMatch bool) (QBTorrentStatus, error) {
 	localHash, err := a.torrentQBHash(ctx, torrent)
 	if err != nil {
@@ -93,6 +98,9 @@ func (a *App) refreshTorrentQBSnapshot(ctx context.Context, torrent Torrent, wea
 		if err := a.store.SaveQBSnapshot(ctx, snapshot); err != nil {
 			return QBTorrentStatus{}, err
 		}
+		a.qbRuntimeMu.Lock()
+		a.qbRuntime[key] = snapshot
+		a.qbRuntimeMu.Unlock()
 		return qbStatusFromSnapshot(snapshot), nil
 	}
 	matched := matches[0]
@@ -101,6 +109,9 @@ func (a *App) refreshTorrentQBSnapshot(ctx context.Context, torrent Torrent, wea
 	if err := a.store.SaveQBSnapshot(ctx, snapshot); err != nil {
 		return QBTorrentStatus{}, err
 	}
+	a.qbRuntimeMu.Lock()
+	a.qbRuntime[key] = snapshot
+	a.qbRuntimeMu.Unlock()
 	return qbStatusFromSnapshot(snapshot), nil
 }
 
@@ -137,14 +148,15 @@ func (a *App) ControlTorrentQB(ctx context.Context, siteID, torrentID, action st
 
 // torrentQBHash 优先读取 torrent 文件 v1 hash，并兼容已有下载任务 hash。
 func (a *App) torrentQBHash(ctx context.Context, torrent Torrent) (string, error) {
-	file, ok, err := a.store.GetTorrentFile(ctx, storage.TorrentKey{SiteID: torrent.SiteID, TorrentID: torrent.ID})
+	key := storage.TorrentKey{SiteID: torrent.SiteID, TorrentID: torrent.ID}
+	files, err := a.store.ListTorrentFileMetadata(ctx, []storage.TorrentKey{key})
 	if err != nil {
 		return "", err
 	}
-	if ok && strings.TrimSpace(file.InfoHashV1) != "" {
+	if file, ok := files[key]; ok && strings.TrimSpace(file.InfoHashV1) != "" {
 		return file.InfoHashV1, nil
 	}
-	tasks, err := a.store.ListDownloadTasksByTorrents(ctx, []storage.TorrentKey{{SiteID: torrent.SiteID, TorrentID: torrent.ID}})
+	tasks, err := a.store.ListDownloadTasksByTorrents(ctx, []storage.TorrentKey{key})
 	if err != nil {
 		return "", err
 	}
@@ -156,7 +168,7 @@ func (a *App) torrentQBHash(ctx context.Context, torrent Torrent) (string, error
 	return "", nil
 }
 
-// qbSnapshotFromTorrent 将 qB 列表和属性响应合并为数据库快照。
+// qbSnapshotFromTorrent 将 qB 列表和属性响应合并为运行时记录。
 func qbSnapshotFromTorrent(key storage.TorrentKey, torrent qbittorrent.TorrentInfo, properties qbittorrent.TorrentProperties, hasProperties bool, syncedAt time.Time) storage.QBSnapshotRecord {
 	totalSize := torrent.TotalSize
 	if totalSize == 0 {
@@ -184,7 +196,7 @@ func qbSnapshotFromTorrent(key storage.TorrentKey, torrent qbittorrent.TorrentIn
 	return record
 }
 
-// qbStatusFromSnapshot 将数据库快照转换为 API 状态模型。
+// qbStatusFromSnapshot 将运行时或稳定关联记录转换为 API 状态模型。
 func qbStatusFromSnapshot(snapshot storage.QBSnapshotRecord) QBTorrentStatus {
 	completed := snapshot.TotalSize - snapshot.AmountLeft
 	if completed < 0 {

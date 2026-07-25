@@ -6,6 +6,10 @@
 - 一个功能部分得到用户确认后，再集中更新相关文档；实现过程中不为每次小改动反复扩写文档。
 - 不提交真实 Cookie、账号密码、API Key、真实 HTML 响应或包含凭据的命令示例。
 
+## Review 准则
+
+- 仅在执行代码 Review 时读取并遵循 `docs/review.md`；其他任务无需加载。
+
 ## 代码注释
 
 - 使用符合 GoDoc 规范的中文注释
@@ -13,6 +17,7 @@
 ## 文档入口
 
 - 文件职责和模块关系：`docs/architecture.md`
+- 代码 Review（仅 Review 时读取）：`docs/review.md`
 - 运行配置：`docs/config.md`
 - 测试环境与真实服务安全边界：`docs/testing.md`
 - HTTP API：`docs/api.md` 和 `docs/api/openapi.yaml`

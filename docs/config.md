@@ -25,10 +25,19 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 - `server.host`：`0.0.0.0`
 - `server.port`：`8090`
 - `storage.path`：`nexusbridge.db`
+- `storage.sqlite.busy_timeout_millis`：`10000`
+- `storage.sqlite.max_open_conns`：`4`
+- `storage.sqlite.cache_kib`：`16384`
+- `storage.sqlite.mmap_bytes`：`67108864`
+- `storage.sqlite.synchronous`：`NORMAL`
 - `sites_dir`：`sites/html`
 - `logging.level`：`info`
 - `auth.enabled`：`false`
 - `network.mode`：`system`
+
+`storage.path` 指向业务元数据库；同目录自动创建同名 `.index.db` 派生索引库、`torrents/` 内容寻址文件目录和 `covers/` 封面缓存目录。WAL、`temp_store=MEMORY`、外键和写事务 `IMMEDIATE` 固定启用，SQLite 子项只开放锁等待、连接池、页缓存、mmap 与同步级别。派生索引丢失时会从元数据重建；它不保存唯一数据。完整布局和表职责见[存储与数据库](storage.md)。
+
+当前开发版不执行旧库迁移。启动时若精确识别到旧 NexusBridge BLOB schema，会删除配置路径对应的主库、WAL/SHM 和派生索引并创建新库；未知数据库会拒绝覆盖。`synchronous=NORMAL` 是默认的 WAL 平衡策略；`VACUUM` 不自动执行，`PRAGMA optimize` 每日及正常关闭时执行。
 
 站点设置页另有保存到 SQLite `app_settings` 的全局抓取设置 `max_pages`，默认 `3`、范围 `1` 至 `100`。增量、固定页数、首页自动抓取、周期计划和 CLI 抓取统一受该上限约束，不写入主 JSON 配置。
 
@@ -41,7 +50,14 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
     "port": 8090
   },
   "storage": {
-    "path": "nexusbridge.db"
+    "path": "nexusbridge.db",
+    "sqlite": {
+      "busy_timeout_millis": 10000,
+      "max_open_conns": 4,
+      "cache_kib": 16384,
+      "mmap_bytes": 67108864,
+      "synchronous": "NORMAL"
+    }
   },
   "sites_dir": "sites/html",
   "logging": {
@@ -62,7 +78,11 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
     "user_id": "",
     "password": "",
     "category": "nexusbridge",
-    "tags": ["nexusbridge"]
+    "tags": ["nexusbridge"],
+    "auto_sync": true,
+    "sync_interval_seconds": 3,
+    "inactive_sync_interval_seconds": 30,
+    "disconnected_sync_interval_seconds": 60
   },
   "llm": {
     "base_url": "",
@@ -148,9 +168,11 @@ KamePT 图片域通常还要求与 `cf_clearance` 配套的浏览器 User-Agent�
 
 `username` 和 `user_id` 当前都可填写；服务会在保存时互相补齐，便于兼容不同命名习惯。
 
-WebUI 的 `设置 / qBittorrent` 页面保存 qBittorrent 设置时，如果密码或 API Key 输入框留空，服务端会保留数据库中已有值。该页面同时控制增量刷新：`auto_sync` 默认启用；连接正常且媒体页位于前台时使用 `sync_interval_seconds=3`，页面隐藏或位于其他页面时使用 `inactive_sync_interval_seconds=30`，连接失败后使用 `disconnected_sync_interval_seconds=60` 重试。URL 为空或关闭自动同步时不轮询。
+WebUI 的 `设置 / qBittorrent` 页面保存时，会把地址、认证方式、用户名、分类、标签和三个轮询间隔写回当前 `config.json`；密码和 API Key 只保存在 SQLite `app_settings`，JSON 中保持为空。密码或 API Key 输入框留空时，服务端保留数据库中的已有值。旧 JSON 若含有这两个敏感字段，启动时会先写入数据库再清空文件字段。
 
-应用只为站点列表扫描中首次入库的种子主动下载 `.torrent` 文件，以 SQLite BLOB 保存并解析 v1/v2 hash。该行为无需新增配置项，固定最多 3 个并发；订阅执行时仍会按需重试缺失文件。
+该页面同时控制增量刷新：`auto_sync` 默认启用；连接正常且媒体页位于前台时使用 `sync_interval_seconds=3`，页面隐藏或位于其他页面时使用 `inactive_sync_interval_seconds=30`，连接失败后使用 `disconnected_sync_interval_seconds=60` 重试。URL 为空或关闭自动同步时不轮询。
+
+应用只为站点列表扫描中首次入库的种子主动下载 `.torrent` 文件，以内容 SHA256 命名保存到主数据库同级的 `torrents/`，数据库仅保存相对路径、校验信息、v1/v2 hash 和大小签名。该行为无需新增配置项，固定最多 3 个并发；订阅执行时仍会按需重试缺失文件。完整持久化边界见[存储与数据库](storage.md)。
 
 `qbittorrent.category` 和 `qbittorrent.tags` 是兼容的全局下载默认值；订阅另外保存自己的分类、路径、标签、名称与暂停配置。全局标签会排在订阅标签和种子标签之前合并。qB 分类按完整字符串处理，例如 `PT/ASMR`，应用不会把它拆成 qB 不存在的父子字段；WebUI 的树仅是展示。
 

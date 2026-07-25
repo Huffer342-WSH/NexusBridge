@@ -54,7 +54,7 @@ func (s *SQLiteStore) SaveRule(ctx context.Context, rule RuleRecord) error {
 	siteTags, _ := json.Marshal(rule.SiteTags)
 	subtitleTags, _ := json.Marshal(rule.SubtitleTags)
 	promotions, _ := json.Marshal(rule.Promotions)
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO rules (
 	name, site_ids_json, site_categories_json, site_tags_json, subtitle_tags_json, title_expression, promotions_json,
 	min_size, max_size, min_seeders, max_seeders,
@@ -91,10 +91,11 @@ ON CONFLICT(name) DO UPDATE SET
 
 // RenameRule 事务级联修改规则名称和全部本地引用。
 func (s *SQLiteStore) RenameRule(ctx context.Context, oldName string, rule RuleRecord) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	var count int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM rules WHERE name = ? COLLATE NOCASE`, oldName).Scan(&count); err != nil {
@@ -176,7 +177,7 @@ func (s *SQLiteStore) GetRule(ctx context.Context, name string) (RuleRecord, boo
 
 // DeleteRule 删除筛选规则；关联检查由业务层负责。
 func (s *SQLiteStore) DeleteRule(ctx context.Context, name string) (bool, error) {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM rules WHERE name = ? COLLATE NOCASE`, name)
+	result, err := s.execWriteContext(ctx, `DELETE FROM rules WHERE name = ? COLLATE NOCASE`, name)
 	if err != nil {
 		return false, err
 	}

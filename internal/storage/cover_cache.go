@@ -54,7 +54,7 @@ WHERE site_id = ? AND torrent_id = ?
 
 // UpsertCoverCache 写入封面缓存状态并保留记录的首次创建时间。
 func (s *SQLiteStore) UpsertCoverCache(ctx context.Context, record CoverCacheRecord) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO cover_cache (
     site_id, torrent_id, source_url, local_path, mime_type, file_size, sha256, status, last_error,
     last_success_at, last_failed_at, fail_count, attempt_version, created_at, updated_at

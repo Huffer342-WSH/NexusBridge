@@ -33,7 +33,7 @@ type SiteFetchJobRecord struct {
 
 // SaveSiteFetchJob 新增或覆盖扫描任务进度。
 func (s *SQLiteStore) SaveSiteFetchJob(ctx context.Context, record SiteFetchJobRecord) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO site_fetch_jobs (
 	id, site_id, trigger, mode, requested_pages, status, current_page, pages_fetched,
 	fetched_count, inserted_count, changed_count, matched_count, sent_count, files_saved, files_failed,
@@ -106,7 +106,7 @@ func (s *SQLiteStore) ListSiteFetchJobs(ctx context.Context, siteID string, limi
 
 // RecoverInterruptedSiteFetchJobs 标记上次进程未结束的扫描任务。
 func (s *SQLiteStore) RecoverInterruptedSiteFetchJobs(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE site_fetch_jobs
 SET status = 'failed', stop_reason = 'interrupted', error = 'recovered after interrupted site fetch',
 	finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -119,7 +119,7 @@ func (s *SQLiteStore) PruneSiteFetchJobs(ctx context.Context, siteID string, kee
 	if keep <= 0 {
 		keep = 100
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 DELETE FROM site_fetch_jobs
 WHERE site_id = ? AND status NOT IN ('queued', 'running') AND id NOT IN (
 	SELECT id FROM site_fetch_jobs

@@ -4,10 +4,11 @@ import "context"
 
 // RecoverInterruptedSubscriptionWork 恢复上次进程退出时未完成的订阅领取。
 func (s *SQLiteStore) RecoverInterruptedSubscriptionWork(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, release, err := s.beginWriteTx(ctx)
 	if err != nil {
 		return err
 	}
+	defer release()
 	defer rollbackUnlessCommitted(tx)
 	if _, err := tx.ExecContext(ctx, `
 UPDATE download_tasks

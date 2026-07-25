@@ -29,7 +29,7 @@ func (s *SQLiteStore) SaveSiteCredential(ctx context.Context, credential SiteCre
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	_, err = s.execWriteContext(ctx, `
 INSERT INTO site_credentials (site_id, base_url, user_agent, headers_json, updated_at)
 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 ON CONFLICT(site_id) DO UPDATE SET

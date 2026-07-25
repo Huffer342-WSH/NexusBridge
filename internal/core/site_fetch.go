@@ -224,7 +224,6 @@ func (a *App) scanSitePages(ctx context.Context, job *storage.SiteFetchJobRecord
 			return *job, err
 		}
 		job.CurrentPage = pageNumber
-		_ = a.store.SaveSiteFetchJob(context.WithoutCancel(ctx), *job)
 		fetched, err := a.fetchSiteResource(ctx, site, currentURL, siteRequestOptions{
 			Timeout: defaultSiteRequestTimeout, RequireCookies: true, LogRequest: true,
 		})
@@ -253,19 +252,12 @@ func (a *App) scanSitePages(ctx context.Context, job *storage.SiteFetchJobRecord
 				normalEntries = append(normalEntries, entry)
 			}
 		}
-		upsert, err := a.store.UpsertTorrentPage(ctx, site.ID, records, pageNumber == 1)
+		upsert, err := a.store.UpsertTorrentPage(ctx, records)
 		if err != nil {
 			return *job, fmt.Errorf("save site page %d: %w", pageNumber, err)
 		}
 		if pageNumber == 1 {
-			a.mu.Lock()
-			for key, cached := range a.cache {
-				if cached.SiteID == site.ID && cached.StickyLevel != 0 {
-					cached.StickyLevel = 0
-					a.cache[key] = cached
-				}
-			}
-			a.mu.Unlock()
+			a.replaceSitePinned(site.ID, records)
 		}
 		insertedKeys := make(map[storage.TorrentKey]struct{}, len(upsert.Inserted))
 		inserted := make([]Torrent, 0, len(upsert.Inserted))
@@ -273,11 +265,6 @@ func (a *App) scanSitePages(ctx context.Context, job *storage.SiteFetchJobRecord
 			insertedKeys[storage.TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}] = struct{}{}
 			inserted = append(inserted, torrentFromRecord(record))
 		}
-		a.mu.Lock()
-		for _, record := range records {
-			a.cache[record.SiteID+":"+record.TorrentID] = torrentFromRecord(record)
-		}
-		a.mu.Unlock()
 		job.PagesFetched++
 		job.FetchedCount += len(records)
 		job.InsertedCount += len(upsert.Inserted)

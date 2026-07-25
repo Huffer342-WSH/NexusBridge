@@ -26,7 +26,7 @@ type OrganizeTaskRecord struct {
 
 // CreateOrganizeTaskIfAbsent 在任务不存在时创建整理任务。
 func (s *SQLiteStore) CreateOrganizeTaskIfAbsent(ctx context.Context, task OrganizeTaskRecord) (bool, error) {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 INSERT INTO organize_tasks (id, download_task_id, status, title, source_path, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 `, task.ID, task.DownloadTaskID, task.Status, task.Title, task.SourcePath)
@@ -53,7 +53,7 @@ func scanDownloadTasks(rows *sql.Rows) ([]DownloadTaskRecord, error) {
 
 // UpdateOrganizeTask 更新整理任务的输出和执行状态。
 func (s *SQLiteStore) UpdateOrganizeTask(ctx context.Context, id, status, relativeDir, filename, targetPath, response, errText string, confidence float64) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE organize_tasks
 SET status = ?, relative_dir = ?, filename = ?, target_path = ?, llm_response = ?, confidence = ?, error = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?

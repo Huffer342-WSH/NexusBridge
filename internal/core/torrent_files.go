@@ -3,9 +3,11 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +25,7 @@ type torrentFileFetchResult struct {
 	err      error
 }
 
-// ensureTorrentFiles 为尚未持久化文件的检索结果补齐 torrent BLOB 和 info hash。
+// ensureTorrentFiles 为尚未持久化文件的检索结果补齐 torrent 文件和 info hash。
 func (a *App) ensureTorrentFiles(ctx context.Context, torrents []Torrent) (int, int, error) {
 	keys := make([]storage.TorrentKey, 0, len(torrents))
 	for _, torrent := range torrents {
@@ -89,20 +91,20 @@ func (a *App) ensureTorrentFiles(ctx context.Context, torrents []Torrent) (int, 
 	return saved, failed, persistErr
 }
 
-// loadOrFetchTorrentFile 优先读取数据库 BLOB，缺失时下载、解析并保存。
+// loadOrFetchTorrentFile 优先读取本地 torrent 文件，缺失时下载、解析并保存。
 func (a *App) loadOrFetchTorrentFile(ctx context.Context, torrent Torrent) ([]byte, qbittorrent.TorrentHashes, error) {
 	data, metadata, err := a.loadOrFetchTorrentMetadata(ctx, torrent)
 	return data, metadata.Hashes, err
 }
 
-// loadOrFetchTorrentMetadata 优先读取数据库 BLOB，并返回 hash 与原始名称。
+// loadOrFetchTorrentMetadata 优先读取本地 torrent 文件，并返回 hash 与原始名称。
 func (a *App) loadOrFetchTorrentMetadata(ctx context.Context, torrent Torrent) ([]byte, qbittorrent.TorrentMetadata, error) {
 	key := storage.TorrentKey{SiteID: torrent.SiteID, TorrentID: torrent.ID}
 	stored, ok, err := a.store.GetTorrentFile(ctx, key)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, qbittorrent.TorrentMetadata{}, err
 	}
-	if ok && stored.HasData && (stored.InfoHashV1 != "" || stored.InfoHashV2 != "") {
+	if err == nil && ok && stored.HasData && (stored.InfoHashV1 != "" || stored.InfoHashV2 != "") {
 		return stored.Data, qbittorrent.TorrentMetadata{
 			Hashes: qbittorrent.TorrentHashes{V1: stored.InfoHashV1, V2: stored.InfoHashV2},
 			Name:   stored.OriginalName,

@@ -1,32 +1,68 @@
-// qb_poll.go 负责使用 qB sync/maindata 增量刷新本地状态快照。
+// qb_poll.go 负责由后端单一协调器维护 qB 实时状态。
 package core
 
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
-	"nexusbridge/internal/qbittorrent"
 	"nexusbridge/internal/storage"
 )
 
-// PollQB 获取 qB 增量数据、按 hash 更新数据库快照并返回前端更新项。
-func (a *App) PollQB(ctx context.Context, rid int) (QBPollResult, error) {
+// PollQB 返回后端共享的 qB 实时状态；所有浏览器标签共用一个 qB RID。
+func (a *App) PollQB(ctx context.Context, clientRevision int) (QBPollResult, error) {
+	a.qbPollMu.Lock()
+	defer a.qbPollMu.Unlock()
+
+	a.qbConfigMu.RLock()
+	syncIntervalSeconds := a.cfg.QBittorrent.SyncIntervalSeconds
+	a.qbConfigMu.RUnlock()
+	pollInterval := time.Duration(max(1, syncIntervalSeconds)) * time.Second
+	if a.qbPollRevision == 0 || time.Since(a.qbPollLastAt) >= pollInterval {
+		if err := a.refreshQBRuntime(ctx); err != nil {
+			return QBPollResult{}, err
+		}
+	}
+	result := QBPollResult{
+		RID:       a.qbPollRevision,
+		Connected: true,
+		Updates:   []QBTorrentUpdate{},
+	}
+	if clientRevision == a.qbPollRevision && clientRevision != 0 {
+		return result, nil
+	}
+	result.FullUpdate = true
+	a.qbRuntimeMu.RLock()
+	defer a.qbRuntimeMu.RUnlock()
+	for _, record := range a.qbRuntime {
+		result.Updates = append(result.Updates, qbUpdateFromSnapshot(record))
+		if record.Added {
+			result.Updated++
+		} else {
+			result.Removed++
+		}
+	}
+	return result, nil
+}
+
+func (a *App) refreshQBRuntime(ctx context.Context) error {
 	qb, err := a.qbClient(ctx)
 	if err != nil {
-		return QBPollResult{}, err
+		return err
 	}
-	mainData, err := qb.GetMainData(ctx, rid)
+	mainData, err := qb.GetMainData(ctx, a.qbPollRID)
 	if err != nil {
-		return QBPollResult{}, err
+		return err
 	}
 	files, err := a.store.ListTorrentHashes(ctx)
 	if err != nil {
-		return QBPollResult{}, err
+		return err
 	}
-	keysByHash := map[string][]storage.TorrentKey{}
+	keysByHash := make(map[string][]storage.TorrentKey, len(files))
 	keys := make([]storage.TorrentKey, 0, len(files))
+	currentKeys := make(map[storage.TorrentKey]struct{}, len(files))
 	for _, file := range files {
 		hash := strings.ToLower(strings.TrimSpace(file.InfoHashV1))
 		if hash == "" {
@@ -35,80 +71,120 @@ func (a *App) PollQB(ctx context.Context, rid int) (QBPollResult, error) {
 		key := storage.TorrentKey{SiteID: file.SiteID, TorrentID: file.TorrentID}
 		keysByHash[hash] = append(keysByHash[hash], key)
 		keys = append(keys, key)
+		currentKeys[key] = struct{}{}
 	}
-	existing, err := a.store.ListQBSnapshots(ctx, keys)
+	stable, err := a.store.ListQBSnapshots(ctx, keys)
 	if err != nil {
-		return QBPollResult{}, err
+		return err
 	}
-	result := QBPollResult{RID: mainData.RID, FullUpdate: mainData.FullUpdate, Connected: true, Updates: []QBTorrentUpdate{}}
-	seen := map[storage.TorrentKey]struct{}{}
-	syncedAt := time.Now()
+	now := time.Now()
+	a.qbRuntimeMu.Lock()
+	defer a.qbRuntimeMu.Unlock()
+	for key := range a.qbRuntime {
+		if _, ok := currentKeys[key]; !ok {
+			delete(a.qbRuntime, key)
+		}
+	}
+	seen := make(map[storage.TorrentKey]struct{}, len(keys))
+	persist := make([]storage.QBSnapshotRecord, 0, len(mainData.Torrents)+len(mainData.TorrentsRemoved))
 	for rawHash, patch := range mainData.Torrents {
 		hash := strings.ToLower(strings.TrimSpace(rawHash))
 		for _, key := range keysByHash[hash] {
-			record := existing[key]
+			record, ok := a.qbRuntime[key]
+			if !ok {
+				record = stable[key]
+			}
+			previous := record
 			record.SiteID, record.TorrentID = key.SiteID, key.TorrentID
-			record.Added, record.QBHash, record.SyncedAt = true, hash, syncedAt
-			if mainData.FullUpdate {
-				var torrent qbittorrent.TorrentInfo
-				if err := json.Unmarshal(patch, &torrent); err != nil {
-					return result, err
-				}
-				torrent.Hash = hash
-				record = qbSnapshotFromTorrent(key, torrent, qbittorrent.TorrentProperties{}, false, syncedAt)
-			} else if err := applyQBTorrentPatch(&record, patch); err != nil {
-				return result, err
+			record.Added, record.QBHash, record.SyncedAt = true, hash, now
+			if err := applyQBTorrentPatch(&record, patch); err != nil {
+				return err
 			}
-			if err := a.store.SaveQBSnapshot(ctx, record); err != nil {
-				return result, err
-			}
+			a.qbRuntime[key] = record
 			seen[key] = struct{}{}
-			result.Updates = append(result.Updates, qbUpdateFromSnapshot(record))
-			result.Updated++
+			if !stableQBAssociationEqual(previous, record) {
+				persist = append(persist, record)
+			}
 		}
 	}
-	removedHashes := map[string]struct{}{}
+	removedHashes := make(map[string]struct{}, len(mainData.TorrentsRemoved))
 	for _, hash := range mainData.TorrentsRemoved {
 		removedHashes[strings.ToLower(strings.TrimSpace(hash))] = struct{}{}
 	}
 	if mainData.FullUpdate {
 		for hash, localKeys := range keysByHash {
-			present := false
 			for _, key := range localKeys {
-				if _, ok := seen[key]; ok {
-					present = true
-					break
-				}
-			}
-			if present {
-				continue
-			}
-			for _, key := range localKeys {
-				if existing[key].Added {
+				if _, ok := seen[key]; !ok {
 					removedHashes[hash] = struct{}{}
+					break
 				}
 			}
 		}
 	}
 	for hash := range removedHashes {
 		for _, key := range keysByHash[hash] {
-			if _, updated := seen[key]; updated {
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			record := existing[key]
-			record.SiteID, record.TorrentID = key.SiteID, key.TorrentID
-			record.Added, record.QBHash, record.State, record.SyncedAt = false, hash, "missing", syncedAt
-			if err := a.store.SaveQBSnapshot(ctx, record); err != nil {
-				return result, err
+			record, ok := a.qbRuntime[key]
+			if !ok {
+				record = stable[key]
 			}
-			result.Updates = append(result.Updates, qbUpdateFromSnapshot(record))
-			result.Removed++
+			previous := record
+			record.SiteID, record.TorrentID = key.SiteID, key.TorrentID
+			record.Added, record.QBHash, record.SyncedAt = false, hash, now
+			clearQBRuntimeFields(&record)
+			a.qbRuntime[key] = record
+			if !stableQBAssociationEqual(previous, record) {
+				persist = append(persist, record)
+			}
 		}
 	}
-	return result, nil
+	if err := a.store.SaveQBSnapshots(ctx, persist); err != nil {
+		return err
+	}
+	a.qbPollRID = mainData.RID
+	a.qbPollLastAt = now
+	if a.qbPollRevision == 0 || len(mainData.Torrents) > 0 || len(mainData.TorrentsRemoved) > 0 || mainData.FullUpdate {
+		a.qbPollRevision++
+	}
+	return nil
 }
 
-// applyQBTorrentPatch 将 qB 增量字段合并到已有数据库快照。
+func stableQBAssociationEqual(left, right storage.QBSnapshotRecord) bool {
+	return left.SiteID == right.SiteID &&
+		left.TorrentID == right.TorrentID &&
+		left.Added == right.Added &&
+		left.QBHash == right.QBHash &&
+		left.Name == right.Name &&
+		left.Category == right.Category &&
+		slices.Equal(left.Tags, right.Tags) &&
+		left.SavePath == right.SavePath &&
+		left.ContentPath == right.ContentPath &&
+		left.TotalSize == right.TotalSize &&
+		left.Tracker == right.Tracker &&
+		left.IsPrivate == right.IsPrivate &&
+		left.AddedOn == right.AddedOn &&
+		left.CompletionOn == right.CompletionOn &&
+		left.CreationDate == right.CreationDate &&
+		left.PieceSize == right.PieceSize &&
+		left.Comment == right.Comment &&
+		left.CreatedBy == right.CreatedBy
+}
+
+func clearQBRuntimeFields(record *storage.QBSnapshotRecord) {
+	record.State = ""
+	record.Progress = 0
+	record.AmountLeft = 0
+	record.Downloaded = 0
+	record.Uploaded = 0
+	record.DownloadSpeed = 0
+	record.UploadSpeed = 0
+	record.ETA = 0
+	record.Ratio = 0
+}
+
+// applyQBTorrentPatch 将 qB 增量字段合并到内存状态。
 func applyQBTorrentPatch(record *storage.QBSnapshotRecord, data json.RawMessage) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
@@ -147,7 +223,6 @@ func applyQBTorrentPatch(record *storage.QBSnapshotRecord, data json.RawMessage)
 	return nil
 }
 
-// decodeQBField 仅在增量响应包含字段时覆盖目标值。
 func decodeQBField[T any](fields map[string]json.RawMessage, name string, target *T) bool {
 	raw, ok := fields[name]
 	if !ok || json.Unmarshal(raw, target) != nil {
@@ -156,7 +231,6 @@ func decodeQBField[T any](fields map[string]json.RawMessage, name string, target
 	return true
 }
 
-// qbUpdateFromSnapshot 生成前端可直接合并的单种子状态更新。
 func qbUpdateFromSnapshot(record storage.QBSnapshotRecord) QBTorrentUpdate {
 	return QBTorrentUpdate{SiteID: record.SiteID, TorrentID: record.TorrentID, QBStatus: qbStatusFromSnapshot(record)}
 }

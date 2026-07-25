@@ -38,6 +38,14 @@ type recoveryFileMapping struct {
 
 // PreviewRecovery 按保留文件的完整大小集合查找可恢复的 torrent，不修改 qB 状态。
 func (a *App) PreviewRecovery(ctx context.Context, request RecoveryPreviewRequest) (RecoveryPreview, error) {
+	target, err := scanRecoveryPath(request.Path)
+	if err != nil {
+		return RecoveryPreview{}, err
+	}
+	return a.previewRecoveryTarget(ctx, request, target)
+}
+
+func (a *App) previewRecoveryTarget(ctx context.Context, request RecoveryPreviewRequest, target recoveryTarget) (RecoveryPreview, error) {
 	searchMode := RecoverySearchURL
 	if strings.TrimSpace(request.TorrentURL) == "" {
 		var err error
@@ -45,10 +53,6 @@ func (a *App) PreviewRecovery(ctx context.Context, request RecoveryPreviewReques
 		if err != nil {
 			return RecoveryPreview{}, err
 		}
-	}
-	target, err := scanRecoveryPath(request.Path)
-	if err != nil {
-		return RecoveryPreview{}, err
 	}
 	preview := RecoveryPreview{
 		Path: target.Path, FolderName: target.SearchName, SavePath: filepath.Dir(target.Path),

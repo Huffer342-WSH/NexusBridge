@@ -66,7 +66,7 @@ type TorrentListQuery struct {
 	SortDirection string
 	Limit         int
 	Offset        int
-	ExcludePinned bool
+	ExcludeKeys   []TorrentKey
 }
 
 // TorrentKey 唯一标识一个站点种子。
@@ -77,16 +77,18 @@ type TorrentKey struct {
 
 // UpsertTorrents 新增或更新一批种子记录。
 func (s *SQLiteStore) UpsertTorrents(ctx context.Context, records []TorrentRecord) (TorrentUpsertResult, error) {
-	return s.upsertTorrents(ctx, "", records, false)
+	return s.upsertTorrents(ctx, records)
 }
 
-// UpsertTorrentPage 写入一页站点列表，并可在第一页原子清除该站点旧置顶状态。
-func (s *SQLiteStore) UpsertTorrentPage(ctx context.Context, siteID string, records []TorrentRecord, resetPinned bool) (TorrentUpsertResult, error) {
-	return s.upsertTorrents(ctx, strings.TrimSpace(siteID), records, resetPinned)
+// UpsertTorrentPage 写入一页站点列表；置顶信息仅由核心层保存在内存。
+func (s *SQLiteStore) UpsertTorrentPage(ctx context.Context, records []TorrentRecord) (TorrentUpsertResult, error) {
+	return s.upsertTorrents(ctx, records)
 }
 
-func (s *SQLiteStore) upsertTorrents(ctx context.Context, siteID string, records []TorrentRecord, resetPinned bool) (TorrentUpsertResult, error) {
+func (s *SQLiteStore) upsertTorrents(ctx context.Context, records []TorrentRecord) (TorrentUpsertResult, error) {
 	result := TorrentUpsertResult{Total: len(records)}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return result, err
@@ -97,28 +99,38 @@ func (s *SQLiteStore) upsertTorrents(ctx context.Context, siteID string, records
 		subtitle  string
 	}
 	existing := make(map[TorrentKey]existingTorrent, len(records))
+	keys := make([]TorrentKey, 0, len(records))
 	for _, record := range records {
-		var item existingTorrent
-		err := tx.QueryRowContext(ctx, `
-SELECT source_order || '|' || title || '|' || category || '|' || category_query || '|' || detail_url || '|' || download_url || '|' || cover_url || '|' ||
+		if strings.TrimSpace(record.SiteID) != "" && strings.TrimSpace(record.TorrentID) != "" {
+			keys = append(keys, TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID})
+		}
+	}
+	if len(keys) > 0 {
+		query, args := torrentKeyQuery(`
+SELECT site_id, torrent_id,
+       source_order || '|' || title || '|' || category || '|' || category_query || '|' || detail_url || '|' || download_url || '|' || cover_url || '|' ||
        tags_json || '|' || tag_ids_json || '|' || promotion || '|' || promotion_class || '|' || promotion_ends_at || '|' || promotion_remaining || '|' ||
        description || '|' || subtitle || '|' || size_text || '|' || size_bytes || '|' || seeders || '|' || leechers || '|' || snatches || '|' ||
-       comments || '|' || published_at || '|' || published_text || '|' || sticky_level || '|' || bookmarked,
+       comments || '|' || published_at || '|' || published_text || '|' || bookmarked,
        subtitle
-FROM torrents WHERE site_id = ? AND torrent_id = ?
-`, record.SiteID, record.TorrentID).Scan(&item.signature, &item.subtitle)
-		if err == nil {
-			existing[TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}] = item
-		} else if err != sql.ErrNoRows {
-			return result, fmt.Errorf("check torrent: %w", err)
+FROM torrents WHERE `, keys)
+		rows, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return result, fmt.Errorf("load existing torrents: %w", err)
+		}
+		for rows.Next() {
+			var key TorrentKey
+			var item existingTorrent
+			if err := rows.Scan(&key.SiteID, &key.TorrentID, &item.signature, &item.subtitle); err != nil {
+				_ = rows.Close()
+				return result, err
+			}
+			existing[key] = item
+		}
+		if err := rows.Close(); err != nil {
+			return result, err
 		}
 	}
-	if resetPinned && siteID != "" {
-		if _, err := tx.ExecContext(ctx, `UPDATE torrents SET sticky_level = 0, updated_at = CURRENT_TIMESTAMP WHERE site_id = ? AND sticky_level <> 0`, siteID); err != nil {
-			return result, fmt.Errorf("reset torrent sticky state: %w", err)
-		}
-	}
-
 	for _, record := range records {
 		if strings.TrimSpace(record.SiteID) == "" || strings.TrimSpace(record.TorrentID) == "" {
 			continue
@@ -161,13 +173,14 @@ FROM torrents WHERE site_id = ? AND torrent_id = ?
 			strconv.Itoa(record.Comments),
 			record.PublishedAt,
 			record.PublishedText,
-			strconv.Itoa(record.StickyLevel),
 			strconv.Itoa(boolInt(record.Bookmarked)),
 		}, "|")
 		if !exists {
 			result.Inserted = append(result.Inserted, record)
 		} else if existingRecord.signature != newSig {
 			result.Changed = append(result.Changed, record)
+		} else {
+			continue
 		}
 
 		_, err = tx.ExecContext(ctx, `
@@ -175,8 +188,8 @@ INSERT INTO torrents (
 	site_id, torrent_id, source_order, title, category, category_query, detail_url, download_url, cover_url,
 	tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
 	subtitle, size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
-	sticky_level, bookmarked, first_seen_at, last_seen_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	bookmarked, first_seen_at, last_seen_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	source_order = excluded.source_order,
 	title = excluded.title,
@@ -201,7 +214,6 @@ ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	comments = excluded.comments,
 	published_at = excluded.published_at,
 	published_text = excluded.published_text,
-	sticky_level = excluded.sticky_level,
 	bookmarked = excluded.bookmarked,
 	last_seen_at = CURRENT_TIMESTAMP,
 	updated_at = CURRENT_TIMESTAMP
@@ -209,7 +221,7 @@ ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 			record.CoverURL, string(tagsJSON), string(tagIDsJSON), record.Promotion, record.PromotionClass, record.PromotionEndsAt,
 			record.PromotionRemaining, record.Description, record.Subtitle, record.SizeText, record.SizeBytes, record.Seeders,
 			record.Leechers, record.Snatches, record.Comments, record.PublishedAt, record.PublishedText,
-			record.StickyLevel, boolInt(record.Bookmarked))
+			boolInt(record.Bookmarked))
 		if err != nil {
 			return result, fmt.Errorf("upsert torrent: %w", err)
 		}
@@ -223,7 +235,13 @@ VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 		}
 	}
 
-	return result, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	if err := s.updateTorrentSearch(ctx, records); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 type torrentQueryer interface {
@@ -250,8 +268,13 @@ func buildTorrentWhere(query TorrentListQuery) (string, []any) {
 		}
 		clauses = append(clauses, "("+strings.Join(searchClauses, " OR ")+")")
 	}
-	if query.ExcludePinned {
-		clauses = append(clauses, "sticky_level = 0")
+	if len(query.ExcludeKeys) > 0 {
+		exclusions := make([]string, 0, len(query.ExcludeKeys))
+		for _, key := range query.ExcludeKeys {
+			exclusions = append(exclusions, "(site_id = ? AND torrent_id = ?)")
+			args = append(args, key.SiteID, key.TorrentID)
+		}
+		clauses = append(clauses, "NOT ("+strings.Join(exclusions, " OR ")+")")
 	}
 	return strings.Join(clauses, " AND "), args
 }
@@ -267,7 +290,7 @@ func listTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuery
 		limit = defaultTorrentListLimit
 	}
 	where, args := buildTorrentWhere(query)
-	orderBy := "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
+	orderBy := "CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
 	if column, ok := map[string]string{
 		"source_order": "source_order", "published_at": "published_at", "size_bytes": "size_bytes",
 		"seeders": "seeders", "leechers": "leechers", "snatches": "snatches",
@@ -277,9 +300,9 @@ func listTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuery
 			direction = "DESC"
 		}
 		if column == "published_at" && direction == "DESC" {
-			orderBy = "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
+			orderBy = "CASE WHEN published_at = '' OR datetime(published_at) IS NULL THEN 1 ELSE 0 END ASC, published_at DESC, site_id ASC, torrent_id ASC"
 		} else {
-			orderBy = "CASE WHEN sticky_level > 0 THEN 0 ELSE 1 END ASC, sticky_level DESC, " + column + " " + direction + ", site_id ASC, torrent_id ASC"
+			orderBy = column + " " + direction + ", site_id ASC, torrent_id ASC"
 		}
 	}
 	args = append(args, limit, query.Offset)
@@ -288,7 +311,7 @@ SELECT site_id, torrent_id, source_order, title, category, category_query, detai
        tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
        detail_title, subtitle, product_url, detail_info_hash, detail_description, detail_raw_text, detail_fetched_at,
        size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
-       sticky_level, bookmarked, first_seen_at, last_seen_at
+       bookmarked, first_seen_at, last_seen_at
 FROM torrents
 WHERE `+where+`
 ORDER BY `+orderBy+`
@@ -310,7 +333,7 @@ LIMIT ? OFFSET ?
 			&record.PromotionClass, &record.PromotionEndsAt, &record.PromotionRemaining, &record.Description,
 			&record.DetailTitle, &record.Subtitle, &record.ProductURL, &record.DetailInfoHash, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
 			&record.SizeText, &record.SizeBytes, &record.Seeders, &record.Leechers, &record.Snatches,
-			&record.Comments, &record.PublishedAt, &record.PublishedText, &record.StickyLevel, &bookmarked,
+			&record.Comments, &record.PublishedAt, &record.PublishedText, &bookmarked,
 			&firstSeen, &lastSeen); err != nil {
 			return nil, err
 		}
@@ -333,6 +356,9 @@ func countTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuer
 
 // ListTorrentPage 在同一只读事务中返回筛选总数和当前范围。
 func (s *SQLiteStore) ListTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
+	if len([]rune(strings.TrimSpace(query.Search))) >= 3 {
+		return s.searchTorrentPage(ctx, query)
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, 0, err
@@ -415,7 +441,7 @@ SELECT site_id, torrent_id, source_order, title, category, category_query, detai
        tags_json, tag_ids_json, promotion, promotion_class, promotion_ends_at, promotion_remaining, description,
        detail_title, subtitle, product_url, detail_info_hash, detail_description, detail_raw_text, detail_fetched_at,
        size_text, size_bytes, seeders, leechers, snatches, comments, published_at, published_text,
-       sticky_level, bookmarked, first_seen_at, last_seen_at
+       bookmarked, first_seen_at, last_seen_at
 FROM torrents
 WHERE site_id = ? AND torrent_id = ?
 	`, siteID, torrentID).Scan(&record.SiteID, &record.TorrentID, &record.SourceOrder, &record.Title, &record.Category, &record.CategoryQuery,
@@ -423,7 +449,7 @@ WHERE site_id = ? AND torrent_id = ?
 		&record.PromotionClass, &record.PromotionEndsAt, &record.PromotionRemaining, &record.Description,
 		&record.DetailTitle, &record.Subtitle, &record.ProductURL, &record.DetailInfoHash, &record.DetailDescription, &record.DetailRawText, &record.DetailFetchedAt,
 		&record.SizeText, &record.SizeBytes, &record.Seeders, &record.Leechers, &record.Snatches,
-		&record.Comments, &record.PublishedAt, &record.PublishedText, &record.StickyLevel, &bookmarked,
+		&record.Comments, &record.PublishedAt, &record.PublishedText, &bookmarked,
 		&firstSeen, &lastSeen)
 	if err == sql.ErrNoRows {
 		return TorrentRecord{}, false, nil
@@ -441,7 +467,7 @@ WHERE site_id = ? AND torrent_id = ?
 
 // UpdateTorrentDetail 只更新种子的详情页字段。
 func (s *SQLiteStore) UpdateTorrentDetail(ctx context.Context, record TorrentRecord) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execWriteContext(ctx, `
 UPDATE torrents
 SET detail_title = ?, subtitle = ?, product_url = ?, detail_info_hash = ?, detail_description = ?, detail_raw_text = ?, detail_fetched_at = ?, updated_at = CURRENT_TIMESTAMP
 WHERE site_id = ? AND torrent_id = ?

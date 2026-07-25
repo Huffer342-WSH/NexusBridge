@@ -10,7 +10,7 @@
 
 - NexusBridge 能读取待恢复文件或目录。
 - qBittorrent WebAPI 已连接，并允许添加、重命名、重新校验和启动任务。
-- 使用数据库匹配前，torrent 文件大小索引必须完整。旧数据库只需在“文件”页手动重建一次，之后保存、覆盖或删除 torrent BLOB 时会自动维护。
+- 使用数据库匹配前，torrent 文件大小签名必须完整。新保存的 torrent 会自动维护；手动重建仅用于修复缺失或解析失败的签名。
 - 站点搜索和私站 torrent URL 需要对应站点配置及有效凭据。Cookie 只会通过统一请求策略发送给匹配的站点域名。
 - 当前恢复要求 torrent 包含 v1 info hash；纯 v2 torrent 暂不支持。
 
@@ -52,7 +52,7 @@
 
 | 来源 | 行为 |
 | --- | --- |
-| 本地数据库 | 使用 `(file_size, site_id, torrent_id)` 倒排索引缩小候选，再读取并解析候选 torrent BLOB。 |
+| 本地数据库 | 使用完整大小多重集 SHA-256 签名缩小候选，再读取并解析内容寻址 torrent 文件。 |
 | 站点网页 | 使用目标名称的多个搜索变体查询站点，按站点展示大小预筛后下载 torrent，并进行精确匹配。 |
 | 数据库优先 | 先查询数据库；没有候选时才访问站点网页。 |
 | 直接 URL | 下载用户提供的 torrent URL；匹配私站时通过统一入口携带该站允许的 Cookie。 |
@@ -64,7 +64,7 @@
 - 每个文件大小及同一大小的重复次数必须一致。
 - 文件名和相对路径用于优先建立映射，但不是内容真实性证明。
 
-大小索引只负责缩小数据库候选范围。执行恢复前仍会重新读取磁盘、解析 torrent，并再次验证完整集合。当前不进行 piece SHA1 预校验，最终内容正确性由 qB 强制校验确认。
+大小签名只负责缩小数据库候选范围。执行恢复前仍会重新读取磁盘、解析 torrent，并再次验证完整集合。目录批量扫描在一次遍历中为候选聚合大小，不保存本地目录树。当前不进行 piece SHA1 预校验，最终内容正确性由 qB 强制校验确认。
 
 ## qB 恢复流程
 
@@ -144,10 +144,10 @@ E:/.NSFW/PT/ASMR
 | 模块 | 作用 |
 | --- | --- |
 | `internal/core/file_manager.go` | 浏览文件、标记现有 qB 归属并扫描候选。 |
-| `internal/core/torrent_size_index.go` | 查询和手动重建大小倒排索引。 |
+| `internal/core/torrent_size_index.go` | 查询和手动重建大小签名。 |
 | `internal/core/recovery.go` | 匹配 torrent、推断分类、添加任务、映射路径和校验。 |
 | `internal/core/recovery_batch.go` | 串行执行扫描出的唯一候选。 |
-| `internal/storage/torrent_files.go` | 保存 torrent BLOB 及文件大小索引。 |
+| `internal/storage/torrent_files.go` | 保存内容寻址 torrent 文件元数据及完整大小签名。 |
 | `internal/qbittorrent/client.go` | qB 认证、基础请求和默认保存路径查询。 |
 | `internal/qbittorrent/torrents.go` | 添加、重命名、校验、启动和删除任务。 |
 
