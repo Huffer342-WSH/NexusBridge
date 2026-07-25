@@ -80,3 +80,29 @@ func (s *Server) handleSaveSiteCredential(w http.ResponseWriter, r *http.Request
 	saved.Cookie = ""
 	writeJSON(w, http.StatusOK, saved)
 }
+
+// handleGetSiteAttendance 返回站点自动签到配置和最近状态。
+func (s *Server) handleGetSiteAttendance(w http.ResponseWriter, r *http.Request) {
+	attendance, err := s.sites.GetSiteAttendance(r.Context(), chi.URLParam(r, "site_id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, attendance)
+}
+
+// handleSaveSiteAttendance 保存站点自动签到配置。
+func (s *Server) handleSaveSiteAttendance(w http.ResponseWriter, r *http.Request) {
+	var attendance core.SiteAttendance
+	if err := json.NewDecoder(r.Body).Decode(&attendance); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	attendance.SiteID = chi.URLParam(r, "site_id")
+	saved, err := s.sites.SaveSiteAttendance(r.Context(), attendance)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}

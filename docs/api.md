@@ -50,6 +50,14 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 保存指定站点的 `cookie` 和 `user_agent`。`cookie` 使用浏览器请求头格式，例如 `name=value; name2=value2`；如果 cookie 留空，只更新 user-agent。
 
+`GET /api/sites/{site_id}/attendance`
+
+返回站点每日自动签到配置和最近状态。未保存时返回 `configured=false`、`enabled=false`、`time_of_day="09:00"` 和空时区。
+
+`POST /api/sites/{site_id}/attendance`
+
+保存 `{ "enabled": true, "time_of_day": "09:00", "timezone": "Asia/Shanghai" }`。时间使用严格 `HH:mm`，时区必须是有效的 IANA 时区。启用后按该时区计算下次执行时间；关闭时保留时间和时区。签到使用站点现有 Cookie 访问站点 JSON 声明的页面，HTTP 2xx 视为完成，失败记录错误并等到次日，不保存响应正文。
+
 `POST /api/sites/{site_id}/fetch`
 
 接收 `{ "mode": "incremental" }` 或 `{ "mode": "pages", "pages": 3 }`；空 Body 默认增量。接口创建后台扫描任务并立即返回 `SiteFetchJob` 和 HTTP `202`，同站点已有活动任务时直接返回该任务。`incremental` 使用全局最大页数并在连续 5 条既有普通种子时提前停止；`pages` 请求页数不得超过全局上限。

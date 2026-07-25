@@ -1,6 +1,18 @@
 <!-- 应用壳负责页面导航、共享状态和跨组件操作协调。 -->
 <script setup lang="ts">
-import { BellRing, Bot, CloudDownload, Database, FolderKanban, FolderOpen, KeyRound, Network, RefreshCw, Settings, ShieldCheck } from '@lucide/vue';
+import {
+  BellRing,
+  Bot,
+  CloudDownload,
+  Database,
+  FolderKanban,
+  FolderOpen,
+  KeyRound,
+  Network,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+} from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import {
   createDiscreteApi,
@@ -31,17 +43,18 @@ import type {
   DownloadPreview,
   DownloadTask,
   Health,
-	FetchSettings,
+  FetchSettings,
   LLMConfig,
   NetworkConfig,
   OrganizeTask,
   QBittorrentConfig,
   Session,
   Site,
-	SiteFetchJob,
-	SiteFetchRequest,
+  SiteAttendance,
+  SiteFetchJob,
+  SiteFetchRequest,
   Torrent,
-	TorrentPageQuery,
+  TorrentPageQuery,
   QBPollResult,
 } from './types';
 
@@ -87,11 +100,18 @@ const health = ref<Health | null>(null);
 const sites = ref<Site[]>([]);
 const torrents = ref<Torrent[]>([]);
 const torrentTotal = ref(0);
-const mediaQuery = ref<TorrentPageQuery>({ offset: 0, limit: 50, include_pinned: true, sort_by: 'published_at', sort_direction: 'desc' });
+const mediaQuery = ref<TorrentPageQuery>({
+  offset: 0,
+  limit: 50,
+  include_pinned: true,
+  sort_by: 'published_at',
+  sort_direction: 'desc',
+});
 const downloadTasks = ref<DownloadTask[]>([]);
 const organizeTasks = ref<OrganizeTask[]>([]);
 const siteCredentials = ref<Record<string, SiteCredentialDraft>>({});
-const siteActions = ref<Record<string, 'fetch' | 'save' | ''>>({});
+const siteAttendances = ref<Record<string, SiteAttendance>>({});
+const siteActions = ref<Record<string, 'fetch' | 'save' | 'attendance' | ''>>({});
 const fetchSettings = ref<FetchSettings>({ max_pages: 3 });
 const fetchJobs = ref<SiteFetchJob[]>([]);
 const qbConfig = ref<QBittorrentConfig>(createDefaultQBittorrentConfig());
@@ -123,92 +143,95 @@ const activeDownloads = computed(() => downloadTasks.value.filter((task) => task
 const pendingOrganize = computed(() => organizeTasks.value.filter((task) => task.status !== 'completed').length);
 const activePage = computed(() => route.meta.page as PageKey | 'not-found');
 const activeSettingsPage = computed(() => route.meta.settingsPage as SettingsPageKey | undefined);
-const currentTitle = computed(() => typeof route.meta.title === 'string' ? route.meta.title : 'NexusBridge');
+const currentTitle = computed(() => (typeof route.meta.title === 'string' ? route.meta.title : 'NexusBridge'));
 
 /** 为当前路由组件提供所需状态，避免页面组件接管全局状态。 */
 const currentViewProps = computed<Record<string, unknown>>(() => {
   switch (route.name) {
-  case 'media':
-    return {
-      sites: sites.value,
-      torrents: torrents.value,
-      total: torrentTotal.value,
-      loading: loading.value,
-      qbUrl: qbConfig.value.url,
-      qbSyncing: qbSyncing.value,
-      qbActioning: qbActioning.value,
-    };
-  case 'tasks':
-    return {
-      downloadTasks: downloadTasks.value,
-      organizeTasks: organizeTasks.value,
-      activeDownloads: activeDownloads.value,
-      pendingOrganize: pendingOrganize.value,
-    };
-  case 'files':
-    return { sites: sites.value };
-  case 'subscriptions':
-    return { sites: sites.value, torrents: torrents.value };
-  case 'settings-sites':
-    return {
-      sites: sites.value,
-      credentials: siteCredentials.value,
-      actions: siteActions.value,
-      fetchSettings: fetchSettings.value,
-      fetchJobs: fetchJobs.value,
-    };
-  case 'settings-llm':
-    return { config: llmConfig.value };
-  case 'settings-network':
-    return { config: networkConfig.value };
-  case 'settings-qbittorrent':
-    return {
-      config: qbConfig.value,
-      tagsText: qbTagsText.value,
-      connected: qbConnected.value,
-      polling: qbPolling.value,
-    };
-  default:
-    return {};
+    case 'media':
+      return {
+        sites: sites.value,
+        torrents: torrents.value,
+        total: torrentTotal.value,
+        loading: loading.value,
+        qbUrl: qbConfig.value.url,
+        qbSyncing: qbSyncing.value,
+        qbActioning: qbActioning.value,
+      };
+    case 'tasks':
+      return {
+        downloadTasks: downloadTasks.value,
+        organizeTasks: organizeTasks.value,
+        activeDownloads: activeDownloads.value,
+        pendingOrganize: pendingOrganize.value,
+      };
+    case 'files':
+      return { sites: sites.value };
+    case 'subscriptions':
+      return { sites: sites.value, torrents: torrents.value };
+    case 'settings-sites':
+      return {
+        sites: sites.value,
+        credentials: siteCredentials.value,
+        attendances: siteAttendances.value,
+        actions: siteActions.value,
+        fetchSettings: fetchSettings.value,
+        fetchJobs: fetchJobs.value,
+      };
+    case 'settings-llm':
+      return { config: llmConfig.value };
+    case 'settings-network':
+      return { config: networkConfig.value };
+    case 'settings-qbittorrent':
+      return {
+        config: qbConfig.value,
+        tagsText: qbTagsText.value,
+        connected: qbConnected.value,
+        polling: qbPolling.value,
+      };
+    default:
+      return {};
   }
 });
 
 /** 为当前路由组件连接现有业务动作。 */
 const currentViewListeners = computed((): Record<string, CallableFunction> => {
   switch (route.name) {
-  case 'media':
-    return {
-      download: openDownloadDialog,
-      syncQb: syncQBittorrent,
-      openQb: openQBittorrent,
-      controlQb: controlTorrentQB,
-      queryChange: handleMediaQueryChange,
-    };
-  case 'tasks':
-    return { organize: organizePending };
-  case 'files':
-  case 'settings-mihomo':
-    return { message: setMessage };
-  case 'settings-sites':
-    return {
-      updateCredential: updateSiteCredential,
-      save: saveSiteCredential,
-      fetch: fetchSite,
-      saveFetchSettings,
-    };
-  case 'settings-llm':
-    return { update: updateLLMConfig, save: saveLLM };
-  case 'settings-network':
-    return { update: updateNetworkConfig, save: saveNetwork };
-  case 'settings-qbittorrent':
-    return {
-      update: updateQBConfig,
-      updateTags: setQBTagsText,
-      save: saveQBittorrent,
-      sync: syncQBittorrent,
-    };
-  default:
-    return {};
+    case 'media':
+      return {
+        download: openDownloadDialog,
+        syncQb: syncQBittorrent,
+        openQb: openQBittorrent,
+        controlQb: controlTorrentQB,
+        queryChange: handleMediaQueryChange,
+      };
+    case 'tasks':
+      return { organize: organizePending };
+    case 'files':
+    case 'settings-mihomo':
+      return { message: setMessage };
+    case 'settings-sites':
+      return {
+        updateCredential: updateSiteCredential,
+        updateAttendance: updateSiteAttendance,
+        save: saveSiteCredential,
+        saveAttendance: saveSiteAttendance,
+        fetch: fetchSite,
+        saveFetchSettings,
+      };
+    case 'settings-llm':
+      return { update: updateLLMConfig, save: saveLLM };
+    case 'settings-network':
+      return { update: updateNetworkConfig, save: saveNetwork };
+    case 'settings-qbittorrent':
+      return {
+        update: updateQBConfig,
+        updateTags: setQBTagsText,
+        save: saveQBittorrent,
+        sync: syncQBittorrent,
+      };
+    default:
+      return {};
   }
 });
 
@@ -273,6 +296,21 @@ function updateNetworkConfig(patch: Partial<NetworkConfig>) {
   networkConfig.value = { ...networkConfig.value, ...patch };
 }
 
+/** 更新单个站点的签到配置草稿。 */
+function updateSiteAttendance(siteID: string, patch: Partial<SiteAttendance>) {
+  const current = siteAttendances.value[siteID];
+  if (!current) return;
+  siteAttendances.value[siteID] = { ...current, ...patch };
+}
+
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
 /** 刷新后端健康状态、设置和数据库快照。 */
 async function refresh(clearMessage = true) {
   loading.value = true;
@@ -283,10 +321,11 @@ async function refresh(clearMessage = true) {
     const [healthData, siteData, torrentData, fetchSettingsData, fetchJobData] = await Promise.all([
       api.health(),
       api.sites(),
-	  api.torrents(mediaQuery.value),
-	  api.getFetchSettings(),
-	  api.getSiteFetchJobs(undefined, 100),
+      api.torrents(mediaQuery.value),
+      api.getFetchSettings(),
+      api.getSiteFetchJobs(undefined, 100),
     ]);
+    const attendanceRequest = Promise.allSettled(siteData.map((site) => api.getSiteAttendance(site.id)));
     const [qbData, llmData, networkData, downloadData, organizeData] = await Promise.all([
       api.getQBittorrent(),
       api.getLLM(),
@@ -294,6 +333,7 @@ async function refresh(clearMessage = true) {
       api.downloadTasks(),
       api.organizeTasks(),
     ]);
+    const attendanceResults = await attendanceRequest;
     health.value = healthData;
     sites.value = siteData;
     for (const site of siteData) {
@@ -303,11 +343,30 @@ async function refresh(clearMessage = true) {
         siteCredentials.value[site.id].user_agent = site.user_agent ?? '';
       }
     }
-	mediaQuery.value = { ...mediaQuery.value, offset: torrentData.offset, limit: torrentData.limit };
-	torrents.value = torrentData.items;
-	torrentTotal.value = torrentData.total;
-	fetchSettings.value = fetchSettingsData;
-	fetchJobs.value = fetchJobData;
+    const nextAttendances: Record<string, SiteAttendance> = {};
+    for (const [index, site] of siteData.entries()) {
+      const result = attendanceResults[index];
+      const attendance =
+        result?.status === 'fulfilled'
+          ? result.value
+          : {
+              site_id: site.id,
+              configured: false,
+              enabled: false,
+              time_of_day: '09:00',
+              timezone: '',
+            };
+      nextAttendances[site.id] = {
+        ...attendance,
+        timezone: attendance.timezone || browserTimeZone(),
+      };
+    }
+    siteAttendances.value = nextAttendances;
+    mediaQuery.value = { ...mediaQuery.value, offset: torrentData.offset, limit: torrentData.limit };
+    torrents.value = torrentData.items;
+    torrentTotal.value = torrentData.total;
+    fetchSettings.value = fetchSettingsData;
+    fetchJobs.value = fetchJobData;
     qbConfig.value = { ...qbData, auth_mode: qbData.auth_mode ?? 'uid' };
     qbTagsText.value = qbData.tags?.join(', ') ?? '';
     llmConfig.value = llmData;
@@ -323,46 +382,46 @@ async function refresh(clearMessage = true) {
 
 /** 按媒体视图给出的范围和筛选条件读取数据库。 */
 async function loadTorrentPage(query: TorrentPageQuery = mediaQuery.value) {
-	mediaQuery.value = { ...query, sort_by: 'published_at', sort_direction: 'desc' };
-	loading.value = true;
-	try {
-		const result = await api.torrents(mediaQuery.value);
-		torrents.value = result.items;
-		torrentTotal.value = result.total;
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : '媒体列表加载失败';
-	} finally {
-		loading.value = false;
-	}
+  mediaQuery.value = { ...query, sort_by: 'published_at', sort_direction: 'desc' };
+  loading.value = true;
+  try {
+    const result = await api.torrents(mediaQuery.value);
+    torrents.value = result.items;
+    torrentTotal.value = result.total;
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '媒体列表加载失败';
+  } finally {
+    loading.value = false;
+  }
 }
 
 const { merge: mergeFetchJobs, monitor: monitorFetchJob } = useSiteFetchJobs({
-	jobs: fetchJobs,
-	onCompleted: async (siteID) => {
-		if (mediaQuery.value.site_id === siteID) await loadTorrentPage();
-	},
+  jobs: fetchJobs,
+  onCompleted: async (siteID) => {
+    if (mediaQuery.value.site_id === siteID) await loadTorrentPage();
+  },
 });
 
 async function startSiteFetch(siteID: string, request: SiteFetchRequest, trigger: 'manual' | 'homepage') {
-	const job = await api.fetchSite(siteID, request, trigger);
-	mergeFetchJobs([job]);
-	monitorFetchJob(siteID, job.id);
-	return job;
+  const job = await api.fetchSite(siteID, request, trigger);
+  mergeFetchJobs([job]);
+  monitorFetchJob(siteID, job.id);
+  return job;
 }
 
 /** 响应媒体分页、筛选和单站点首页自动抓取。 */
 async function handleMediaQueryChange(query: Omit<TorrentPageQuery, 'sort_by' | 'sort_direction'>) {
-	await loadTorrentPage({ ...query, sort_by: 'published_at', sort_direction: 'desc' });
-	const siteID = query.site_id;
-	if (!siteID || autoFetchedSites.has(siteID)) return;
-	const site = sites.value.find((item) => item.id === siteID);
-	if (!site?.has_cookie) return;
-	try {
-		await startSiteFetch(siteID, { mode: 'incremental' }, 'homepage');
-		autoFetchedSites.add(siteID);
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : '首页自动抓取失败';
-	}
+  await loadTorrentPage({ ...query, sort_by: 'published_at', sort_direction: 'desc' });
+  const siteID = query.site_id;
+  if (!siteID || autoFetchedSites.has(siteID)) return;
+  const site = sites.value.find((item) => item.id === siteID);
+  if (!site?.has_cookie) return;
+  try {
+    await startSiteFetch(siteID, { mode: 'incremental' }, 'homepage');
+    autoFetchedSites.add(siteID);
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '首页自动抓取失败';
+  }
 }
 
 /** 登录需要鉴权的本地服务。 */
@@ -400,13 +459,33 @@ async function saveSiteCredential(site: Site) {
   }
 }
 
+/** 保存单个站点的自动签到配置。 */
+async function saveSiteAttendance(siteID: string) {
+  const attendance = siteAttendances.value[siteID];
+  if (!attendance) return;
+  message.value = '';
+  siteActions.value[siteID] = 'attendance';
+  try {
+    siteAttendances.value[siteID] = await api.saveSiteAttendance(siteID, {
+      enabled: attendance.enabled,
+      time_of_day: attendance.time_of_day,
+      timezone: attendance.timezone,
+    });
+    message.value = '自动签到设置已保存';
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '自动签到设置保存失败';
+  } finally {
+    siteActions.value[siteID] = '';
+  }
+}
+
 /** 抓取单个站点并刷新数据库列表。 */
 async function fetchSite(siteID: string, request: SiteFetchRequest) {
   message.value = '';
   siteActions.value[siteID] = 'fetch';
   try {
-	const result = await startSiteFetch(siteID, request, 'manual');
-	message.value = `扫描任务已提交：${result.id}`;
+    const result = await startSiteFetch(siteID, request, 'manual');
+    message.value = `扫描任务已提交：${result.id}`;
   } catch (error) {
     message.value = error instanceof Error ? error.message : 'Fetch failed';
   } finally {
@@ -416,12 +495,12 @@ async function fetchSite(siteID: string, request: SiteFetchRequest) {
 
 /** 保存全局站点扫描页数限制。 */
 async function saveFetchSettings(settings: FetchSettings) {
-	try {
-		fetchSettings.value = await api.saveFetchSettings(settings);
-		message.value = '抓取设置已保存';
-	} catch (error) {
-		message.value = error instanceof Error ? error.message : '抓取设置保存失败';
-	}
+  try {
+    fetchSettings.value = await api.saveFetchSettings(settings);
+    message.value = '抓取设置已保存';
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '抓取设置保存失败';
+  }
 }
 
 /** 保存 qBittorrent 配置。 */
@@ -549,7 +628,8 @@ async function controlTorrentQB(torrent: Torrent, action: 'start' | 'stop') {
   try {
     const status = await api.controlTorrentQB(torrent.site_id, torrent.id, action);
     const completed = (status.progress ?? torrent.qb_status?.progress ?? 0) >= 1;
-    status.state = action === 'stop' ? (completed ? 'stoppedUP' : 'stoppedDL') : (completed ? 'uploading' : 'downloading');
+    status.state =
+      action === 'stop' ? (completed ? 'stoppedUP' : 'stoppedDL') : completed ? 'uploading' : 'downloading';
     if (action === 'stop') {
       status.download_speed = 0;
       status.upload_speed = 0;
@@ -612,12 +692,11 @@ onMounted(async () => {
     message.value = error instanceof Error ? error.message : 'Failed to connect to service';
   }
 });
-
 </script>
 
 <template>
   <NConfigProvider :theme-overrides="themeOverrides">
-   <NGlobalStyle />
+    <NGlobalStyle />
     <NLayout class="app-shell" has-sider>
       <NLayoutSider class="desktop-sider" bordered :width="248">
         <div class="brand-block sider-brand">
@@ -628,34 +707,45 @@ onMounted(async () => {
           </div>
         </div>
 
-      <nav class="side-nav">
-        <RouterLink v-for="item in navItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
-          <NButton tag="a" :href="href" :type="activePage === item.key ? 'primary' : 'default'"
-            :secondary="activePage !== item.key" block @click="navigate">
+        <nav class="side-nav">
+          <RouterLink v-for="item in navItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
+            <NButton
+              tag="a"
+              :href="href"
+              :type="activePage === item.key ? 'primary' : 'default'"
+              :secondary="activePage !== item.key"
+              block
+              @click="navigate"
+            >
               <template #icon>
                 <NIcon :component="item.icon" />
               </template>
               {{ item.label }}
             </NButton>
-        </RouterLink>
+          </RouterLink>
         </nav>
 
-      <div class="side-section">
+        <div class="side-section">
           <p>设置</p>
-        <RouterLink v-for="item in settingsItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
-          <NButton tag="a" :href="href"
+          <RouterLink v-for="item in settingsItems" :key="item.key" v-slot="{ href, navigate }" :to="item.to" custom>
+            <NButton
+              tag="a"
+              :href="href"
               :type="activePage === 'settings' && activeSettingsPage === item.key ? 'primary' : 'default'"
-            :secondary="activePage !== 'settings' || activeSettingsPage !== item.key" block @click="navigate">
+              :secondary="activePage !== 'settings' || activeSettingsPage !== item.key"
+              block
+              @click="navigate"
+            >
               <template #icon>
                 <NIcon :component="item.icon" />
               </template>
               {{ item.label }}
             </NButton>
-        </RouterLink>
+          </RouterLink>
         </div>
       </NLayoutSider>
 
-    <NLayout>
+      <NLayout>
         <NLayoutHeader class="app-header" bordered>
           <div class="brand-block mobile-brand">
             <NIcon :component="Database" size="26" class="brand-icon" />
@@ -676,15 +766,19 @@ onMounted(async () => {
           </NButton>
         </NLayoutHeader>
 
-      <NLayoutContent class="app-content">
+        <NLayoutContent class="app-content">
           <NCard v-if="showLogin" class="login-card" title="Sign in" :bordered="false">
             <NForm @submit.prevent="login">
               <NFormItem label="Username">
                 <NInput v-model:value="username" autocomplete="username" />
               </NFormItem>
               <NFormItem label="Password">
-               <NInput v-model:value="password" type="password" show-password-on="click"
-                  autocomplete="current-password" />
+                <NInput
+                  v-model:value="password"
+                  type="password"
+                  show-password-on="click"
+                  autocomplete="current-password"
+                />
               </NFormItem>
               <NButton type="primary" attr-type="submit" block>
                 <template #icon>
@@ -695,43 +789,58 @@ onMounted(async () => {
             </NForm>
           </NCard>
 
-        <template v-else>
-          <RouterView v-slot="{ Component }">
-            <section v-if="activePage === 'settings'" class="settings-page">
-              <nav class="settings-tabs">
-                <RouterLink v-for="item in settingsItems" :key="item.key" v-slot="{ href, navigate }"
-                  :to="item.to" custom>
-                  <NButton tag="a" :href="href" :type="activeSettingsPage === item.key ? 'primary' : 'default'"
-                    :secondary="activeSettingsPage !== item.key" @click="navigate">
+          <template v-else>
+            <RouterView v-slot="{ Component }">
+              <section v-if="activePage === 'settings'" class="settings-page">
+                <nav class="settings-tabs">
+                  <RouterLink
+                    v-for="item in settingsItems"
+                    :key="item.key"
+                    v-slot="{ href, navigate }"
+                    :to="item.to"
+                    custom
+                  >
+                    <NButton
+                      tag="a"
+                      :href="href"
+                      :type="activeSettingsPage === item.key ? 'primary' : 'default'"
+                      :secondary="activeSettingsPage !== item.key"
+                      @click="navigate"
+                    >
                       <template #icon>
                         <NIcon :component="item.icon" />
                       </template>
                       {{ item.label }}
-                  </NButton>
-                </RouterLink>
-              </nav>
+                    </NButton>
+                  </RouterLink>
+                </nav>
 
-              <component :is="Component" v-bind="currentViewProps" v-on="currentViewListeners" />
-            </section>
-            <component :is="Component" v-else v-bind="currentViewProps" v-on="currentViewListeners" />
-          </RouterView>
-        </template>
+                <component :is="Component" v-bind="currentViewProps" v-on="currentViewListeners" />
+              </section>
+              <component :is="Component" v-else v-bind="currentViewProps" v-on="currentViewListeners" />
+            </RouterView>
+          </template>
         </NLayoutContent>
       </NLayout>
     </NLayout>
 
-  <nav v-if="!showLogin" class="mobile-bottom-nav">
-    <RouterLink v-for="item in navItems" :key="item.key" :to="item.to" :class="{ active: activePage === item.key }">
+    <nav v-if="!showLogin" class="mobile-bottom-nav">
+      <RouterLink v-for="item in navItems" :key="item.key" :to="item.to" :class="{ active: activePage === item.key }">
         <NIcon :component="item.icon" />
         <span>{{ item.label }}</span>
-    </RouterLink>
+      </RouterLink>
     </nav>
 
-  <NModal v-model:show="downloadDialogOpen" preset="card" title="Download" class="download-modal"
-      :mask-closable="!downloadDialogSending" :closable="!downloadDialogSending" @close="closeDownloadDialog">
-      <NAlert v-if="downloadDialogLoading" type="info" :bordered="false">
-        Extracting title with LLM...
-      </NAlert>
+    <NModal
+      v-model:show="downloadDialogOpen"
+      preset="card"
+      title="Download"
+      class="download-modal"
+      :mask-closable="!downloadDialogSending"
+      :closable="!downloadDialogSending"
+      @close="closeDownloadDialog"
+    >
+      <NAlert v-if="downloadDialogLoading" type="info" :bordered="false"> Extracting title with LLM... </NAlert>
       <NAlert v-if="downloadDialogError" type="warning" :bordered="false" class="dialog-alert">
         {{ downloadDialogError }}
       </NAlert>
@@ -747,11 +856,15 @@ onMounted(async () => {
         </NFormItem>
       </NForm>
 
-    <template #footer>
+      <template #footer>
         <NSpace justify="end">
           <NButton :disabled="downloadDialogSending" @click="closeDownloadDialog">Cancel</NButton>
-         <NButton type="primary" :loading="downloadDialogSending"
-            :disabled="downloadDialogLoading || !downloadPreview?.download_url" @click="sendDownload">
+          <NButton
+            type="primary"
+            :loading="downloadDialogSending"
+            :disabled="downloadDialogLoading || !downloadPreview?.download_url"
+            @click="sendDownload"
+          >
             Send to qBittorrent
           </NButton>
         </NSpace>

@@ -66,11 +66,13 @@ async function addProvider() {
   adding.value = true;
   error.value = '';
   try {
-    applySettings(await api.addMihomoProvider({
-      config_dir: configDir.value,
-      name: providerName.value,
-      url: providerURL.value,
-    }));
+    applySettings(
+      await api.addMihomoProvider({
+        config_dir: configDir.value,
+        name: providerName.value,
+        url: providerURL.value,
+      }),
+    );
     const addedName = providerName.value.trim();
     providerName.value = '';
     providerURL.value = '';

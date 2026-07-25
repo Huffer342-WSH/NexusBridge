@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	automationPollInterval  = 5 * time.Second
-	defaultScheduleInterval = 15 * time.Minute
-	maxDueSchedulesPerPoll  = 100
+	automationPollInterval           = 5 * time.Second
+	defaultScheduleInterval          = 15 * time.Minute
+	maxDueSchedulesPerPoll           = 100
+	maxDueAttendanceSchedulesPerPoll = 100
 )
 
 // AutomationTicker 抽象调度器的周期信号，便于使用可控时钟验证调度行为。
@@ -130,15 +131,83 @@ func (a *App) automationLoop(ctx context.Context, clock AutomationClock) {
 	ticker := clock.NewTicker(automationPollInterval)
 	defer ticker.Stop()
 
-	a.runDueSiteSchedules(ctx, clock, clock.Now())
+	a.runDueAutomation(ctx, clock, clock.Now())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C():
-			a.runDueSiteSchedules(ctx, clock, now)
+			a.runDueAutomation(ctx, clock, now)
 		case <-a.automationWake:
-			a.runDueSiteSchedules(ctx, clock, clock.Now())
+			a.runDueAutomation(ctx, clock, clock.Now())
+		}
+	}
+}
+
+func (a *App) runDueAutomation(ctx context.Context, clock AutomationClock, now time.Time) {
+	a.runDueSiteAttendances(ctx, clock, now)
+	a.runDueSiteSchedules(ctx, clock, now)
+}
+
+// runDueSiteAttendances 领取并执行当前已经到期的站点签到。
+func (a *App) runDueSiteAttendances(ctx context.Context, clock AutomationClock, now time.Time) {
+	if err := ctx.Err(); err != nil {
+		return
+	}
+	schedules, err := a.store.ListDueSiteAttendanceSchedules(ctx, now, maxDueAttendanceSchedulesPerPoll)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("list due site attendance schedules failed", "error", err)
+		}
+		return
+	}
+	for _, schedule := range schedules {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		location, err := time.LoadLocation(schedule.Timezone)
+		if err != nil {
+			slog.Error("load site attendance timezone failed", "site_id", schedule.SiteID, "timezone", schedule.Timezone, "error", err)
+			continue
+		}
+		claimedNextRunAt, err := nextAttendanceRun(now, schedule.TimeOfDay, location)
+		if err != nil {
+			slog.Error("calculate next site attendance failed", "site_id", schedule.SiteID, "error", err)
+			continue
+		}
+		claimed, err := a.store.ClaimDueSiteAttendanceSchedule(ctx, schedule.SiteID, now, claimedNextRunAt)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				slog.Error("claim due site attendance failed", "site_id", schedule.SiteID, "error", err)
+			}
+			continue
+		}
+		if !claimed {
+			continue
+		}
+
+		runErr := a.runSiteAttendance(ctx, schedule.SiteID)
+		if ctx.Err() != nil {
+			return
+		}
+		finishedAt := clock.Now()
+		nextRunAt, nextErr := nextAttendanceRun(finishedAt, schedule.TimeOfDay, location)
+		if nextErr != nil {
+			nextRunAt = claimedNextRunAt
+		}
+		errText := ""
+		if runErr != nil {
+			errText = runErr.Error()
+		}
+		if err := a.store.UpdateSiteAttendanceResult(
+			ctx,
+			schedule.SiteID,
+			finishedAt,
+			claimedNextRunAt,
+			nextRunAt,
+			errText,
+		); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("save site attendance result failed", "site_id", schedule.SiteID, "error", err)
 		}
 	}
 }

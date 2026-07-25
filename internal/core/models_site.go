@@ -21,6 +21,20 @@ type SiteCredential struct {
 	HasCookie bool   `json:"has_cookie"`
 }
 
+// SiteAttendance 描述站点每日自动签到配置和最近执行状态。
+type SiteAttendance struct {
+	SiteID     string `json:"site_id"`
+	Configured bool   `json:"configured"`
+	Enabled    bool   `json:"enabled"`
+	TimeOfDay  string `json:"time_of_day"`
+	Timezone   string `json:"timezone"`
+
+	LastRunAt *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt *time.Time `json:"next_run_at,omitempty"`
+	LastError string     `json:"last_error,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+}
+
 // Torrent 表示一个站点种子的持久化媒体视图。
 
 // FetchResult 汇总一次同步站点抓取的处理结果。

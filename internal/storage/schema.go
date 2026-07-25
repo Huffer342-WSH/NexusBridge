@@ -166,6 +166,18 @@ CREATE TABLE IF NOT EXISTS site_schedules (
 	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS site_attendance_schedules (
+	site_id TEXT PRIMARY KEY,
+	enabled INTEGER NOT NULL DEFAULT 0,
+	time_of_day TEXT NOT NULL DEFAULT '09:00',
+	timezone TEXT NOT NULL DEFAULT '',
+	last_run_at TEXT NOT NULL DEFAULT '',
+	next_run_at TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS site_fetch_jobs (
 	id TEXT PRIMARY KEY,
 	site_id TEXT NOT NULL,
@@ -313,6 +325,7 @@ CREATE INDEX IF NOT EXISTS idx_torrents_published ON torrents (published_at DESC
 CREATE INDEX IF NOT EXISTS idx_torrents_site_published ON torrents (site_id, published_at DESC, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_enabled_priority ON subscriptions (enabled, priority DESC, id);
 CREATE INDEX IF NOT EXISTS idx_site_schedules_due ON site_schedules (enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_site_attendance_due ON site_attendance_schedules (enabled, next_run_at);
 CREATE INDEX IF NOT EXISTS idx_site_fetch_jobs_site_created ON site_fetch_jobs (site_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_site_fetch_jobs_status ON site_fetch_jobs (status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_subscription_candidates_status ON subscription_candidates (subscription_id, status, source_order, site_id, torrent_id);

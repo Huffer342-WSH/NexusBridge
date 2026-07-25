@@ -1,14 +1,28 @@
 <script setup lang="ts">
 import { RefreshCw, Save } from '@lucide/vue';
-import { NButton, NCard, NForm, NFormItem, NGi, NGrid, NIcon, NInput, NInputNumber, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
+import {
+  NButton,
+  NCard,
+  NForm,
+  NFormItem,
+  NGi,
+  NGrid,
+  NIcon,
+  NInput,
+  NInputNumber,
+  NSelect,
+  NSpace,
+  NSwitch,
+  NTag,
+} from 'naive-ui';
 import { QB_POLLING_LIMITS } from '../config/qbittorrent';
 import type { QBittorrentConfig } from '../types';
 
 defineProps<{
   config: QBittorrentConfig;
   tagsText: string;
-	connected: boolean | null;
-	polling: boolean;
+  connected: boolean | null;
+  polling: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -101,33 +115,59 @@ const authModeOptions = [
             </NFormItem>
           </NGi>
         </NGrid>
-		<NCard size="small" title="状态自动刷新" class="qb-poll-settings">
-			<template #header-extra>
-				<NTag :type="connected === true ? 'success' : connected === false ? 'error' : 'default'">
-					{{ polling ? '同步中' : connected === true ? '已连接' : connected === false ? '未连接' : '未检测' }}
-				</NTag>
-			</template>
-			<NFormItem label="启用 qB 增量刷新">
-				<NSwitch :value="config.auto_sync" @update:value="emit('update', { auto_sync: $event })" />
-			</NFormItem>
-			<NGrid :cols="3" :x-gap="10" responsive="screen">
-				<NGi>
-					<NFormItem label="前台间隔（秒）">
-						<NInputNumber :value="config.sync_interval_seconds" :min="QB_POLLING_LIMITS.syncIntervalSeconds.min" :max="QB_POLLING_LIMITS.syncIntervalSeconds.max" @update:value="emit('update', { sync_interval_seconds: $event ?? QB_POLLING_LIMITS.syncIntervalSeconds.default })" />
-					</NFormItem>
-				</NGi>
-				<NGi>
-					<NFormItem label="后台间隔（秒）">
-						<NInputNumber :value="config.inactive_sync_interval_seconds" :min="QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.min" :max="QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.max" @update:value="emit('update', { inactive_sync_interval_seconds: $event ?? QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.default })" />
-					</NFormItem>
-				</NGi>
-				<NGi>
-					<NFormItem label="断连重试（秒）">
-						<NInputNumber :value="config.disconnected_sync_interval_seconds" :min="QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.min" :max="QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.max" @update:value="emit('update', { disconnected_sync_interval_seconds: $event ?? QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.default })" />
-					</NFormItem>
-				</NGi>
-			</NGrid>
-		</NCard>
+        <NCard size="small" title="状态自动刷新" class="qb-poll-settings">
+          <template #header-extra>
+            <NTag :type="connected === true ? 'success' : connected === false ? 'error' : 'default'">
+              {{ polling ? '同步中' : connected === true ? '已连接' : connected === false ? '未连接' : '未检测' }}
+            </NTag>
+          </template>
+          <NFormItem label="启用 qB 增量刷新">
+            <NSwitch :value="config.auto_sync" @update:value="emit('update', { auto_sync: $event })" />
+          </NFormItem>
+          <NGrid :cols="3" :x-gap="10" responsive="screen">
+            <NGi>
+              <NFormItem label="前台间隔（秒）">
+                <NInputNumber
+                  :value="config.sync_interval_seconds"
+                  :min="QB_POLLING_LIMITS.syncIntervalSeconds.min"
+                  :max="QB_POLLING_LIMITS.syncIntervalSeconds.max"
+                  @update:value="
+                    emit('update', { sync_interval_seconds: $event ?? QB_POLLING_LIMITS.syncIntervalSeconds.default })
+                  "
+                />
+              </NFormItem>
+            </NGi>
+            <NGi>
+              <NFormItem label="后台间隔（秒）">
+                <NInputNumber
+                  :value="config.inactive_sync_interval_seconds"
+                  :min="QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.min"
+                  :max="QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.max"
+                  @update:value="
+                    emit('update', {
+                      inactive_sync_interval_seconds: $event ?? QB_POLLING_LIMITS.inactiveSyncIntervalSeconds.default,
+                    })
+                  "
+                />
+              </NFormItem>
+            </NGi>
+            <NGi>
+              <NFormItem label="断连重试（秒）">
+                <NInputNumber
+                  :value="config.disconnected_sync_interval_seconds"
+                  :min="QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.min"
+                  :max="QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.max"
+                  @update:value="
+                    emit('update', {
+                      disconnected_sync_interval_seconds:
+                        $event ?? QB_POLLING_LIMITS.disconnectedSyncIntervalSeconds.default,
+                    })
+                  "
+                />
+              </NFormItem>
+            </NGi>
+          </NGrid>
+        </NCard>
         <NSpace>
           <NButton type="primary" attr-type="submit">
             <template #icon>

@@ -4,6 +4,7 @@
   "domain": "https://kamept.com",
   "encoding": "UTF-8",
   "public": false,
+  "attendance_page_url": "attendance.php",
   "html": {
     "search": {
       "paths": [

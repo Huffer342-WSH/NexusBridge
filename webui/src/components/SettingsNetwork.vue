@@ -52,16 +52,23 @@ ug.local`;
     <NCard :bordered="false">
       <NForm class="settings-form" @submit.prevent="emit('save')">
         <NFormItem label="代理模式">
-          <NRadioGroup :value="config.mode" name="network-proxy-mode"
-            @update:value="(value) => emit('update', { mode: value as NetworkConfig['mode'] })">
+          <NRadioGroup
+            :value="config.mode"
+            name="network-proxy-mode"
+            @update:value="(value) => emit('update', { mode: value as NetworkConfig['mode'] })"
+          >
             <NRadio value="system">系统代理</NRadio>
             <NRadio value="manual">手动代理</NRadio>
             <NRadio value="direct">直连</NRadio>
           </NRadioGroup>
         </NFormItem>
         <NFormItem v-if="config.mode === 'manual'" label="代理地址">
-          <NInput :value="config.proxy_url" placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:7891"
-            autocomplete="off" @update:value="(value) => emit('update', { proxy_url: value })" />
+          <NInput
+            :value="config.proxy_url"
+            placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:7891"
+            autocomplete="off"
+            @update:value="(value) => emit('update', { proxy_url: value })"
+          />
         </NFormItem>
         <NFormItem label="NO_PROXY">
           <NInput

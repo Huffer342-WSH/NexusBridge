@@ -128,6 +128,8 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/sites", s.handleSites)
 	r.Get("/api/sites/{site_id}/credential", s.handleGetSiteCredential)
 	r.Post("/api/sites/{site_id}/credential", s.handleSaveSiteCredential)
+	r.Get("/api/sites/{site_id}/attendance", s.handleGetSiteAttendance)
+	r.Post("/api/sites/{site_id}/attendance", s.handleSaveSiteAttendance)
 	r.Get("/api/sites/{site_id}/filter-options", s.handleRuleFilterOptions)
 	r.Get("/api/torrents", s.handleTorrents)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/cover", s.handleTorrentCover)

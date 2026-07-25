@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +21,9 @@ func DecodeSiteDefinition(data []byte) (SiteDefinition, error) {
 	definition = NormalizeSiteDefinition(definition)
 	if strings.TrimSpace(definition.ID) == "" || strings.TrimSpace(definition.Domain) == "" {
 		return SiteDefinition{}, fmt.Errorf("site definition must contain id and domain")
+	}
+	if err := validateAttendancePageURL(definition.Domain, definition.AttendancePageURL); err != nil {
+		return SiteDefinition{}, err
 	}
 	if err := requestpolicy.ValidateRules(definition.RequestRules); err != nil {
 		return SiteDefinition{}, err
@@ -61,9 +65,32 @@ func NormalizeSiteDefinition(definition SiteDefinition) SiteDefinition {
 	definition.ID = strings.TrimSpace(definition.ID)
 	definition.Name = strings.TrimSpace(firstNonEmpty(definition.Name, definition.ID))
 	definition.Domain = normalizeBaseURL(definition.Domain)
+	definition.AttendancePageURL = strings.TrimSpace(definition.AttendancePageURL)
+	if definition.AttendancePageURL == "" {
+		definition.AttendancePageURL = "attendance.php"
+	}
 	definition.RequestRules = requestpolicy.NormalizeRules(definition.RequestRules)
 	definition.HTML.Torrents.List.Selector = normalizeNexusMediaTorrentRowsSelector(definition.HTML.Torrents.List.Selector)
 	return definition
+}
+
+// validateAttendancePageURL 限制签到页面只能使用站点同源地址。
+func validateAttendancePageURL(baseURL, attendancePageURL string) error {
+	base, err := url.Parse(normalizeBaseURL(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return fmt.Errorf("site definition domain must be an absolute URL")
+	}
+	target, err := url.Parse(strings.TrimSpace(attendancePageURL))
+	if err != nil {
+		return fmt.Errorf("parse attendance_page_url: %w", err)
+	}
+	if target.Host != "" && !target.IsAbs() {
+		return fmt.Errorf("attendance_page_url must be relative or same-origin")
+	}
+	if target.IsAbs() && (!strings.EqualFold(target.Scheme, base.Scheme) || !strings.EqualFold(target.Host, base.Host)) {
+		return fmt.Errorf("attendance_page_url must use the site origin")
+	}
+	return nil
 }
 
 // SiteConfigFromDefinition 生成运行时站点配置。
@@ -103,6 +130,7 @@ func SiteConfigFromDefinition(definition SiteDefinition) SiteConfig {
 		URL:           absoluteURL(baseURL, listPath),
 		SearchPath:    pathFromURL(searchPath, "/torrents.php"),
 		DownloadPath:  "/download.php",
+		AttendanceURL: absoluteURL(baseURL, definition.AttendancePageURL),
 		Pagination:    pagination,
 		QueryTemplate: queryTemplate,
 	})
@@ -154,6 +182,9 @@ func normalizeSiteConfig(cfg SiteConfig) SiteConfig {
 	}
 	if strings.TrimSpace(cfg.DownloadPath) == "" {
 		cfg.DownloadPath = "/download.php"
+	}
+	if strings.TrimSpace(cfg.AttendanceURL) == "" {
+		cfg.AttendanceURL = absoluteURL(cfg.BaseURL, "attendance.php")
 	}
 	if cfg.QueryTemplate == nil {
 		cfg.QueryTemplate = map[string]string{

@@ -6,6 +6,8 @@ type SiteService interface {
 	ListSites(ctx context.Context) ([]Site, error)
 	GetSiteCredential(ctx context.Context, siteID string) (SiteCredential, error)
 	SaveSiteCredential(ctx context.Context, credential SiteCredential) (SiteCredential, error)
+	GetSiteAttendance(ctx context.Context, siteID string) (SiteAttendance, error)
+	SaveSiteAttendance(ctx context.Context, attendance SiteAttendance) (SiteAttendance, error)
 }
 
 type TorrentService interface {

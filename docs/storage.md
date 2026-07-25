@@ -122,6 +122,7 @@ flowchart LR
 | 表 | 主键 | 主要内容 |
 | --- | --- | --- |
 | `site_schedules` | `site_id` | 是否启用、运行间隔、上次和下次执行时间 |
+| `site_attendance_schedules` | `site_id` | 是否启用、每日时间、时区、上次和下次签到状态 |
 | `site_fetch_jobs` | `id` | 抓取触发方式、进度、增量统计、停止原因和错误 |
 | `download_tasks` | `id` | 种子发送结果、qB hash、分类、标签、保存路径、重试信息 |
 | `organize_tasks` | `id` | 下载后整理的来源、目标、LLM 结果、置信度和错误 |

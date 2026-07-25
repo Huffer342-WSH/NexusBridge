@@ -126,10 +126,11 @@ func loadRuntimeSites(cfg config.Config) (map[string]runtimeSite, []string, erro
 	for _, definition := range definitions {
 		siteCfg := parser.SiteConfigFromDefinition(definition)
 		addSite(runtimeSite{
-			ID:         siteCfg.SiteID,
-			Name:       firstNonEmpty(siteCfg.Name, siteCfg.SiteID),
-			BaseURL:    siteCfg.BaseURL,
-			Definition: definition,
+			ID:            siteCfg.SiteID,
+			Name:          firstNonEmpty(siteCfg.Name, siteCfg.SiteID),
+			BaseURL:       siteCfg.BaseURL,
+			AttendanceURL: siteCfg.AttendanceURL,
+			Definition:    definition,
 		})
 	}
 

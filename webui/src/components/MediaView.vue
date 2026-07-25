@@ -15,17 +15,17 @@ const props = defineProps<{
   torrents: Torrent[];
   total: number;
   loading: boolean;
-	qbUrl: string;
-	qbSyncing: boolean;
-	qbActioning: string;
+  qbUrl: string;
+  qbSyncing: boolean;
+  qbActioning: string;
 }>();
 
 const emit = defineEmits<{
   download: [torrent: Torrent];
-	syncQb: [];
-	openQb: [];
-	controlQb: [torrent: Torrent, action: 'start' | 'stop'];
-	queryChange: [query: { site_id?: string; q?: string; offset: number; limit: number; include_pinned: boolean }];
+  syncQb: [];
+  openQb: [];
+  controlQb: [torrent: Torrent, action: 'start' | 'stop'];
+  queryChange: [query: { site_id?: string; q?: string; offset: number; limit: number; include_pinned: boolean }];
 }>();
 
 const route = useRoute();
@@ -58,87 +58,95 @@ const siteNameByID = computed(() => {
 });
 
 function emitQuery() {
-	emit('queryChange', {
-		site_id: activeSite.value === 'all' ? undefined : activeSite.value,
-		q: query.value.trim() || undefined,
-		offset: (page.value - 1) * pageSize.value,
-		limit: pageSize.value,
-		include_pinned: includePinned.value,
-	});
+  emit('queryChange', {
+    site_id: activeSite.value === 'all' ? undefined : activeSite.value,
+    q: query.value.trim() || undefined,
+    offset: (page.value - 1) * pageSize.value,
+    limit: pageSize.value,
+    include_pinned: includePinned.value,
+  });
 }
 
 function routeQueryValue(name: string) {
-	const value = route.query[name];
-	return Array.isArray(value) ? value[0] ?? '' : value ?? '';
+  const value = route.query[name];
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
 }
 
 function positiveInteger(value: string, fallback: number) {
-	const parsed = Number(value);
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function mediaURLQuery(): LocationQueryRaw {
-	const result: LocationQueryRaw = {};
-	if (page.value !== 1) result.page = String(page.value);
-	if (pageSize.value !== 50) result.page_size = String(pageSize.value);
-	if (activeSite.value !== 'all') result.site = activeSite.value;
-	const normalizedQuery = query.value.trim();
-	if (normalizedQuery) result.q = normalizedQuery;
-	if (!includePinned.value) result.pinned = '0';
-	return result;
+  const result: LocationQueryRaw = {};
+  if (page.value !== 1) result.page = String(page.value);
+  if (pageSize.value !== 50) result.page_size = String(pageSize.value);
+  if (activeSite.value !== 'all') result.site = activeSite.value;
+  const normalizedQuery = query.value.trim();
+  if (normalizedQuery) result.q = normalizedQuery;
+  if (!includePinned.value) result.pinned = '0';
+  return result;
 }
 
 function replaceMediaURL() {
-	if (route.name !== 'media') return;
-	const target = { name: 'media', query: mediaURLQuery() };
-	if (router.resolve(target).fullPath === route.fullPath) {
-		emitQuery();
-		return;
-	}
-	void router.replace(target);
+  if (route.name !== 'media') return;
+  const target = { name: 'media', query: mediaURLQuery() };
+  if (router.resolve(target).fullPath === route.fullPath) {
+    emitQuery();
+    return;
+  }
+  void router.replace(target);
 }
 
 function applyRouteQuery() {
-	if (route.name !== 'media') return;
-	const routePageSize = positiveInteger(String(routeQueryValue('page_size')), 50);
-	if (searchTimer) {
-		clearTimeout(searchTimer);
-		searchTimer = undefined;
-	}
-	applyingRoute = true;
-	activeSite.value = String(routeQueryValue('site')).trim() || 'all';
-	query.value = String(routeQueryValue('q')).trim();
-	includePinned.value = routeQueryValue('pinned') !== '0';
-	page.value = positiveInteger(String(routeQueryValue('page')), 1);
-	pageSize.value = pageSizes.has(routePageSize) ? routePageSize : 50;
-	applyingRoute = false;
+  if (route.name !== 'media') return;
+  const routePageSize = positiveInteger(String(routeQueryValue('page_size')), 50);
+  if (searchTimer) {
+    clearTimeout(searchTimer);
+    searchTimer = undefined;
+  }
+  applyingRoute = true;
+  activeSite.value = String(routeQueryValue('site')).trim() || 'all';
+  query.value = String(routeQueryValue('q')).trim();
+  includePinned.value = routeQueryValue('pinned') !== '0';
+  page.value = positiveInteger(String(routeQueryValue('page')), 1);
+  pageSize.value = pageSizes.has(routePageSize) ? routePageSize : 50;
+  applyingRoute = false;
 
-	const target = { name: 'media', query: mediaURLQuery() };
-	if (router.resolve(target).fullPath !== route.fullPath) {
-		void router.replace(target);
-		return;
-	}
-	emitQuery();
+  const target = { name: 'media', query: mediaURLQuery() };
+  if (router.resolve(target).fullPath !== route.fullPath) {
+    void router.replace(target);
+    return;
+  }
+  emitQuery();
 }
 
 function resetPageAndSyncURL() {
-	if (applyingRoute) return;
-	if (page.value !== 1) page.value = 1;
-	else replaceMediaURL();
+  if (applyingRoute) return;
+  if (page.value !== 1) page.value = 1;
+  else replaceMediaURL();
 }
 
 watch(() => route.fullPath, applyRouteQuery, { immediate: true, flush: 'sync' });
 watch([activeSite, includePinned, pageSize], resetPageAndSyncURL, { flush: 'sync' });
-watch(page, () => {
-	if (!applyingRoute) replaceMediaURL();
-}, { flush: 'sync' });
-watch(query, () => {
-	if (applyingRoute) return;
-	if (searchTimer) clearTimeout(searchTimer);
-	searchTimer = setTimeout(resetPageAndSyncURL, 300);
-}, { flush: 'sync' });
+watch(
+  page,
+  () => {
+    if (!applyingRoute) replaceMediaURL();
+  },
+  { flush: 'sync' },
+);
+watch(
+  query,
+  () => {
+    if (applyingRoute) return;
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(resetPageAndSyncURL, 300);
+  },
+  { flush: 'sync' },
+);
 onBeforeUnmount(() => {
-	if (searchTimer) clearTimeout(searchTimer);
+  if (searchTimer) clearTimeout(searchTimer);
 });
 
 /** 返回站点显示名称。 */
@@ -160,24 +168,26 @@ function formatDate(value?: string) {
 
 /** 返回通过后端同源代理加载的封面地址。 */
 function coverProxyURL(torrent: Torrent) {
-	return `/api/torrents/${encodeURIComponent(torrent.site_id)}/${encodeURIComponent(torrent.id)}/cover`;
+  return `/api/torrents/${encodeURIComponent(torrent.site_id)}/${encodeURIComponent(torrent.id)}/cover`;
 }
 
 /** 返回封面是否可以尝试显示。 */
 function canShowCover(torrent: Torrent) {
-	return Boolean(torrent.cover_url) && !failedCovers.value.has(`${torrent.site_id}:${torrent.id}`);
+  return Boolean(torrent.cover_url) && !failedCovers.value.has(`${torrent.site_id}:${torrent.id}`);
 }
 
 /** 封面代理加载失败时切换到站点占位图。 */
 function markCoverFailed(torrent: Torrent) {
-	failedCovers.value = new Set(failedCovers.value).add(`${torrent.site_id}:${torrent.id}`);
+  failedCovers.value = new Set(failedCovers.value).add(`${torrent.site_id}:${torrent.id}`);
 }
 
 /** 解析 qB 返回的逗号分隔标签。 */
 function qbTags(torrent: Torrent) {
-	return (torrent.qb_status?.tags ?? '').split(',').map((tag) => tag.trim()).filter(Boolean);
+  return (torrent.qb_status?.tags ?? '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
 }
-
 </script>
 
 <template>
@@ -188,43 +198,49 @@ function qbTags(torrent: Torrent) {
           <h2>媒体</h2>
           <p class="muted">汇总展示所有站点缓存结果，也可以切换到单个站点查看。</p>
         </div>
-		<div class="media-toolbar-controls">
-			<NSpace class="media-filters">
-				<NSelect v-model:value="activeSite" :options="siteOptions" class="site-filter" />
-				<NInput v-model:value="query" clearable placeholder="搜索标题、分类或站点">
-					<template #prefix><NIcon :component="Search" /></template>
-				</NInput>
-			</NSpace>
-			<NSpace align="center"><span class="muted">显示置顶</span><NSwitch v-model:value="includePinned" /></NSpace>
-			<NSpace>
-				<NButton secondary :loading="qbSyncing" @click="emit('syncQb')">
-					<template #icon><NIcon :component="RefreshCw" /></template>
-					同步 qB
-				</NButton>
-				<NButton secondary :disabled="!qbUrl" @click="emit('openQb')">
-					<template #icon><NIcon :component="ExternalLink" /></template>
-					打开 qB WebUI
-				</NButton>
-			</NSpace>
-		</div>
+        <div class="media-toolbar-controls">
+          <NSpace class="media-filters">
+            <NSelect v-model:value="activeSite" :options="siteOptions" class="site-filter" />
+            <NInput v-model:value="query" clearable placeholder="搜索标题、分类或站点">
+              <template #prefix><NIcon :component="Search" /></template>
+            </NInput>
+          </NSpace>
+          <NSpace align="center"><span class="muted">显示置顶</span><NSwitch v-model:value="includePinned" /></NSpace>
+          <NSpace>
+            <NButton secondary :loading="qbSyncing" @click="emit('syncQb')">
+              <template #icon><NIcon :component="RefreshCw" /></template>
+              同步 qB
+            </NButton>
+            <NButton secondary :disabled="!qbUrl" @click="emit('openQb')">
+              <template #icon><NIcon :component="ExternalLink" /></template>
+              打开 qB WebUI
+            </NButton>
+          </NSpace>
+        </div>
       </div>
     </NCard>
 
     <div v-if="torrents.length" class="media-list" :class="layoutClass" :style="layoutStyle">
       <NCard v-for="torrent in torrents" :key="`${torrent.site_id}:${torrent.id}`" :bordered="false" class="media-item">
         <div class="media-poster">
-          <img v-if="canShowCover(torrent)" :src="coverProxyURL(torrent)" :alt="torrent.title" loading="lazy" @error="markCoverFailed(torrent)" />
+          <img
+            v-if="canShowCover(torrent)"
+            :src="coverProxyURL(torrent)"
+            :alt="torrent.title"
+            loading="lazy"
+            @error="markCoverFailed(torrent)"
+          />
           <div v-else class="media-poster-placeholder">
             <NIcon :component="Film" size="28" />
             <span>{{ torrent.site_id }}</span>
           </div>
-		  <TorrentStatusControl
-			class="card-status-control"
-			:torrent="torrent"
-			:loading="qbActioning === `${torrent.site_id}:${torrent.id}`"
-			@download="emit('download', $event)"
-			@control="(item, action) => emit('controlQb', item, action)"
-		  />
+          <TorrentStatusControl
+            class="card-status-control"
+            :torrent="torrent"
+            :loading="qbActioning === `${torrent.site_id}:${torrent.id}`"
+            @download="emit('download', $event)"
+            @control="(item, action) => emit('controlQb', item, action)"
+          />
         </div>
 
         <div class="media-body">
@@ -233,37 +249,42 @@ function qbTags(torrent: Torrent) {
               <h3 :class="`media-title-${displaySettings.titleMode}`">{{ torrent.title }}</h3>
               <p class="muted">{{ torrent.published_text || formatDate(torrent.published_at) }}</p>
             </div>
-			<TorrentStatusControl
-				class="list-status-control"
-				:torrent="torrent"
-				:loading="qbActioning === `${torrent.site_id}:${torrent.id}`"
-				@download="emit('download', $event)"
-				@control="(item, action) => emit('controlQb', item, action)"
-			/>
+            <TorrentStatusControl
+              class="list-status-control"
+              :torrent="torrent"
+              :loading="qbActioning === `${torrent.site_id}:${torrent.id}`"
+              @download="emit('download', $event)"
+              @control="(item, action) => emit('controlQb', item, action)"
+            />
           </div>
 
           <NSpace class="media-tags">
-            <NTag v-if="torrent.sticky_level > 0" round size="small" type="warning">置顶 {{ torrent.sticky_level }}</NTag>
+            <NTag v-if="torrent.sticky_level > 0" round size="small" type="warning"
+              >置顶 {{ torrent.sticky_level }}</NTag
+            >
             <NTag round size="small">{{ siteDisplayName(torrent.site_id) }}</NTag>
             <NTag v-if="torrent.category" round size="small" type="info">{{ torrent.category }}</NTag>
             <NTag v-if="torrent.promotion" round size="small" type="success">{{ torrent.promotion }}</NTag>
             <NTag round size="small">{{ formatByteSize(torrent.size_bytes) }}</NTag>
           </NSpace>
 
-			<div v-if="torrent.qb_status?.added" class="qb-status-block">
-				<div class="qb-status-header">
-					<span class="muted">最近同步</span>
-					<span v-if="torrent.qb_status.fetched_at" class="muted">{{ formatDate(torrent.qb_status.fetched_at) }}</span>
-				</div>
-				<NSpace v-if="torrent.qb_status?.added" size="small" class="qb-status-tags">
-					<NTag v-if="torrent.qb_status.category" size="small" type="info">{{ torrent.qb_status.category }}</NTag>
-					<NTag v-for="tag in qbTags(torrent)" :key="tag" size="small">{{ tag }}</NTag>
-				</NSpace>
-				<p v-if="torrent.qb_status?.added" class="muted qb-transfer">
-					↓ {{ formatByteSpeed(torrent.qb_status.download_speed) }} · ↑ {{ formatByteSpeed(torrent.qb_status.upload_speed) }}
-				</p>
-				<p v-if="torrent.qb_status?.save_path" class="muted text-break">{{ torrent.qb_status.save_path }}</p>
-			</div>
+          <div v-if="torrent.qb_status?.added" class="qb-status-block">
+            <div class="qb-status-header">
+              <span class="muted">最近同步</span>
+              <span v-if="torrent.qb_status.fetched_at" class="muted">{{
+                formatDate(torrent.qb_status.fetched_at)
+              }}</span>
+            </div>
+            <NSpace v-if="torrent.qb_status?.added" size="small" class="qb-status-tags">
+              <NTag v-if="torrent.qb_status.category" size="small" type="info">{{ torrent.qb_status.category }}</NTag>
+              <NTag v-for="tag in qbTags(torrent)" :key="tag" size="small">{{ tag }}</NTag>
+            </NSpace>
+            <p v-if="torrent.qb_status?.added" class="muted qb-transfer">
+              ↓ {{ formatByteSpeed(torrent.qb_status.download_speed) }} · ↑
+              {{ formatByteSpeed(torrent.qb_status.upload_speed) }}
+            </p>
+            <p v-if="torrent.qb_status?.save_path" class="muted text-break">{{ torrent.qb_status.save_path }}</p>
+          </div>
 
           <div class="media-metrics">
             <span>
@@ -282,10 +303,16 @@ function qbTags(torrent: Torrent) {
       <NEmpty :description="loading ? 'Loading media...' : 'No cached torrents matched'" />
     </NCard>
 
-	<NCard :bordered="false">
-		<NPagination v-model:page="page" v-model:page-size="pageSize" :item-count="total" :page-sizes="[20, 50, 100]" show-size-picker />
-	</NCard>
+    <NCard :bordered="false">
+      <NPagination
+        v-model:page="page"
+        v-model:page-size="pageSize"
+        :item-count="total"
+        :page-sizes="[20, 50, 100]"
+        show-size-picker
+      />
+    </NCard>
 
-	<MediaQuickSettings v-model="displaySettings" />
+    <MediaQuickSettings v-model="displaySettings" />
   </section>
 </template>

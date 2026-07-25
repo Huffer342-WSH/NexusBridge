@@ -204,6 +204,8 @@ WebUI 的 `设置 / qBittorrent` 页面保存时，会把地址、认证方式�
 
 每个站点计划保存 `enabled` 和 `interval_seconds`，默认关闭、默认 900 秒，允许 60 秒至 24 小时并使用整分钟步长。只有常驻服务版和桌面版启动后台调度器；计划独立触发站点抓取，CLI 单次命令不启动后台循环。
 
+每个站点的自动签到独立保存 `enabled`、每日 `HH:mm` 和 IANA 时区。未保存时默认关闭、默认时间为 `09:00`，WebUI 首次保存时使用浏览器时区。服务停机期间错过的计划会在恢复后补执行一次；请求失败只记录错误并排到次日，不在当天重试。
+
 ## LLM 与媒体库
 
 `llm.base_url` 使用 OpenAI-compatible Chat Completions 地址，可以填写服务根地址，也可以直接填写 `/chat/completions` 完整路径。`llm.api_key` 会以 `Authorization: Bearer ...` 发送。
@@ -228,6 +230,7 @@ WebUI 的 `设置 / LLM` 页面保存 LLM 设置时，如果 API Key 输入框�
 - `name`：站点名称。
 - `domain`：站点基础地址。
 - `encoding`：页面编码。
+- `attendance_page_url`：可选签到页面，只允许相对地址或与 `domain` 同源的绝对地址；缺失时回退到 `attendance.php`。
 - `html.search.paths[]`：浏览或搜索入口路径。
 - `html.search.params`：搜索参数模板。
 - `html.search.fields`：搜索框补完字段，由离线或在线 HTML 解析写入。该字段是对象，包含 `checkboxes`、`selects`、`ranges`、`keyword`、`tags`；checkbox 按分组嵌套，例如分类写在 `checkboxes[].name="cat"` 组内，select/tag 带 `options`，range 带 `begin/end`，`tag_id` 带 `exclusive: true`。

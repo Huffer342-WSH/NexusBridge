@@ -55,11 +55,12 @@ type App struct {
 }
 
 type runtimeSite struct {
-	ID         string
-	Name       string
-	BaseURL    string
-	UserAgent  string
-	Definition parser.SiteDefinition
+	ID            string
+	Name          string
+	BaseURL       string
+	UserAgent     string
+	AttendanceURL string
+	Definition    parser.SiteDefinition
 }
 
 // NewApp 创建核心应用服务。

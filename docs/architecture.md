@@ -116,7 +116,7 @@ flowchart LR
 
     subgraph SiteDomain[站点与种子目录]
         SiteCatalog[site_catalog / site_requests]
-        SiteFetch[site_fetch / scheduler]
+        SiteFetch[site_fetch / site_attendance / scheduler]
         TorrentCatalog[torrent_catalog / torrent_detail / torrent_files]
         Covers[covers / covercache]
     end
@@ -161,6 +161,8 @@ flowchart LR
 ```
 
 领域之间通过明确的业务动作连接，而不是共享隐式全局状态：站点扫描产生种子和订阅候选，订阅流水线产生下载任务，qB 同步更新任务状态，恢复域利用本地种子元数据重新挂载文件。
+
+站点每日签到与周期扫描共用常驻调度器、站点锁和统一 Cookie 请求入口，但使用独立的 `site_attendance_schedules` 配置与状态，不触发解析、订阅或 qB 流程。
 
 ### 领域模型与转换
 
@@ -256,7 +258,7 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点与种子 | `site_catalog.go`、`site_requests.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`covers.go` |
+| 站点与种子 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`covers.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |

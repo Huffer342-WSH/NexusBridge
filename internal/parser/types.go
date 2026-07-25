@@ -38,15 +38,16 @@ type TorrentDetail struct {
 }
 
 type SiteDefinition struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	Domain        string               `json:"domain"`
-	Encoding      string               `json:"encoding,omitempty"`
-	Public        bool                 `json:"public"`
-	HTML          SiteHTMLDefinition   `json:"html"`
-	DetailPageURL string               `json:"detail_page_url,omitempty"`
-	Favicon       string               `json:"favicon,omitempty"`
-	RequestRules  []requestpolicy.Rule `json:"request_rules,omitempty"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Domain            string               `json:"domain"`
+	Encoding          string               `json:"encoding,omitempty"`
+	Public            bool                 `json:"public"`
+	HTML              SiteHTMLDefinition   `json:"html"`
+	DetailPageURL     string               `json:"detail_page_url,omitempty"`
+	AttendancePageURL string               `json:"attendance_page_url,omitempty"`
+	Favicon           string               `json:"favicon,omitempty"`
+	RequestRules      []requestpolicy.Rule `json:"request_rules,omitempty"`
 }
 
 type SiteHTMLDefinition struct {
@@ -106,6 +107,7 @@ type SiteConfig struct {
 	URL           string               `json:"url"`
 	SearchPath    string               `json:"search_path"`
 	DownloadPath  string               `json:"download_path"`
+	AttendanceURL string               `json:"attendance_url,omitempty"`
 	Pagination    SitePaginationConfig `json:"pagination,omitempty"`
 	QueryTemplate map[string]string    `json:"query_template"`
 }

@@ -120,6 +120,39 @@ paths:
                 $ref: "#/components/schemas/SiteCredential"
         "400":
           $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/attendance:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    get:
+      tags: [sites]
+      summary: 获取站点自动签到配置
+      responses:
+        "200":
+          description: 已保存配置，或关闭且未配置时区的默认配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteAttendance"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [sites]
+      summary: 保存站点自动签到配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteAttendanceInput"
+      responses:
+        "200":
+          description: 已保存配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteAttendance"
+        "400":
+          $ref: "#/components/responses/Error"
   /api/sites/{site_id}/fetch:
     parameters:
       - $ref: "#/components/parameters/SiteID"
@@ -1269,6 +1302,54 @@ components:
           description: 只允许请求时提交；响应会清空。
         has_cookie:
           type: boolean
+    SiteAttendance:
+      type: object
+      required: [site_id, configured, enabled, time_of_day, timezone]
+      properties:
+        site_id:
+          type: string
+          readOnly: true
+        configured:
+          type: boolean
+          readOnly: true
+        enabled:
+          type: boolean
+          default: false
+        time_of_day:
+          type: string
+          pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
+          default: "09:00"
+        timezone:
+          type: string
+          description: 有效的 IANA 时区；未配置时为空。
+          example: Asia/Shanghai
+        last_run_at:
+          type: string
+          format: date-time
+          readOnly: true
+        next_run_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_error:
+          type: string
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    SiteAttendanceInput:
+      type: object
+      required: [enabled, time_of_day, timezone]
+      properties:
+        enabled:
+          type: boolean
+        time_of_day:
+          type: string
+          pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$'
+        timezone:
+          type: string
+          example: Asia/Shanghai
     Torrent:
       type: object
       required: [id, site_id, title, detail_url, first_seen_at, last_seen_at, source_order, sticky_level, torrent_file_saved]
