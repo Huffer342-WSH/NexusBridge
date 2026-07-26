@@ -13,9 +13,12 @@ import (
 // ErrQBRuntimeNotReady 表示 progress 筛选尚无完整的 qB 运行态可用。
 var ErrQBRuntimeNotReady = errors.New("qBittorrent runtime status is not ready")
 
+// ErrInvalidMediaFilter 表示媒体 checkbox 或促销条件不符合单站点定义。
+var ErrInvalidMediaFilter = errors.New("invalid media filter")
+
 // ListTorrents 查询本地种子缓存。
 func (a *App) ListTorrents(ctx context.Context, query TorrentQuery) ([]Torrent, error) {
-	if query.QBTask != "" {
+	if query.QBTask != "" || len(query.Categories) > 0 || len(query.SiteCheckboxes) > 0 || len(query.Promotions) > 0 {
 		page, err := a.ListTorrentPage(ctx, query)
 		return page.Items, err
 	}
@@ -104,6 +107,9 @@ func (a *App) ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentP
 	if strings.TrimSpace(query.SortDirection) == "" {
 		query.SortDirection = "desc"
 	}
+	if err := a.normalizeMediaFilters(ctx, &query); err != nil {
+		return TorrentPage{}, err
+	}
 	progressKeys, err := a.qbProgressFilterKeys(query)
 	if err != nil {
 		return TorrentPage{}, err
@@ -133,7 +139,8 @@ func (a *App) ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentP
 	normalLimit := query.Limit - len(pinnedPage)
 	normalQuery := storage.TorrentListQuery{
 		SiteID: query.SiteID, Search: query.Search, SortBy: query.SortBy, SortDirection: query.SortDirection,
-		QBTask: query.QBTask, QBProgressKeys: progressKeys,
+		QBTask: query.QBTask, QBProgressKeys: progressKeys, Categories: query.Categories,
+		SiteCheckboxes: storageCheckboxFilters(query.SiteCheckboxes), Promotions: query.Promotions,
 		Limit: max(1, normalLimit), Offset: normalOffset, SearchSiteIDs: searchSiteIDs, ExcludeKeys: pinnedKeys(pinned),
 	}
 	normalRecords, normalTotal, err := a.store.ListTorrentPage(ctx, normalQuery)
@@ -270,6 +277,22 @@ func (a *App) matchingPinnedRecords(
 				continue
 			}
 		}
+		if len(query.Categories) > 0 && !containsFold(query.Categories, record.Category) {
+			continue
+		}
+		checkboxesMatch := true
+		for _, group := range query.SiteCheckboxes {
+			if !containsAnyFold(record.TagIDs, group.Values) {
+				checkboxesMatch = false
+				break
+			}
+		}
+		if !checkboxesMatch {
+			continue
+		}
+		if len(query.Promotions) > 0 && !containsFold(query.Promotions, recordPromotionKey(record)) {
+			continue
+		}
 		if query.QBTask != "" {
 			added := qbSnapshots[key].Added
 			if (query.QBTask == "present" && !added) || (query.QBTask == "absent" && added) {
@@ -285,6 +308,118 @@ func (a *App) matchingPinnedRecords(
 		result = append(result, record)
 	}
 	return result, nil
+}
+
+func (a *App) normalizeMediaFilters(ctx context.Context, query *TorrentQuery) error {
+	if len(query.Categories) == 0 && len(query.SiteCheckboxes) == 0 && len(query.Promotions) == 0 {
+		return nil
+	}
+	query.SiteID = strings.TrimSpace(query.SiteID)
+	if query.SiteID == "" {
+		return fmt.Errorf("%w: site checkbox and promotion filters require site_id", ErrInvalidMediaFilter)
+	}
+	options, err := a.MediaFilterOptions(ctx, query.SiteID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidMediaFilter, err)
+	}
+	categories, err := canonicalMediaFilterValues(query.Categories, options.Categories)
+	if err != nil {
+		return fmt.Errorf("%w: category %v", ErrInvalidMediaFilter, err)
+	}
+	promotions, err := canonicalMediaFilterValues(query.Promotions, options.Promotions)
+	if err != nil {
+		return fmt.Errorf("%w: promotion %v", ErrInvalidMediaFilter, err)
+	}
+	checkboxGroups := make(map[string]MediaFilterGroup, len(options.Checkboxes))
+	for _, group := range options.Checkboxes {
+		checkboxGroups[strings.ToLower(strings.TrimSpace(group.Name))] = group
+	}
+	checkboxes := make([]MediaCheckboxFilter, 0, len(query.SiteCheckboxes))
+	checkboxIndexes := map[string]int{}
+	for _, selected := range query.SiteCheckboxes {
+		key := strings.ToLower(strings.TrimSpace(selected.Name))
+		group, ok := checkboxGroups[key]
+		if !ok {
+			return fmt.Errorf("%w: site checkbox group %q is not configured", ErrInvalidMediaFilter, selected.Name)
+		}
+		values, err := canonicalMediaFilterValues(selected.Values, group.Options)
+		if err != nil {
+			return fmt.Errorf("%w: site checkbox %s %v", ErrInvalidMediaFilter, group.Name, err)
+		}
+		if len(values) == 0 {
+			continue
+		}
+		if index, exists := checkboxIndexes[key]; exists {
+			merged, err := canonicalMediaFilterValues(append(checkboxes[index].Values, values...), group.Options)
+			if err != nil {
+				return fmt.Errorf("%w: site checkbox %s %v", ErrInvalidMediaFilter, group.Name, err)
+			}
+			checkboxes[index].Values = merged
+			continue
+		}
+		checkboxIndexes[key] = len(checkboxes)
+		checkboxes = append(checkboxes, MediaCheckboxFilter{Name: group.Name, Values: values})
+	}
+	query.Categories = categories
+	query.SiteCheckboxes = checkboxes
+	query.Promotions = promotions
+	return nil
+}
+
+func storageCheckboxFilters(filters []MediaCheckboxFilter) []storage.TorrentCheckboxFilter {
+	result := make([]storage.TorrentCheckboxFilter, 0, len(filters))
+	for _, filter := range filters {
+		result = append(result, storage.TorrentCheckboxFilter{Name: filter.Name, Values: filter.Values})
+	}
+	return result
+}
+
+func containsAnyFold(values, selected []string) bool {
+	for _, value := range values {
+		if containsFold(selected, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalMediaFilterValues(selected []string, options []MediaFilterOption) ([]string, error) {
+	allowed := make(map[string]string, len(options))
+	for _, option := range options {
+		value := strings.TrimSpace(option.Value)
+		if value != "" {
+			allowed[strings.ToLower(value)] = value
+		}
+	}
+	result := make([]string, 0, len(selected))
+	seen := map[string]struct{}{}
+	for _, raw := range selected {
+		key := strings.ToLower(strings.TrimSpace(raw))
+		if key == "" {
+			continue
+		}
+		value, ok := allowed[key]
+		if !ok {
+			return nil, fmt.Errorf("%q is not configured", raw)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+func recordPromotionKey(record storage.TorrentRecord) string {
+	class := strings.TrimSpace(record.PromotionClass)
+	if class == "" {
+		return "normal"
+	}
+	if fields := strings.Fields(class); len(fields) > 0 {
+		return fields[0]
+	}
+	return class
 }
 
 func (a *App) qbProgressFilterKeys(query TorrentQuery) (map[storage.TorrentKey]struct{}, error) {

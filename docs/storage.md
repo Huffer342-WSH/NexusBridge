@@ -145,7 +145,7 @@ flowchart LR
 
 | 表 | 主键或类型 | 主要内容 |
 | --- | --- | --- |
-| `torrent_search` | `(site_id, torrent_id)` | 列表查询需要的标题、分类、促销、发布时间、体积和站点统计 |
+| `torrent_search` | `(site_id, torrent_id)` | 列表查询需要的标题、分类、站点标签、促销文本与稳定促销 class、发布时间、体积和站点统计 |
 | `torrent_search_fts` | FTS5，`trigram` | 标题等搜索文本；`site_id` 和 `torrent_id` 不参与分词 |
 | `torrent_size_signatures` | `(site_id, torrent_id)` | 完整文件大小多重集合的 SHA256 签名、文件数、总大小和算法版本 |
 | `torrent_qb_associations` | `(site_id, torrent_id)` | qB hash、名称、分类、标签、保存位置及其他低频稳定元数据 |
@@ -170,6 +170,8 @@ peers、seeds、ratio、uploaded、downloaded
 Core 可以在内存模型中短暂持有这些字段并返回 API，但需要最新值时以 qB 响应为准。
 
 站点列表中的置顶等级同样只保存在内存：每次第一页抓取成功后替换该站点的置顶快照，用于媒体页排序和筛选。`torrents` 与 `torrent_search` 不保存 `sticky_level`，应用重启后需要下一次站点抓取才能恢复置顶展示。
+
+媒体页的非分类 checkbox 分组使用 `torrent_search.tag_ids_json` 匹配站点标签；促销筛选使用 `promotion_class`，空值表示普通种子，非空值取站点列表图标的首个 class（例如 `pro_free`）。这些字段随主库记录重建；派生索引 schema 版本变化时直接删除并重建索引库，不迁移业务数据。
 
 ## 6. SQLite 运行策略
 

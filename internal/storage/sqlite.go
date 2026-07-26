@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	metadataApplicationID = 0x4e584252 // NXBR
-	indexApplicationID    = 0x4e584249 // NXBI
-	databaseSchemaVersion = 1
+	metadataApplicationID     = 0x4e584252 // NXBR
+	indexApplicationID        = 0x4e584249 // NXBI
+	metadataSchemaVersion     = 1
+	derivedIndexSchemaVersion = 2
 )
 
 // SQLiteOptions 描述 SQLite 连接池和页缓存策略。
@@ -239,8 +240,8 @@ func prepareMetadataDatabase(ctx context.Context, path string) error {
 		return fmt.Errorf("inspect metadata schema version: %w", err)
 	}
 	if applicationID == metadataApplicationID {
-		if userVersion != databaseSchemaVersion {
-			return fmt.Errorf("unsupported NexusBridge database schema version %d; expected %d", userVersion, databaseSchemaVersion)
+		if userVersion != metadataSchemaVersion {
+			return fmt.Errorf("unsupported NexusBridge database schema version %d; expected %d", userVersion, metadataSchemaVersion)
 		}
 		return nil
 	}
@@ -341,7 +342,7 @@ func prepareIndexDatabase(ctx context.Context, path string) (bool, error) {
 		_ = db.Close()
 		return false, fmt.Errorf("inspect index schema version: %w", err)
 	}
-	if applicationID == indexApplicationID && userVersion == databaseSchemaVersion {
+	if applicationID == indexApplicationID && userVersion == derivedIndexSchemaVersion {
 		return false, db.Close()
 	}
 	var knownTables int
@@ -388,9 +389,10 @@ func (s *SQLiteStore) checkDatabaseHealth(ctx context.Context) error {
 		name          string
 		db            *sql.DB
 		applicationID int
+		schemaVersion int
 	}{
-		{name: "metadata", db: s.db, applicationID: metadataApplicationID},
-		{name: "index", db: s.indexDB, applicationID: indexApplicationID},
+		{name: "metadata", db: s.db, applicationID: metadataApplicationID, schemaVersion: metadataSchemaVersion},
+		{name: "index", db: s.indexDB, applicationID: indexApplicationID, schemaVersion: derivedIndexSchemaVersion},
 	} {
 		var applicationID, userVersion int
 		var journalMode string
@@ -403,7 +405,7 @@ func (s *SQLiteStore) checkDatabaseHealth(ctx context.Context) error {
 		if err := database.db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&journalMode); err != nil {
 			return fmt.Errorf("check %s WAL mode: %w", database.name, err)
 		}
-		if applicationID != database.applicationID || userVersion != databaseSchemaVersion || !strings.EqualFold(journalMode, "wal") {
+		if applicationID != database.applicationID || userVersion != database.schemaVersion || !strings.EqualFold(journalMode, "wal") {
 			return fmt.Errorf("%s database health check failed: application_id=%d user_version=%d journal_mode=%s",
 				database.name, applicationID, userVersion, journalMode)
 		}

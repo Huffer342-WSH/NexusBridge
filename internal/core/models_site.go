@@ -12,6 +12,29 @@ type Site struct {
 	HasCookie bool   `json:"has_cookie"`
 }
 
+// MediaFilterOption 表示媒体页可选择的一个站点筛选值。
+type MediaFilterOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// MediaFilterGroup 表示站点 checkbox 定义中的一个筛选分组。
+type MediaFilterGroup struct {
+	Name    string              `json:"name"`
+	Label   string              `json:"label"`
+	Options []MediaFilterOption `json:"options"`
+}
+
+// MediaFilterOptions 描述单个站点提供的 checkbox 与促销筛选项。
+type MediaFilterOptions struct {
+	SiteID         string              `json:"site_id"`
+	CategoryLabel  string              `json:"category_label"`
+	Categories     []MediaFilterOption `json:"categories"`
+	Checkboxes     []MediaFilterGroup  `json:"checkboxes"`
+	PromotionLabel string              `json:"promotion_label"`
+	Promotions     []MediaFilterOption `json:"promotions"`
+}
+
 // SiteCredential 表示站点作用域的请求凭据。
 type SiteCredential struct {
 	SiteID    string `json:"site_id"`

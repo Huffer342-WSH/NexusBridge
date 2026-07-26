@@ -260,6 +260,21 @@ paths:
                 $ref: "#/components/schemas/RuleFilterOptions"
         "400":
           $ref: "#/components/responses/Error"
+  /api/sites/{site_id}/media-filter-options:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+    get:
+      tags: [sites, torrents]
+      summary: 获取单站点媒体筛选定义
+      responses:
+        "200":
+          description: 完整 checkbox 分组和 role=promotion 的 spstate 定义
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaFilterOptions"
+        "404":
+          $ref: "#/components/responses/Error"
   /api/torrents:
     get:
       tags: [torrents]
@@ -290,6 +305,36 @@ paths:
           required: false
           schema:
             type: string
+        - name: category
+          in: query
+          required: false
+          description: 可重复的分类值；仅与单个 site_id 一起使用，同类值按 OR 匹配。
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: promotion
+          in: query
+          required: false
+          description: 可重复的 spstate filter_value；仅与单个 site_id 一起使用，同类值按 OR 匹配。
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: site_checkbox
+          in: query
+          required: false
+          description: 可重复的 group:value；仅与单个 site_id 一起使用，同组值按 OR、不同组按 AND 匹配。
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
         - name: qb_task
           in: query
           required: false
@@ -2203,6 +2248,48 @@ components:
           type: string
         label:
           type: string
+    MediaFilterOption:
+      type: object
+      required: [value, label]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+    MediaFilterGroup:
+      type: object
+      required: [name, label, options]
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaFilterOption"
+    MediaFilterOptions:
+      type: object
+      required: [site_id, category_label, categories, checkboxes, promotion_label, promotions]
+      properties:
+        site_id:
+          type: string
+        category_label:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaFilterOption"
+        checkboxes:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaFilterGroup"
+        promotion_label:
+          type: string
+        promotions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaFilterOption"
     RuleFilterOptions:
       type: object
       required: [site_id, site_categories, site_tags, subtitle_tags, promotions]

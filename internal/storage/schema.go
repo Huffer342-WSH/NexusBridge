@@ -353,6 +353,8 @@ CREATE TABLE IF NOT EXISTS torrent_search (
 	title TEXT NOT NULL,
 	category TEXT NOT NULL DEFAULT '',
 	promotion TEXT NOT NULL DEFAULT '',
+	promotion_class TEXT NOT NULL DEFAULT '',
+	tag_ids_json TEXT NOT NULL DEFAULT '[]',
 	source_order INTEGER NOT NULL DEFAULT 0,
 	published_at TEXT NOT NULL DEFAULT '',
 	size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -414,7 +416,7 @@ CREATE INDEX IF NOT EXISTS idx_torrent_qb_associations_hash
 CREATE INDEX IF NOT EXISTS idx_torrent_qb_associations_added
 	ON torrent_qb_associations (added, site_id, torrent_id);
 PRAGMA application_id = 1314406985;
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 PRAGMA optimize = 0x10002;
 `)
 	return err

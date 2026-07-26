@@ -103,13 +103,17 @@ func (s *SQLiteStore) rebuildTorrentSearchSite(ctx context.Context, siteID strin
 }
 
 func upsertTorrentSearch(ctx context.Context, tx *sql.Tx, record TorrentRecord) error {
+	tagIDsJSON, err := json.Marshal(record.TagIDs)
+	if err != nil {
+		return err
+	}
 	var unchanged int
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM torrent_search
-	WHERE site_id = ? AND torrent_id = ? AND title = ? AND category = ? AND promotion = ?
+	WHERE site_id = ? AND torrent_id = ? AND title = ? AND category = ? AND promotion = ? AND promotion_class = ? AND tag_ids_json = ?
 	AND source_order = ? AND published_at = ? AND size_bytes = ? AND seeders = ? AND leechers = ?
 	AND snatches = ?
-`, record.SiteID, record.TorrentID, record.Title, record.Category, record.Promotion, record.SourceOrder,
+`, record.SiteID, record.TorrentID, record.Title, record.Category, record.Promotion, record.PromotionClass, string(tagIDsJSON), record.SourceOrder,
 		record.PublishedAt, record.SizeBytes, record.Seeders, record.Leechers, record.Snatches).Scan(&unchanged)
 	if err != nil {
 		return err
@@ -119,20 +123,22 @@ SELECT COUNT(*) FROM torrent_search
 	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO torrent_search (
-	site_id, torrent_id, title, category, promotion, source_order, published_at,
+	site_id, torrent_id, title, category, promotion, promotion_class, tag_ids_json, source_order, published_at,
 	size_bytes, seeders, leechers, snatches
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(site_id, torrent_id) DO UPDATE SET
 	title = excluded.title,
 	category = excluded.category,
 	promotion = excluded.promotion,
+	promotion_class = excluded.promotion_class,
+	tag_ids_json = excluded.tag_ids_json,
 	source_order = excluded.source_order,
 	published_at = excluded.published_at,
 	size_bytes = excluded.size_bytes,
 	seeders = excluded.seeders,
 	leechers = excluded.leechers,
 	snatches = excluded.snatches
-`, record.SiteID, record.TorrentID, record.Title, record.Category, record.Promotion, record.SourceOrder,
+`, record.SiteID, record.TorrentID, record.Title, record.Category, record.Promotion, record.PromotionClass, string(tagIDsJSON), record.SourceOrder,
 		record.PublishedAt, record.SizeBytes, record.Seeders, record.Leechers, record.Snatches); err != nil {
 		return err
 	}
@@ -214,9 +220,9 @@ ORDER BY `+orderBy+` LIMIT ? OFFSET ?`, listArgs...)
 	return keys, total, rows.Err()
 }
 
-// listQBTorrentPage 在派生索引中先完成 qB 条件筛选和范围计算，再按键读取主库记录。
-func (s *SQLiteStore) listQBTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
-	keys, total, err := s.listQBTorrentKeys(ctx, query)
+// listFilteredTorrentPage 在派生索引中先完成媒体条件筛选和范围计算，再按键读取主库记录。
+func (s *SQLiteStore) listFilteredTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
+	keys, total, err := s.listFilteredTorrentKeys(ctx, query)
 	if err != nil || len(keys) == 0 {
 		return []TorrentRecord{}, total, err
 	}
@@ -224,7 +230,7 @@ func (s *SQLiteStore) listQBTorrentPage(ctx context.Context, query TorrentListQu
 	return records, total, err
 }
 
-func (s *SQLiteStore) listQBTorrentKeys(ctx context.Context, query TorrentListQuery) ([]TorrentKey, int, error) {
+func (s *SQLiteStore) listFilteredTorrentKeys(ctx context.Context, query TorrentListQuery) ([]TorrentKey, int, error) {
 	prefix := ""
 	args := []any{}
 	joins := `
@@ -263,11 +269,46 @@ JOIN matched m ON m.site_id = p.site_id AND m.torrent_id = p.torrent_id`
 		where = append(where, "p.site_id = ?")
 		args = append(args, query.SiteID)
 	}
+	if len(query.Categories) > 0 {
+		placeholders := make([]string, len(query.Categories))
+		for i, category := range query.Categories {
+			placeholders[i] = "?"
+			args = append(args, category)
+		}
+		where = append(where, "p.category COLLATE NOCASE IN ("+strings.Join(placeholders, ",")+")")
+	}
+	for _, group := range query.SiteCheckboxes {
+		if len(group.Values) == 0 {
+			continue
+		}
+		placeholders := make([]string, len(group.Values))
+		for i, value := range group.Values {
+			placeholders[i] = "?"
+			args = append(args, value)
+		}
+		where = append(where, `EXISTS (
+			SELECT 1 FROM json_each(p.tag_ids_json) AS site_tag
+			WHERE site_tag.value COLLATE NOCASE IN (`+strings.Join(placeholders, ",")+`)
+		)`)
+	}
+	if len(query.Promotions) > 0 {
+		promotionClauses := make([]string, 0, len(query.Promotions))
+		for _, promotion := range query.Promotions {
+			if strings.EqualFold(promotion, "normal") {
+				promotionClauses = append(promotionClauses, "TRIM(p.promotion_class) = ''")
+				continue
+			}
+			promotionClauses = append(promotionClauses, "(p.promotion_class = ? OR p.promotion_class LIKE ?)")
+			args = append(args, promotion, promotion+" %")
+		}
+		where = append(where, "("+strings.Join(promotionClauses, " OR ")+")")
+	}
 	switch query.QBTask {
 	case "present":
 		where = append(where, "COALESCE(q.added, 0) = 1")
 	case "absent":
 		where = append(where, "COALESCE(q.added, 0) = 0")
+	case "":
 	default:
 		return nil, 0, fmt.Errorf("unsupported qB task filter %q", query.QBTask)
 	}

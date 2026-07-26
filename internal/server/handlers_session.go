@@ -53,6 +53,16 @@ func (s *Server) handleSites(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sites)
 }
 
+// handleMediaFilterOptions 返回单站点媒体筛选项。
+func (s *Server) handleMediaFilterOptions(w http.ResponseWriter, r *http.Request) {
+	options, err := s.sites.MediaFilterOptions(r.Context(), chi.URLParam(r, "site_id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, options)
+}
+
 // handleGetSiteCredential 返回站点凭据状态。
 func (s *Server) handleGetSiteCredential(w http.ResponseWriter, r *http.Request) {
 	credential, err := s.sites.GetSiteCredential(r.Context(), chi.URLParam(r, "site_id"))

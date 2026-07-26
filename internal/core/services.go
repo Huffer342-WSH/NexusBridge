@@ -4,6 +4,7 @@ import "context"
 
 type SiteService interface {
 	ListSites(ctx context.Context) ([]Site, error)
+	MediaFilterOptions(ctx context.Context, siteID string) (MediaFilterOptions, error)
 	GetSiteCredential(ctx context.Context, siteID string) (SiteCredential, error)
 	SaveSiteCredential(ctx context.Context, credential SiteCredential) (SiteCredential, error)
 	GetSiteAttendance(ctx context.Context, siteID string) (SiteAttendance, error)

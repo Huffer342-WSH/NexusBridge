@@ -34,6 +34,107 @@ func (a *App) ListSites(ctx context.Context) ([]Site, error) {
 	return sites, nil
 }
 
+// MediaFilterOptions 返回站点定义中的分类 checkbox 与促销 select 选项。
+func (a *App) MediaFilterOptions(_ context.Context, siteID string) (MediaFilterOptions, error) {
+	site, err := a.findSite(strings.TrimSpace(siteID))
+	if err != nil {
+		return MediaFilterOptions{}, err
+	}
+	result := MediaFilterOptions{
+		SiteID:         site.ID,
+		CategoryLabel:  "分类",
+		Categories:     []MediaFilterOption{},
+		Checkboxes:     []MediaFilterGroup{},
+		PromotionLabel: "促销",
+		Promotions:     []MediaFilterOption{},
+	}
+	fields := site.Definition.HTML.Search.Fields
+	seenCategories := map[string]struct{}{}
+	for _, group := range fields.Checkboxes {
+		if !isCategoryCheckboxGroup(group) {
+			name := strings.TrimSpace(group.Name)
+			if name == "" {
+				continue
+			}
+			filterGroup := MediaFilterGroup{
+				Name:    name,
+				Label:   strings.TrimSpace(group.Label),
+				Options: []MediaFilterOption{},
+			}
+			seen := map[string]struct{}{}
+			for _, option := range group.Options {
+				label := strings.TrimSpace(option.Label)
+				if label == "" {
+					continue
+				}
+				key := strings.ToLower(label)
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				filterGroup.Options = append(filterGroup.Options, MediaFilterOption{Value: label, Label: label})
+			}
+			if len(filterGroup.Options) > 0 {
+				if filterGroup.Label == "" {
+					filterGroup.Label = filterGroup.Name
+				}
+				result.Checkboxes = append(result.Checkboxes, filterGroup)
+			}
+			continue
+		}
+		if label := strings.TrimSpace(group.Label); label != "" {
+			result.CategoryLabel = label
+		}
+		for _, option := range group.Options {
+			label := strings.TrimSpace(option.Label)
+			if label == "" {
+				continue
+			}
+			key := strings.ToLower(label)
+			if _, exists := seenCategories[key]; exists {
+				continue
+			}
+			seenCategories[key] = struct{}{}
+			result.Categories = append(result.Categories, MediaFilterOption{Value: label, Label: label})
+		}
+	}
+	seenPromotions := map[string]struct{}{}
+	for _, field := range fields.Selects {
+		if !strings.EqualFold(strings.TrimSpace(field.Role), "promotion") {
+			continue
+		}
+		if label := strings.TrimSpace(field.Label); label != "" {
+			result.PromotionLabel = label
+		}
+		for _, option := range field.Options {
+			value := strings.TrimSpace(option.FilterValue)
+			label := strings.TrimSpace(option.Label)
+			if value == "" || label == "" || strings.EqualFold(value, "all") {
+				continue
+			}
+			key := strings.ToLower(value)
+			if _, exists := seenPromotions[key]; exists {
+				continue
+			}
+			seenPromotions[key] = struct{}{}
+			result.Promotions = append(result.Promotions, MediaFilterOption{Value: value, Label: label})
+		}
+	}
+	return result, nil
+}
+
+func isCategoryCheckboxGroup(group parser.SiteSearchCheckboxGroup) bool {
+	if strings.EqualFold(strings.TrimSpace(group.Name), "cat") {
+		return true
+	}
+	for _, option := range group.Options {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(option.Name)), "cat") {
+			return true
+		}
+	}
+	return false
+}
+
 // GetSiteCredential 读取站点凭据状态。
 func (a *App) GetSiteCredential(ctx context.Context, siteID string) (SiteCredential, error) {
 	site, err := a.findSite(siteID)

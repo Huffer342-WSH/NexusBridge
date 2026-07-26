@@ -59,20 +59,47 @@ func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("qb_progress requires qb_task=present"))
 		return
 	}
+	categories, err := mediaFilterQueryValues(r, "category")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	promotions, err := mediaFilterQueryValues(r, "promotion")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	siteCheckboxes, err := mediaCheckboxQueryValues(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	siteID := strings.TrimSpace(r.URL.Query().Get("site_id"))
+	if siteID == "" && (len(categories) > 0 || len(siteCheckboxes) > 0 || len(promotions) > 0) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("site checkbox and promotion filters require site_id"))
+		return
+	}
 	page, err := s.torrents.ListTorrentPage(r.Context(), core.TorrentQuery{
-		SiteID:        r.URL.Query().Get("site_id"),
-		Search:        r.URL.Query().Get("q"),
-		SortBy:        r.URL.Query().Get("sort_by"),
-		SortDirection: r.URL.Query().Get("sort_direction"),
-		QBTask:        qbTask,
-		QBProgress:    qbProgress,
-		Limit:         limit,
-		Offset:        offset,
-		IncludeQB:     queryBool(r, "include_qb"),
-		QBWeakMatch:   queryBool(r, "qb_weak_match"),
-		ExcludePinned: !includePinned,
+		SiteID:         siteID,
+		Search:         r.URL.Query().Get("q"),
+		SortBy:         r.URL.Query().Get("sort_by"),
+		SortDirection:  r.URL.Query().Get("sort_direction"),
+		QBTask:         qbTask,
+		QBProgress:     qbProgress,
+		Categories:     categories,
+		SiteCheckboxes: siteCheckboxes,
+		Promotions:     promotions,
+		Limit:          limit,
+		Offset:         offset,
+		IncludeQB:      queryBool(r, "include_qb"),
+		QBWeakMatch:    queryBool(r, "qb_weak_match"),
+		ExcludePinned:  !includePinned,
 	})
 	if err != nil {
+		if errors.Is(err, core.ErrInvalidMediaFilter) {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 		if errors.Is(err, core.ErrQBRuntimeNotReady) {
 			writeError(w, http.StatusConflict, err)
 			return
@@ -81,6 +108,56 @@ func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+func mediaCheckboxQueryValues(r *http.Request) ([]core.MediaCheckboxFilter, error) {
+	rawValues := r.URL.Query()["site_checkbox"]
+	if len(rawValues) > 100 {
+		return nil, fmt.Errorf("site_checkbox must contain at most 100 values")
+	}
+	result := make([]core.MediaCheckboxFilter, 0)
+	indexes := map[string]int{}
+	for _, raw := range rawValues {
+		parts := strings.SplitN(strings.TrimSpace(raw), ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("site_checkbox values must use group:value")
+		}
+		name := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if name == "" || value == "" {
+			return nil, fmt.Errorf("site_checkbox group and value must not be empty")
+		}
+		if len([]rune(name)) > 64 || len([]rune(value)) > 128 {
+			return nil, fmt.Errorf("site_checkbox group or value is too long")
+		}
+		key := strings.ToLower(name)
+		if index, exists := indexes[key]; exists {
+			result[index].Values = append(result[index].Values, value)
+			continue
+		}
+		indexes[key] = len(result)
+		result = append(result, core.MediaCheckboxFilter{Name: name, Values: []string{value}})
+	}
+	return result, nil
+}
+
+func mediaFilterQueryValues(r *http.Request, name string) ([]string, error) {
+	rawValues := r.URL.Query()[name]
+	if len(rawValues) > 100 {
+		return nil, fmt.Errorf("%s must contain at most 100 values", name)
+	}
+	result := make([]string, 0, len(rawValues))
+	for _, raw := range rawValues {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if len([]rune(value)) > 128 {
+			return nil, fmt.Errorf("%s values must not exceed 128 characters", name)
+		}
+		result = append(result, value)
+	}
+	return result, nil
 }
 
 // handleTorrentCover 返回持久缓存中的封面图片并支持浏览器条件请求。

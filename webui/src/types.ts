@@ -18,6 +18,26 @@ export type Site = {
   has_cookie: boolean;
 };
 
+export type MediaFilterOption = {
+  value: string;
+  label: string;
+};
+
+export type MediaFilterGroup = {
+  name: string;
+  label: string;
+  options: MediaFilterOption[];
+};
+
+export type MediaFilterOptions = {
+  site_id: string;
+  category_label: string;
+  categories: MediaFilterOption[];
+  checkboxes: MediaFilterGroup[];
+  promotion_label: string;
+  promotions: MediaFilterOption[];
+};
+
 export type SiteCredential = {
   site_id: string;
   base_url: string;
@@ -207,6 +227,9 @@ export type TorrentPageQuery = {
   q?: string;
   qb_task?: 'present' | 'absent';
   qb_progress?: 'complete' | 'incomplete';
+  categories?: string[];
+  site_checkboxes?: string[];
+  promotions?: string[];
   include_pinned: boolean;
   sort_by?: 'published_at';
   sort_direction?: 'desc';

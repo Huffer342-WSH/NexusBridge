@@ -66,9 +66,18 @@ type TorrentListQuery struct {
 	SortDirection  string
 	QBTask         string
 	QBProgressKeys map[TorrentKey]struct{}
+	Categories     []string
+	SiteCheckboxes []TorrentCheckboxFilter
+	Promotions     []string
 	Limit          int
 	Offset         int
 	ExcludeKeys    []TorrentKey
+}
+
+// TorrentCheckboxFilter 表示一个站点 checkbox 分组内按 OR 匹配的标签值。
+type TorrentCheckboxFilter struct {
+	Name   string
+	Values []string
 }
 
 // TorrentKey 唯一标识一个站点种子。
@@ -358,8 +367,8 @@ func countTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuer
 
 // ListTorrentPage 在同一只读事务中返回筛选总数和当前范围。
 func (s *SQLiteStore) ListTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
-	if query.QBTask != "" {
-		return s.listQBTorrentPage(ctx, query)
+	if query.QBTask != "" || len(query.Categories) > 0 || len(query.SiteCheckboxes) > 0 || len(query.Promotions) > 0 {
+		return s.listFilteredTorrentPage(ctx, query)
 	}
 	if len([]rune(strings.TrimSpace(query.Search))) >= 3 {
 		return s.searchTorrentPage(ctx, query)

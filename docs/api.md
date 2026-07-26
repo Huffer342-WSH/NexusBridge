@@ -80,23 +80,32 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 返回规则编辑器的单站点选项。站点分类、站点标签和副标题标签来自该站点已抓取种子的本地集合；促销来自站点 JSON 中标记为 `role=promotion` 的检索下拉框。接口只读取本地数据，不触发站点抓取。
 
+`GET /api/sites/{site_id}/media-filter-options`
+
+返回媒体页的单站点筛选定义。`cat` checkbox 作为分类返回，其余 checkbox 按原分组返回；促销来自 `role=promotion` 的 `spstate` 下拉框，其中 `all` 仅表示不筛选，不作为选项返回。接口只读取站点定义，不触发站点抓取。
+
 ## 种子
 
 `GET /api/torrents`
 
-先在 SQLite 执行站点、qB 任务关联筛选、普通记录排序与计数，再由核心层合并内存置顶快照；三个及以上字符的子串搜索使用独立索引库的 FTS5 trigram，短关键词回退 `LIKE`。progress 筛选读取现有 qB 内存运行态，列表请求本身不会访问 qB，也不会读取 torrent 文件。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含仅在本次进程有效的 `sticky_level`。
+先在 SQLite 执行站点、分类、促销、qB 任务关联筛选、普通记录排序与计数，再由核心层合并内存置顶快照；三个及以上字符的子串搜索使用独立索引库的 FTS5 trigram，短关键词回退 `LIKE`。progress 筛选读取现有 qB 内存运行态，列表请求本身不会访问 qB，也不会读取 torrent 文件。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含仅在本次进程有效的 `sticky_level`。
 
 查询参数：
 
 - `offset`：从 0 开始，默认 0。
 - `limit`：默认 50，最大 100；WebUI 使用 20、50 或 100。
 - `site_id`、`q`：全库站点和包含式关键词筛选。
+- `category`：可重复；匹配当前站点定义中的分类显示值。
+- `site_checkbox`：可重复，格式为 `group:value`；匹配当前站点同名 checkbox 分组对应的站点标签。
+- `promotion`：可重复；匹配当前站点 `spstate` 定义中的 `filter_value`，例如 `normal`、`pro_free`。
 - `qb_task`：`present` 只显示 qB 任务，`absent` 只显示非 qB 任务；省略时不筛选。
 - `qb_progress`：仅与 `qb_task=present` 一起使用；`complete` 表示 `progress >= 1`，`incomplete` 表示 `progress < 1`。
 - `include_pinned`：默认 `true`；关闭时排除置顶种子。
 - `sort_by`、`sort_direction`：默认 `published_at/desc`。
 
-默认排序先按内存 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。全部筛选都在范围截取前执行。首次成功同步 qB 运行态前请求 `qb_progress` 返回 `409 Conflict`；成功同步后断线仍使用本进程最后一次运行态。关键词和 qB 筛选都不触发站点抓取、自动订阅或额外 qB 同步。
+`category`、`site_checkbox` 和 `promotion` 仅在提供单个 `site_id` 时允许。同一个 checkbox 分组或同类参数内部按 OR 匹配，不同 checkbox 分组、分类、促销及其他条件之间按 AND 匹配；省略表示不筛选。分组和值必须存在于该站点的媒体筛选定义中，否则返回 `400 Bad Request`。
+
+默认排序先按内存 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。全部筛选都在范围截取前执行。首次成功同步 qB 运行态前请求 `qb_progress` 返回 `409 Conflict`；成功同步后断线仍使用本进程最后一次运行态。关键词、站点字段和 qB 筛选都不触发站点抓取、自动订阅或额外 qB 同步。
 
 `GET /api/torrents/{site_id}/{torrent_id}/qb-status`
 

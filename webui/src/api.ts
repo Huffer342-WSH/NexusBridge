@@ -38,6 +38,7 @@ import type {
   RuleFilterOptions,
   Session,
   Site,
+  MediaFilterOptions,
   SiteAttendance,
   SiteAttendanceInput,
   SiteCredential,
@@ -94,6 +95,8 @@ export const api = {
     }),
   health: () => request<Health>('/api/health'),
   sites: () => request<Site[]>('/api/sites'),
+  getMediaFilterOptions: (siteID: string) =>
+    request<MediaFilterOptions>(`/api/sites/${encodeURIComponent(siteID)}/media-filter-options`),
   getSiteCredential: (siteID: string) => request<SiteCredential>(`/api/sites/${siteID}/credential`),
   saveSiteCredential: (siteID: string, credential: SiteCredential) =>
     request<SiteCredential>(`/api/sites/${siteID}/credential`, {
@@ -118,6 +121,9 @@ export const api = {
     if (query.q?.trim()) params.set('q', query.q.trim());
     if (query.qb_task) params.set('qb_task', query.qb_task);
     if (query.qb_progress) params.set('qb_progress', query.qb_progress);
+    for (const category of query.categories ?? []) params.append('category', category);
+    for (const checkbox of query.site_checkboxes ?? []) params.append('site_checkbox', checkbox);
+    for (const promotion of query.promotions ?? []) params.append('promotion', promotion);
     return request<TorrentPage>(`/api/torrents?${params.toString()}`);
   },
   getTorrentPlayback: (siteID: string, torrentID: string, fileName = '') => {

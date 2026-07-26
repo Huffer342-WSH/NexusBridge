@@ -131,6 +131,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/session", s.handleSession)
 	r.Post("/api/session/login", s.handleLogin)
 	r.Get("/api/sites", s.handleSites)
+	r.Get("/api/sites/{site_id}/media-filter-options", s.handleMediaFilterOptions)
 	r.Get("/api/sites/{site_id}/credential", s.handleGetSiteCredential)
 	r.Post("/api/sites/{site_id}/credential", s.handleSaveSiteCredential)
 	r.Get("/api/sites/{site_id}/attendance", s.handleGetSiteAttendance)

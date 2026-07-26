@@ -2,7 +2,7 @@
 
 媒体筛选由 WebUI、HTTP API、core 查询编排和派生索引共同完成。所有条件必须在分页前应用，确保 `total`、页码、置顶记录和普通记录使用相同语义。
 
-当前实现包含站点、关键词、置顶开关和 qB 状态。本轮新增的是 qB 状态筛选；tag 筛选尚未实现。新增条件时应继续扩展统一查询模型，不在 `MediaView` 中过滤当前页。
+当前实现包含站点、站点分类、促销状态、关键词、置顶开关和 qB 状态。tag 筛选尚未实现。新增条件时应继续扩展统一查询模型，不在 `MediaView` 中过滤当前页。
 
 ## 查询契约
 
@@ -21,7 +21,17 @@ flowchart LR
     Page --> MediaView
 ```
 
-`GET /api/torrents` 的 qB 参数为：
+`GET /api/torrents` 的站点字段参数为：
+
+| 参数 | 取值 | 含义 |
+| --- | --- | --- |
+| `category` | 可重复的分类显示值 | 同类值按 OR 匹配 |
+| `site_checkbox` | 可重复的 `group:value` | 同一 checkbox 分组内按 OR 匹配 |
+| `promotion` | 可重复的 `spstate.filter_value` | 同类值按 OR 匹配 |
+
+这些参数只能与单个 `site_id` 一起使用，不同 checkbox 分组、分类与促销之间按 AND 匹配。值由 `GET /api/sites/{site_id}/media-filter-options` 提供；`cat` checkbox 作为分类，其余 checkbox 保留站点分组，促销读取 `role=promotion` 的 `spstate` 定义并排除 `all`。非法站点、分组、值或缺少 `site_id` 返回 `400 Bad Request`。
+
+qB 参数为：
 
 | 参数 | 取值 | 含义 |
 | --- | --- | --- |
@@ -67,23 +77,27 @@ flowchart TD
 
 普通记录在派生索引库中连接 `torrent_search` 与 `torrent_qb_associations`：
 
-- 站点、关键词和 qB 任务存在性在同一个有序查询中完成。
+- 站点、分类、checkbox 站点标签、促销、关键词和 qB 任务存在性在同一个有序查询中完成。
+- 非分类 checkbox 分组使用派生索引中的 `tag_ids_json`；同组内任一标签命中即可，不同组分别应用 `EXISTS` 条件。
+- 促销使用稳定的 `promotion_class` 首个 class 匹配；空 class 对应 `normal`。
 - progress 使用 core 生成的完整键集合，在遍历有序候选键时判断成员关系。
 - 排除置顶键、计算 `total`、跳过 `offset` 和收集 `limit` 的顺序固定，不对当前页做二次过滤。
 - progress 键集合留在内存，不拼接超大的 SQL `IN (...)` 参数列表。
 - 取得页面键后才从主库批量读取完整种子记录。
 
-置顶记录来自 core 的置顶快照，但应用与普通记录相同的站点、关键词、任务存在性和 progress 条件。筛选后仍按置顶等级优先，普通记录按发布时间和稳定键排序；总数等于筛选后的置顶数与普通数之和。
+置顶记录来自 core 的置顶快照，但应用与普通记录相同的站点、分类、checkbox、促销、关键词、任务存在性和 progress 条件。筛选后仍按置顶等级优先，普通记录按发布时间和稳定键排序；总数等于筛选后的置顶数与普通数之和。
 
 ## WebUI 状态与交互
 
-媒体页 URL 直接使用 API 参数：
+媒体页 URL 使用与 API 对应的参数：
 
 ```text
-/media?qb_task=present&qb_progress=incomplete
+/media?site=kamept&category=同人AV&site_checkbox=source:全身无码&promotion=pro_free&qb_task=present&qb_progress=incomplete
 ```
 
-刷新或直接打开 URL 会恢复筛选。无效组合会被规范化并移除；任一筛选变化都会回到第一页。默认状态不写入 qB 参数。
+刷新或直接打开 URL 会恢复筛选。无效组合会被规范化并移除；任一筛选变化都会回到第一页。默认状态不写入筛选参数。
+
+站点字段按钮只在选择单个站点后启用。切换站点会清除原站点条件；选择“全部站点”时按钮禁用。较宽的复选下拉框按站点 checkbox 分组和促销分区、多列展示，选择后不自动关闭；未选择表示不限制，顶部重置按钮清空全部站点字段条件。各分组的已选数量会显示在分区和按钮摘要中。
 
 qB 筛选按钮带固定 `qB` 标识和当前摘要。弹层使用树状复选视觉：
 
@@ -128,11 +142,12 @@ qB 筛选按钮带固定 `qB` 标识和当前摘要。弹层使用树状复选�
 
 1. 在 `webui/src/types.ts`、core `TorrentQuery` 和 storage `TorrentListQuery` 增加独立字段。
 2. 在 `api.ts` 与 `handlers_torrents.go` 定义参数编码、枚举和组合校验。
-3. 在派生索引查询中应用条件，保证条件先于 `total/offset/limit`。
-4. 让置顶记录复用完全相同的匹配规则。
-5. 在 `MediaView` 中维护 URL 规范化、默认值移除和页码重置，不过滤 `props.torrents`。
-6. 判断后台状态变化是否真的改变当前筛选成员，再决定是否重读页面。
-7. 同步更新 `docs/api.md`、OpenAPI、`docs/frontend.md` 和本文。
+3. 从站点定义生成选项时提供稳定的查询值和用户可读标签，不让 WebUI 推断站点字段。
+4. 在派生索引查询中应用条件，保证条件先于 `total/offset/limit`。
+5. 让置顶记录复用完全相同的匹配规则。
+6. 在 `MediaView` 中维护 URL 规范化、默认值移除和页码重置，不过滤 `props.torrents`。
+7. 判断后台状态变化是否真的改变当前筛选成员，再决定是否重读页面。
+8. 同步更新 `docs/api.md`、OpenAPI、`docs/frontend.md` 和本文。
 
 关键词当前覆盖标题、分类、促销和站点，并按现有 FTS/短文本查询路径执行。若未来将“标题/简介搜索”定义为新的用户契约，应先明确索引字段和兼容语义，不直接扩大现有 `q` 的匹配范围。
 
@@ -144,9 +159,9 @@ qB 筛选按钮带固定 `qB` 标识和当前摘要。弹层使用树状复选�
 | 分页请求、分类快照与重载 | `webui/src/App.vue` |
 | qB 轮询生命周期 | `webui/src/composables/useQBStatusPolling.ts` |
 | 前端 API 与类型 | `webui/src/api.ts`、`webui/src/types.ts` |
+| 站点字段选项 | `internal/core/site_catalog.go`、`internal/server/handlers_session.go` |
 | HTTP 参数校验 | `internal/server/handlers_torrents.go` |
 | core 分页与置顶合并 | `internal/core/torrent_catalog.go`、`internal/core/models_torrent.go` |
 | 派生索引查询 | `internal/storage/torrent_search.go`、`internal/storage/torrents.go` |
 | qB 稳定关联 | `internal/storage/qb_snapshots.go` |
 | 索引表与索引项 | `internal/storage/schema.go` |
-

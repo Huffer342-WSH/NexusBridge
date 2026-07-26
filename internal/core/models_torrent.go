@@ -45,17 +45,26 @@ type Torrent struct {
 
 // TorrentQuery 描述本地种子列表的查询、排序和 qB 状态选项。
 type TorrentQuery struct {
-	SiteID        string
-	Search        string
-	SortBy        string
-	SortDirection string
-	QBTask        string
-	QBProgress    string
-	Limit         int
-	Offset        int
-	IncludeQB     bool
-	QBWeakMatch   bool
-	ExcludePinned bool
+	SiteID         string
+	Search         string
+	SortBy         string
+	SortDirection  string
+	QBTask         string
+	QBProgress     string
+	Categories     []string
+	SiteCheckboxes []MediaCheckboxFilter
+	Promotions     []string
+	Limit          int
+	Offset         int
+	IncludeQB      bool
+	QBWeakMatch    bool
+	ExcludePinned  bool
+}
+
+// MediaCheckboxFilter 表示一个站点 checkbox 分组内按 OR 匹配的已选值。
+type MediaCheckboxFilter struct {
+	Name   string
+	Values []string
 }
 
 // TorrentPage 表示按范围查询的媒体种子页。

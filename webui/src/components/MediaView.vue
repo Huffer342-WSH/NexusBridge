@@ -1,6 +1,17 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
-import { ChevronDown, ExternalLink, Film, Play, RadioTower, RefreshCw, RotateCcw, Search, Trash2 } from '@lucide/vue';
+import {
+  ChevronDown,
+  ExternalLink,
+  Film,
+  ListFilter,
+  Play,
+  RadioTower,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+} from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   NAlert,
@@ -14,13 +25,14 @@ import {
   NPopover,
   NSelect,
   NSpace,
+  NSpin,
   NSwitch,
   NTag,
 } from 'naive-ui';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 import { api } from '../api';
 import { useMediaDisplaySettings } from '../composables/useMediaDisplaySettings';
-import type { Site, Torrent, TorrentPageQuery } from '../types';
+import type { MediaFilterOptions, Site, Torrent, TorrentPageQuery } from '../types';
 import { formatByteSize, formatByteSpeed } from '../utils/format';
 import MediaQuickSettings from './MediaQuickSettings.vue';
 import QBDeleteDialog from './QBDeleteDialog.vue';
@@ -54,6 +66,20 @@ const includePinned = ref(true);
 const qbTask = ref<'all' | 'present' | 'absent'>('all');
 const qbProgress = ref<'all' | 'complete' | 'incomplete'>('all');
 const qbFilterOpen = ref(false);
+const categoryFilters = ref<string[]>([]);
+const siteCheckboxFilters = ref<Record<string, string[]>>({});
+const promotionFilters = ref<string[]>([]);
+const mediaFilterOpen = ref(false);
+const mediaFilterLoading = ref(false);
+const mediaFilterError = ref('');
+const mediaFilterOptions = ref<MediaFilterOptions>({
+  site_id: '',
+  category_label: '分类',
+  categories: [],
+  checkboxes: [],
+  promotion_label: '促销',
+  promotions: [],
+});
 const page = ref(1);
 const pageSize = ref(50);
 const failedCovers = ref(new Set<string>());
@@ -66,6 +92,7 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const { settings: displaySettings, layoutClass, layoutStyle } = useMediaDisplaySettings();
 const pageSizes = new Set([20, 50, 100]);
 let applyingRoute = false;
+let mediaFilterRequestVersion = 0;
 type QBFilterValue = 'all' | 'absent' | 'present' | 'incomplete' | 'complete';
 
 const siteOptions = computed(() => [
@@ -100,6 +127,14 @@ const qbPresentIndeterminate = computed(
 );
 const qbCompleteChecked = computed(() => qbFilterValue.value === 'present' || qbFilterValue.value === 'complete');
 const qbIncompleteChecked = computed(() => qbFilterValue.value === 'present' || qbFilterValue.value === 'incomplete');
+const mediaFilterCount = computed(
+  () =>
+    categoryFilters.value.length +
+    Object.values(siteCheckboxFilters.value).reduce((total, values) => total + values.length, 0) +
+    promotionFilters.value.length,
+);
+const mediaFilterLabel = computed(() => (mediaFilterCount.value ? `已选 ${mediaFilterCount.value} 项` : '站点筛选'));
+const mediaFilterDisabled = computed(() => activeSite.value === 'all');
 
 const qbFilterNotice = computed(() => {
   if (qbTask.value === 'all') return '';
@@ -130,6 +165,12 @@ function emitQuery() {
     qb_task: qbTask.value === 'all' ? undefined : qbTask.value,
     qb_progress:
       qbTask.value === 'present' && qbProgress.value !== 'all' && props.qbStatusReady ? qbProgress.value : undefined,
+    categories: activeSite.value === 'all' || !categoryFilters.value.length ? undefined : categoryFilters.value,
+    site_checkboxes:
+      activeSite.value === 'all' || !Object.keys(siteCheckboxFilters.value).length
+        ? undefined
+        : encodedSiteCheckboxFilters(),
+    promotions: activeSite.value === 'all' || !promotionFilters.value.length ? undefined : promotionFilters.value,
     offset: (page.value - 1) * pageSize.value,
     limit: pageSize.value,
     include_pinned: includePinned.value,
@@ -139,6 +180,33 @@ function emitQuery() {
 function routeQueryValue(name: string) {
   const value = route.query[name];
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+}
+
+function routeQueryValues(name: string) {
+  const value = route.query[name];
+  if (Array.isArray(value)) return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+  const normalized = String(value ?? '').trim();
+  return normalized ? [normalized] : [];
+}
+
+function decodedSiteCheckboxFilters() {
+  const result: Record<string, string[]> = {};
+  for (const encoded of routeQueryValues('site_checkbox')) {
+    const separator = encoded.indexOf(':');
+    if (separator <= 0) continue;
+    const name = encoded.slice(0, separator).trim();
+    const value = encoded.slice(separator + 1).trim();
+    if (!name || !value) continue;
+    const values = result[name] ?? [];
+    if (!values.includes(value)) result[name] = [...values, value];
+  }
+  return result;
+}
+
+function encodedSiteCheckboxFilters() {
+  return Object.entries(siteCheckboxFilters.value).flatMap(([name, values]) =>
+    values.map((value) => `${name}:${value}`),
+  );
 }
 
 function positiveInteger(value: string, fallback: number) {
@@ -155,6 +223,10 @@ function mediaURLQuery(): LocationQueryRaw {
   if (normalizedQuery) result.q = normalizedQuery;
   if (qbTask.value !== 'all') result.qb_task = qbTask.value;
   if (qbTask.value === 'present' && qbProgress.value !== 'all') result.qb_progress = qbProgress.value;
+  if (activeSite.value !== 'all' && categoryFilters.value.length) result.category = categoryFilters.value;
+  const siteCheckboxes = encodedSiteCheckboxFilters();
+  if (activeSite.value !== 'all' && siteCheckboxes.length) result.site_checkbox = siteCheckboxes;
+  if (activeSite.value !== 'all' && promotionFilters.value.length) result.promotion = promotionFilters.value;
   if (!includePinned.value) result.pinned = '0';
   return result;
 }
@@ -186,6 +258,9 @@ function applyRouteQuery() {
     qbTask.value === 'present' && (routeQBProgress === 'complete' || routeQBProgress === 'incomplete')
       ? routeQBProgress
       : 'all';
+  categoryFilters.value = activeSite.value === 'all' ? [] : routeQueryValues('category');
+  siteCheckboxFilters.value = activeSite.value === 'all' ? {} : decodedSiteCheckboxFilters();
+  promotionFilters.value = activeSite.value === 'all' ? [] : routeQueryValues('promotion');
   includePinned.value = routeQueryValue('pinned') !== '0';
   page.value = positiveInteger(String(routeQueryValue('page')), 1);
   pageSize.value = pageSizes.has(routePageSize) ? routePageSize : 50;
@@ -206,7 +281,12 @@ function resetPageAndSyncURL() {
 }
 
 watch(() => route.fullPath, applyRouteQuery, { immediate: true, flush: 'sync' });
-watch([activeSite, includePinned, pageSize, qbTask, qbProgress], resetPageAndSyncURL, { flush: 'sync' });
+watch(
+  [activeSite, includePinned, pageSize, qbTask, qbProgress, categoryFilters, siteCheckboxFilters, promotionFilters],
+  resetPageAndSyncURL,
+  { flush: 'sync' },
+);
+watch(activeSite, loadMediaFilterOptions, { immediate: true });
 watch(
   page,
   () => {
@@ -241,6 +321,98 @@ watch(
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
+
+/** 切换站点时清除只对原站点有效的 checkbox 与促销条件。 */
+function updateActiveSite(value: string) {
+  applyingRoute = true;
+  activeSite.value = value;
+  categoryFilters.value = [];
+  siteCheckboxFilters.value = {};
+  promotionFilters.value = [];
+  mediaFilterOpen.value = false;
+  applyingRoute = false;
+  resetPageAndSyncURL();
+}
+
+/** 读取站点定义中的媒体筛选项，并清理 URL 中已失效的值。 */
+async function loadMediaFilterOptions() {
+  const requestVersion = ++mediaFilterRequestVersion;
+  const siteID = activeSite.value;
+  mediaFilterError.value = '';
+  mediaFilterOptions.value = {
+    site_id: '',
+    category_label: '分类',
+    categories: [],
+    checkboxes: [],
+    promotion_label: '促销',
+    promotions: [],
+  };
+  if (siteID === 'all') {
+    mediaFilterLoading.value = false;
+    return;
+  }
+  mediaFilterLoading.value = true;
+  try {
+    const options = await api.getMediaFilterOptions(siteID);
+    if (requestVersion !== mediaFilterRequestVersion || activeSite.value !== siteID) return;
+    mediaFilterOptions.value = options;
+    const allowedCategories = new Set(options.categories.map((option) => option.value));
+    const allowedPromotions = new Set(options.promotions.map((option) => option.value));
+    const nextCategories = categoryFilters.value.filter((value) => allowedCategories.has(value));
+    const nextPromotions = promotionFilters.value.filter((value) => allowedPromotions.has(value));
+    const nextCheckboxes: Record<string, string[]> = {};
+    for (const group of options.checkboxes) {
+      const allowed = new Set(group.options.map((option) => option.value));
+      const selected = (siteCheckboxFilters.value[group.name] ?? []).filter((value) => allowed.has(value));
+      if (selected.length) nextCheckboxes[group.name] = selected;
+    }
+    if (
+      nextCategories.length !== categoryFilters.value.length ||
+      JSON.stringify(nextCheckboxes) !== JSON.stringify(siteCheckboxFilters.value) ||
+      nextPromotions.length !== promotionFilters.value.length
+    ) {
+      applyingRoute = true;
+      categoryFilters.value = nextCategories;
+      siteCheckboxFilters.value = nextCheckboxes;
+      promotionFilters.value = nextPromotions;
+      applyingRoute = false;
+      replaceMediaURL();
+    }
+  } catch (reason) {
+    if (requestVersion !== mediaFilterRequestVersion) return;
+    mediaFilterError.value = reason instanceof Error ? reason.message : '站点筛选项加载失败';
+  } finally {
+    if (requestVersion === mediaFilterRequestVersion) mediaFilterLoading.value = false;
+  }
+}
+
+/** 切换一个多选筛选值。 */
+function toggleMediaFilter(target: 'category' | 'promotion', value: string) {
+  const source = target === 'category' ? categoryFilters : promotionFilters;
+  source.value = source.value.includes(value)
+    ? source.value.filter((item) => item !== value)
+    : [...source.value, value];
+}
+
+/** 切换站点 checkbox 分组中的一个值。 */
+function toggleSiteCheckboxFilter(groupName: string, value: string) {
+  const current = siteCheckboxFilters.value[groupName] ?? [];
+  const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+  const filters = { ...siteCheckboxFilters.value };
+  if (next.length) filters[groupName] = next;
+  else delete filters[groupName];
+  siteCheckboxFilters.value = filters;
+}
+
+/** 清空当前站点的 checkbox 与促销筛选。 */
+function resetMediaFilters() {
+  applyingRoute = true;
+  categoryFilters.value = [];
+  siteCheckboxFilters.value = {};
+  promotionFilters.value = [];
+  applyingRoute = false;
+  resetPageAndSyncURL();
+}
 
 /** 返回站点显示名称。 */
 function siteDisplayName(siteID: string) {
@@ -383,7 +555,119 @@ async function deleteQBTask(deleteFiles: boolean) {
         </div>
         <div class="media-toolbar-controls">
           <NSpace class="media-filters">
-            <NSelect v-model:value="activeSite" :options="siteOptions" class="site-filter" />
+            <NSelect :value="activeSite" :options="siteOptions" class="site-filter" @update:value="updateActiveSite" />
+            <NPopover
+              v-model:show="mediaFilterOpen"
+              trigger="click"
+              placement="bottom-start"
+              :show-arrow="false"
+              content-class="media-filter-popover"
+            >
+              <template #trigger>
+                <NButton
+                  secondary
+                  class="media-filter-trigger"
+                  :disabled="mediaFilterDisabled"
+                  :title="mediaFilterDisabled ? '请先选择单个站点' : '筛选当前站点的 checkbox 与促销状态'"
+                  :aria-expanded="mediaFilterOpen"
+                  aria-haspopup="menu"
+                >
+                  <span class="media-filter-trigger-label">
+                    <NIcon :component="ListFilter" />
+                    <span>{{ mediaFilterLabel }}</span>
+                  </span>
+                  <NIcon :component="ChevronDown" class="media-filter-chevron" />
+                </NButton>
+              </template>
+              <div class="media-filter-panel" role="menu" aria-label="站点 checkbox 与促销筛选">
+                <div class="media-filter-heading">
+                  <div>
+                    <strong>{{ siteNameByID.get(activeSite) ?? activeSite }}</strong>
+                    <span>同组内匹配任一选项，不同分组同时生效</span>
+                  </div>
+                  <NButton
+                    text
+                    size="small"
+                    :disabled="mediaFilterCount === 0"
+                    class="media-filter-reset"
+                    @click="resetMediaFilters"
+                  >
+                    <template #icon><NIcon :component="RotateCcw" /></template>
+                    重置
+                  </NButton>
+                </div>
+                <NSpin v-if="mediaFilterLoading" class="media-filter-loading" size="small" />
+                <NAlert v-else-if="mediaFilterError" type="warning" :bordered="false">
+                  {{ mediaFilterError }}
+                </NAlert>
+                <template v-else>
+                  <section v-if="mediaFilterOptions.categories.length" class="media-filter-group">
+                    <div class="media-filter-group-title">
+                      <strong>{{ mediaFilterOptions.category_label }}</strong>
+                      <span>{{ categoryFilters.length }} / {{ mediaFilterOptions.categories.length }}</span>
+                    </div>
+                    <div class="media-filter-options">
+                      <NCheckbox
+                        v-for="option in mediaFilterOptions.categories"
+                        :key="option.value"
+                        :checked="categoryFilters.includes(option.value)"
+                        class="media-filter-option"
+                        @update:checked="toggleMediaFilter('category', option.value)"
+                      >
+                        {{ option.label }}
+                      </NCheckbox>
+                    </div>
+                  </section>
+                  <section v-for="group in mediaFilterOptions.checkboxes" :key="group.name" class="media-filter-group">
+                    <div class="media-filter-group-title">
+                      <strong>{{ group.label }}</strong>
+                      <span>{{ siteCheckboxFilters[group.name]?.length ?? 0 }} / {{ group.options.length }}</span>
+                    </div>
+                    <div class="media-filter-options">
+                      <NCheckbox
+                        v-for="option in group.options"
+                        :key="option.value"
+                        :checked="siteCheckboxFilters[group.name]?.includes(option.value) ?? false"
+                        class="media-filter-option"
+                        @update:checked="toggleSiteCheckboxFilter(group.name, option.value)"
+                      >
+                        {{ option.label }}
+                      </NCheckbox>
+                    </div>
+                  </section>
+                  <section v-if="mediaFilterOptions.promotions.length" class="media-filter-group">
+                    <div class="media-filter-group-title">
+                      <strong>{{ mediaFilterOptions.promotion_label }}</strong>
+                      <span>{{ promotionFilters.length }} / {{ mediaFilterOptions.promotions.length }}</span>
+                    </div>
+                    <div class="media-filter-options media-filter-options--promotion">
+                      <NCheckbox
+                        v-for="option in mediaFilterOptions.promotions"
+                        :key="option.value"
+                        :checked="promotionFilters.includes(option.value)"
+                        class="media-filter-option"
+                        @update:checked="toggleMediaFilter('promotion', option.value)"
+                      >
+                        {{ option.label }}
+                      </NCheckbox>
+                    </div>
+                  </section>
+                  <NEmpty
+                    v-if="
+                      !mediaFilterOptions.categories.length &&
+                      !mediaFilterOptions.checkboxes.length &&
+                      !mediaFilterOptions.promotions.length
+                    "
+                    size="small"
+                    description="该站点未定义可用的 checkbox 或促销筛选"
+                  />
+                </template>
+                <div class="media-filter-footer">
+                  <span>未选择时显示该站点全部种子</span>
+                  <strong>{{ mediaFilterCount ? `已选 ${mediaFilterCount} 项` : '未筛选' }}</strong>
+                </div>
+              </div>
+            </NPopover>
             <NPopover
               v-model:show="qbFilterOpen"
               trigger="click"
