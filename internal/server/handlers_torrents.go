@@ -335,6 +335,28 @@ func (s *Server) handleTorrentQBControl(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, status)
 }
 
+// handleDeleteQBTorrent 删除单个 qB 任务，并显式传递是否同时删除下载文件。
+func (s *Server) handleDeleteQBTorrent(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeleteFiles bool `json:"delete_files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	err := s.torrents.DeleteQBTorrent(r.Context(), chi.URLParam(r, "hash"), body.DeleteFiles)
+	switch {
+	case errors.Is(err, core.ErrInvalidQBTorrentHash):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, core.ErrQBTorrentNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+	}
+}
+
 // handleFetchSite 创建后台站点扫描并立即返回持久化任务。
 func (s *Server) handleFetchSite(w http.ResponseWriter, r *http.Request) {
 	siteID := chi.URLParam(r, "site_id")

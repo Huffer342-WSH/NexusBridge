@@ -15,6 +15,7 @@ type TorrentService interface {
 	ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentPage, error)
 	GetTorrentQBStatus(ctx context.Context, siteID, torrentID string, weakMatch bool) (QBTorrentStatus, error)
 	ControlTorrentQB(ctx context.Context, siteID, torrentID, action string) (QBTorrentStatus, error)
+	DeleteQBTorrent(ctx context.Context, hash string, deleteFiles bool) error
 	FetchTorrentCover(ctx context.Context, siteID, torrentID string) (CoverImage, error)
 }
 

@@ -1,8 +1,8 @@
 <!-- 播放视图负责实时选集、媒体画布、简介和其他可播放种子。 -->
 <script setup lang="ts">
-import { ExternalLink, File, Film, Folder, Image, Music2, Play, RefreshCw } from '@lucide/vue';
+import { ExternalLink, File, Film, Folder, Image, Music2, Play, RefreshCw, Trash2 } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { NAlert, NButton, NCard, NEmpty, NIcon, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
+import { NAlert, NButton, NCard, NEmpty, NIcon, NResult, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import type {
@@ -14,6 +14,7 @@ import type {
   FileEntry,
 } from '../types';
 import { formatByteSize } from '../utils/format';
+import QBDeleteDialog from './QBDeleteDialog.vue';
 import MediaCanvas from './player/MediaCanvas.vue';
 
 const route = useRoute();
@@ -31,6 +32,10 @@ const mediaTab = ref('episodes');
 const directory = ref<FileBrowseResult | null>(null);
 const directoryLoading = ref(false);
 const directoryError = ref('');
+const deleteDialogOpen = ref(false);
+const deleteLoading = ref(false);
+const deleteError = ref('');
+const deletedQB = ref<{ deleteFiles: boolean } | null>(null);
 let generation = 0;
 let pollTimer: number | undefined;
 let skipNextRouteLoad = false;
@@ -253,6 +258,34 @@ async function openOther(torrent: PlaybackTorrent) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+/** 打开当前播放内容对应 qB 任务的删除确认框。 */
+function openDeleteDialog() {
+  deleteError.value = '';
+  deleteDialogOpen.value = true;
+}
+
+/** 删除当前播放内容对应的 qB 任务，并停止继续读取已经失效的播放清单。 */
+async function deleteQBTask(deleteFiles: boolean) {
+  const hash = playback.value?.qb_hash?.trim() ?? '';
+  if (!hash || deleteLoading.value) {
+    deleteError.value = '当前播放内容没有可删除的 qB 任务 hash。';
+    return;
+  }
+  deleteLoading.value = true;
+  deleteError.value = '';
+  try {
+    await api.deleteQBTorrent(hash, deleteFiles);
+    generation++;
+    if (pollTimer) window.clearTimeout(pollTimer);
+    deletedQB.value = { deleteFiles };
+    deleteDialogOpen.value = false;
+  } catch (reason) {
+    deleteError.value = reason instanceof Error ? reason.message : '删除 qB 任务失败';
+  } finally {
+    deleteLoading.value = false;
+  }
+}
+
 watch(
   () => route.fullPath,
   () => {
@@ -286,6 +319,17 @@ onBeforeUnmount(() => {
         </NButton>
       </div>
     </NAlert>
+
+    <NResult
+      v-else-if="deletedQB"
+      status="success"
+      title="qB 任务已删除"
+      :description="deletedQB.deleteFiles ? 'qBittorrent 已同时删除下载文件。' : '下载文件已保留。'"
+    >
+      <template #footer>
+        <NButton type="primary" @click="router.replace({ name: 'media' })">返回媒体页</NButton>
+      </template>
+    </NResult>
 
     <template v-else-if="playback">
       <main class="playback-main">
@@ -329,17 +373,23 @@ onBeforeUnmount(() => {
                   <template v-else>本机文件</template>
                 </p>
               </div>
-              <NButton
-                v-if="playback.torrent?.detail_url"
-                tag="a"
-                :href="playback.torrent.detail_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                secondary
-              >
-                <template #icon><NIcon :component="ExternalLink" /></template>
-                查看来源
-              </NButton>
+              <NSpace class="playback-title-actions">
+                <NButton
+                  v-if="playback.torrent?.detail_url"
+                  tag="a"
+                  :href="playback.torrent.detail_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  secondary
+                >
+                  <template #icon><NIcon :component="ExternalLink" /></template>
+                  查看来源
+                </NButton>
+                <NButton v-if="playback.qb_hash" type="error" secondary @click="openDeleteDialog">
+                  <template #icon><NIcon :component="Trash2" /></template>
+                  删除 qB 任务
+                </NButton>
+              </NSpace>
             </div>
             <div class="playback-meta">
               <NTag v-if="playback.torrent?.category" type="info">{{ playback.torrent.category }}</NTag>
@@ -476,5 +526,13 @@ onBeforeUnmount(() => {
         </aside>
       </main>
     </template>
+
+    <QBDeleteDialog
+      v-model:show="deleteDialogOpen"
+      :title="playback?.title ?? ''"
+      :loading="deleteLoading"
+      :error="deleteError"
+      @confirm="deleteQBTask"
+    />
   </section>
 </template>

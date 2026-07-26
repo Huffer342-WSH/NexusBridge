@@ -1,13 +1,15 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
-import { ExternalLink, Film, Play, RadioTower, RefreshCw, Search } from '@lucide/vue';
+import { ExternalLink, Film, Play, RadioTower, RefreshCw, Search, Trash2 } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { NButton, NCard, NEmpty, NIcon, NInput, NPagination, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
+import { NAlert, NButton, NCard, NEmpty, NIcon, NInput, NPagination, NSelect, NSpace, NSwitch, NTag } from 'naive-ui';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
+import { api } from '../api';
 import { useMediaDisplaySettings } from '../composables/useMediaDisplaySettings';
 import type { Site, Torrent } from '../types';
 import { formatByteSize, formatByteSpeed } from '../utils/format';
 import MediaQuickSettings from './MediaQuickSettings.vue';
+import QBDeleteDialog from './QBDeleteDialog.vue';
 import TorrentStatusControl from './TorrentStatusControl.vue';
 
 const props = defineProps<{
@@ -36,6 +38,11 @@ const includePinned = ref(true);
 const page = ref(1);
 const pageSize = ref(50);
 const failedCovers = ref(new Set<string>());
+const deleteDialogOpen = ref(false);
+const deleteTarget = ref<Torrent | null>(null);
+const deletingHash = ref('');
+const deleteError = ref('');
+const deleteNotice = ref('');
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 const { settings: displaySettings, layoutClass, layoutStyle } = useMediaDisplaySettings();
 const pageSizes = new Set([20, 50, 100]);
@@ -198,6 +205,47 @@ function qbTags(torrent: Torrent) {
     .map((tag) => tag.trim())
     .filter(Boolean);
 }
+
+/** 打开删除确认框并默认保留已下载文件。 */
+function openDeleteDialog(torrent: Torrent) {
+  deleteTarget.value = torrent;
+  deleteError.value = '';
+  deleteDialogOpen.value = true;
+}
+
+/** 删除当前卡片关联的 qB 任务，并立即更新卡片状态。 */
+async function deleteQBTask(deleteFiles: boolean) {
+  const torrent = deleteTarget.value;
+  const hash = torrent?.qb_status?.hash?.trim() ?? '';
+  if (!torrent || !hash || deletingHash.value) {
+    deleteError.value = '当前卡片没有可删除的 qB 任务 hash，请先同步 qB 状态。';
+    return;
+  }
+  deletingHash.value = hash;
+  deleteError.value = '';
+  deleteNotice.value = '';
+  try {
+    await api.deleteQBTorrent(hash, deleteFiles);
+    if (torrent.qb_status) {
+      torrent.qb_status = {
+        ...torrent.qb_status,
+        added: false,
+        state: 'missing',
+        progress: 0,
+        completed: 0,
+        download_speed: 0,
+        upload_speed: 0,
+        fetched_at: new Date().toISOString(),
+      };
+    }
+    deleteNotice.value = deleteFiles ? 'qB 任务及已下载文件已删除。' : 'qB 任务已删除，已下载文件保留。';
+    deleteDialogOpen.value = false;
+  } catch (reason) {
+    deleteError.value = reason instanceof Error ? reason.message : '删除 qB 任务失败';
+  } finally {
+    deletingHash.value = '';
+  }
+}
 </script>
 
 <template>
@@ -229,6 +277,10 @@ function qbTags(torrent: Torrent) {
         </div>
       </div>
     </NCard>
+
+    <NAlert v-if="deleteNotice" type="success" closable :bordered="false" @close="deleteNotice = ''">
+      {{ deleteNotice }}
+    </NAlert>
 
     <div v-if="torrents.length" class="media-list" :class="layoutClass" :style="layoutStyle">
       <NCard v-for="torrent in torrents" :key="`${torrent.site_id}:${torrent.id}`" :bordered="false" class="media-item">
@@ -300,9 +352,21 @@ function qbTags(torrent: Torrent) {
           <div v-if="torrent.qb_status?.added" class="qb-status-block">
             <div class="qb-status-header">
               <span class="muted">最近同步</span>
-              <span v-if="torrent.qb_status.fetched_at" class="muted">{{
-                formatDate(torrent.qb_status.fetched_at)
-              }}</span>
+              <NSpace align="center" size="small">
+                <span v-if="torrent.qb_status.fetched_at" class="muted">{{
+                  formatDate(torrent.qb_status.fetched_at)
+                }}</span>
+                <NButton
+                  quaternary
+                  type="error"
+                  size="tiny"
+                  :loading="deletingHash === torrent.qb_status.hash"
+                  @click.stop="openDeleteDialog(torrent)"
+                >
+                  <template #icon><NIcon :component="Trash2" /></template>
+                  删除任务
+                </NButton>
+              </NSpace>
             </div>
             <NSpace v-if="torrent.qb_status?.added" size="small" class="qb-status-tags">
               <NTag v-if="torrent.qb_status.category" size="small" type="info">{{ torrent.qb_status.category }}</NTag>
@@ -343,5 +407,12 @@ function qbTags(torrent: Torrent) {
     </NCard>
 
     <MediaQuickSettings v-model="displaySettings" />
+    <QBDeleteDialog
+      v-model:show="deleteDialogOpen"
+      :title="deleteTarget?.title ?? ''"
+      :loading="Boolean(deletingHash)"
+      :error="deleteError"
+      @confirm="deleteQBTask"
+    />
   </section>
 </template>

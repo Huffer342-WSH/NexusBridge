@@ -695,6 +695,37 @@ paths:
                 $ref: "#/components/schemas/QBTorrentStatus"
         "400":
           $ref: "#/components/responses/Error"
+  /api/qb/torrents/{hash}:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        description: 单个 40 或 64 位十六进制 info hash；不接受 all。
+        schema:
+          type: string
+          pattern: "^[0-9A-Fa-f]{40}([0-9A-Fa-f]{24})?$"
+    delete:
+      tags: [qbittorrent]
+      summary: 删除单个 qB 任务并选择是否同时删除下载文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QBTorrentDeleteRequest"
+      responses:
+        "200":
+          description: qB 任务已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
   /api/torrents/{site_id}/{torrent_id}/cover:
     parameters:
       - $ref: "#/components/parameters/SiteID"
@@ -1940,6 +1971,13 @@ components:
         action:
           type: string
           enum: [start, stop]
+    QBTorrentDeleteRequest:
+      type: object
+      required: [delete_files]
+      properties:
+        delete_files:
+          type: boolean
+          description: true 时由 qBittorrent 同时删除已下载文件；false 时保留文件。
     FetchSettings:
       type: object
       required: [max_pages]

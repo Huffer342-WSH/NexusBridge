@@ -99,5 +99,3 @@ func (c *Client) CreateTags(ctx context.Context, tags []string) error {
 func (c *Client) DeleteTags(ctx context.Context, tags []string) error {
 	return c.postForm(ctx, "/api/v2/torrents/deleteTags", url.Values{"tags": {strings.Join(nonEmptyStrings(tags), ",")}}, "torrents/deleteTags")
 }
-
-// DeleteTorrents 删除一个或多个 qBittorrent 种子任务。

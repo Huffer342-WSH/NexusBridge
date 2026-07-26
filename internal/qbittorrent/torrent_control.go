@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// DeleteTorrents 删除一个或多个 qBittorrent 种子任务，并按 deleteFiles 决定是否同时删除下载文件。
 func (c *Client) DeleteTorrents(ctx context.Context, hashes []string, deleteFiles bool) error {
 	values := url.Values{"hashes": {joinHashes(hashes)}, "deleteFiles": {strconv.FormatBool(deleteFiles)}}
 	return c.postForm(ctx, "/api/v2/torrents/delete", values, "torrents/delete")

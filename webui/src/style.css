@@ -632,6 +632,20 @@ h3 {
   margin: 0;
 }
 
+.qb-delete-content {
+  display: grid;
+  gap: 16px;
+}
+
+.qb-delete-content > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.qb-delete-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
 .settings-page {
   display: grid;
   gap: 14px;
@@ -1145,6 +1159,10 @@ h3 {
   min-width: 0;
 }
 
+.playback-title-actions {
+  flex: 0 0 auto;
+}
+
 .playback-title-row h1 {
   overflow-wrap: anywhere;
 }
@@ -1612,6 +1630,11 @@ h3 {
   }
 
   .playback-title-row .n-button {
+    width: 100%;
+  }
+
+  .playback-title-actions {
+    display: grid !important;
     width: 100%;
   }
 }

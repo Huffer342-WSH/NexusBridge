@@ -277,6 +277,10 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 代理 qB `sync/maindata` 增量接口，按 hash 将完整或部分 torrent 字段合并到内存状态，返回新的 `rid` 和前端需要更新的本地种子状态。仅进度、速度、状态等实时字段变化时不写数据库；分类、标签、保存位置等稳定字段变化时才批量更新派生索引库。qB 不可连接时返回 `502`，前端按断连间隔退避；该轻量接口不查询 properties，也不创建整理任务。
 
+`DELETE /api/qb/torrents/{hash}`
+
+接收 `{ "delete_files": false }`，按单个 40 或 64 位十六进制 info hash 删除 qB 任务。`delete_files=false` 仅删除任务并保留已下载文件，`true` 将 qB 的 `deleteFiles=true` 原样传递并同时删除下载文件。接口拒绝空 hash 和 qB 的 `all` 语义；删除成功后会使下一次增量轮询立即刷新。
+
 `GET /api/qb/categories?refresh=true`
 
 返回 qB 分类快照。qB 分类只有完整名称，例如 `PT/ASMR`；响应额外提供从 `/` 拆分的 `path_segments` 供 WebUI 树状展示，不新增独立父分类或子分类字段。`refresh=true` 强制同步；qB 离线且已有缓存时返回 `stale=true`、`connected=false` 和 `error`，没有可用缓存时返回 `502`。

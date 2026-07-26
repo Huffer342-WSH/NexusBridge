@@ -3,12 +3,21 @@ package core
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"nexusbridge/internal/qbittorrent"
 	"nexusbridge/internal/storage"
+)
+
+var (
+	// ErrInvalidQBTorrentHash 表示删除请求没有提供单个合法的 qB info hash。
+	ErrInvalidQBTorrentHash = errors.New("invalid qBittorrent torrent hash")
+	// ErrQBTorrentNotFound 表示目标 qB 任务已经不存在。
+	ErrQBTorrentNotFound = errors.New("qBittorrent torrent not found")
 )
 
 // syncTorrentQBSnapshots 按 v1 info hash 匹配实时状态并批量保存稳定关联。
@@ -144,6 +153,44 @@ func (a *App) ControlTorrentQB(ctx context.Context, siteID, torrentID, action st
 		return QBTorrentStatus{}, err
 	}
 	return a.refreshTorrentQBSnapshot(ctx, torrent, false)
+}
+
+// DeleteQBTorrent 按单个精确 info hash 删除 qB 任务，并按用户选择决定是否删除下载文件。
+func (a *App) DeleteQBTorrent(ctx context.Context, hash string, deleteFiles bool) error {
+	hash, err := normalizeQBTorrentHash(hash)
+	if err != nil {
+		return err
+	}
+	qb, err := a.qbClient(ctx)
+	if err != nil {
+		return err
+	}
+	if _, found, err := qb.FindTorrentByHash(ctx, hash); err != nil {
+		return err
+	} else if !found {
+		return fmt.Errorf("%w: %s", ErrQBTorrentNotFound, hash)
+	}
+	if err := qb.DeleteTorrents(ctx, []string{hash}, deleteFiles); err != nil {
+		return err
+	}
+
+	// 强制下一次前端轮询读取 qB 的删除增量，避免在轮询间隔内继续展示旧任务。
+	a.qbPollMu.Lock()
+	a.qbPollLastAt = time.Time{}
+	a.qbPollMu.Unlock()
+	return nil
+}
+
+// normalizeQBTorrentHash 只接受单个十六进制 v1 或 v2 info hash，禁止透传 qB 的 all 语义。
+func normalizeQBTorrentHash(hash string) (string, error) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if len(hash) != 40 && len(hash) != 64 {
+		return "", fmt.Errorf("%w: expected 40 or 64 hexadecimal characters", ErrInvalidQBTorrentHash)
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidQBTorrentHash, err)
+	}
+	return hash, nil
 }
 
 // torrentQBHash 优先读取 torrent 文件 v1 hash，并兼容已有下载任务 hash。
