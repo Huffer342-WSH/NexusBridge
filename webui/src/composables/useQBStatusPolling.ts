@@ -14,10 +14,13 @@ interface QBStatusPollingOptions {
 export function useQBStatusPolling(options: QBStatusPollingOptions) {
   const connected = ref<boolean | null>(null);
   const polling = ref(false);
+  const ready = ref(false);
   let rid = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pendingImmediate = false;
   let lastURL = '';
+  let lastCanPoll = false;
+  let generation = 0;
 
   /** 判断当前配置是否允许发起自动同步。 */
   function canPoll() {
@@ -53,13 +56,17 @@ export function useQBStatusPolling(options: QBStatusPollingOptions) {
       pendingImmediate = true;
       return;
     }
+    const pollGeneration = generation;
     polling.value = true;
     try {
       const result = await api.pollQB(rid);
+      if (pollGeneration !== generation) return;
       rid = result.rid;
       connected.value = result.connected;
       options.applyResult(result);
+      ready.value = true;
     } catch {
+      if (pollGeneration !== generation) return;
       connected.value = false;
       rid = 0;
     } finally {
@@ -79,19 +86,48 @@ export function useQBStatusPolling(options: QBStatusPollingOptions) {
     void poll();
   }
 
+  /** 重置运行态就绪标记，并在允许自动同步时立即重新建立完整快照。 */
+  function reset() {
+    generation += 1;
+    rid = 0;
+    ready.value = false;
+    lastURL = options.config.value.url.trim();
+    lastCanPoll = canPoll();
+    connected.value = lastURL ? null : false;
+    clearTimer();
+    if (canPoll()) trigger(true);
+  }
+
+  /** 显式全量同步成功后标记当前运行态可用于 progress 筛选。 */
+  function markReady() {
+    ready.value = true;
+    connected.value = true;
+  }
+
   /** 配置、页面或可见性变化后重新安排轮询。 */
   function restart() {
     const currentURL = options.config.value.url.trim();
-    if (currentURL !== lastURL) {
+    const urlChanged = currentURL !== lastURL;
+    if (urlChanged) {
+      generation += 1;
       rid = 0;
       connected.value = null;
+      ready.value = false;
       lastURL = currentURL;
     }
-    if (!canPoll()) {
+    const allowed = canPoll();
+    if (!allowed) {
       clearTimer();
       connected.value = options.config.value.url.trim() ? null : false;
+      lastCanPoll = false;
       return;
     }
+    if (urlChanged || !lastCanPoll) {
+      lastCanPoll = true;
+      trigger(true);
+      return;
+    }
+    lastCanPoll = true;
     schedule();
   }
 
@@ -110,12 +146,11 @@ export function useQBStatusPolling(options: QBStatusPollingOptions) {
   onMounted(() => {
     document.addEventListener('visibilitychange', restart);
     restart();
-    if (canPoll()) trigger(true);
   });
   onBeforeUnmount(() => {
     clearTimer();
     document.removeEventListener('visibilitychange', restart);
   });
 
-  return { connected, polling, trigger };
+  return { connected, polling, ready, trigger, reset, markReady };
 }

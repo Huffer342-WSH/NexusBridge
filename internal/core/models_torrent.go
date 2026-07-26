@@ -49,6 +49,8 @@ type TorrentQuery struct {
 	Search        string
 	SortBy        string
 	SortDirection string
+	QBTask        string
+	QBProgress    string
 	Limit         int
 	Offset        int
 	IncludeQB     bool

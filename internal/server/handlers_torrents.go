@@ -45,11 +45,27 @@ func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	qbTask := strings.TrimSpace(r.URL.Query().Get("qb_task"))
+	if qbTask != "" && qbTask != "present" && qbTask != "absent" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("qb_task must be present or absent"))
+		return
+	}
+	qbProgress := strings.TrimSpace(r.URL.Query().Get("qb_progress"))
+	if qbProgress != "" && qbProgress != "complete" && qbProgress != "incomplete" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("qb_progress must be complete or incomplete"))
+		return
+	}
+	if qbProgress != "" && qbTask != "present" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("qb_progress requires qb_task=present"))
+		return
+	}
 	page, err := s.torrents.ListTorrentPage(r.Context(), core.TorrentQuery{
 		SiteID:        r.URL.Query().Get("site_id"),
 		Search:        r.URL.Query().Get("q"),
 		SortBy:        r.URL.Query().Get("sort_by"),
 		SortDirection: r.URL.Query().Get("sort_direction"),
+		QBTask:        qbTask,
+		QBProgress:    qbProgress,
 		Limit:         limit,
 		Offset:        offset,
 		IncludeQB:     queryBool(r, "include_qb"),
@@ -57,6 +73,10 @@ func (s *Server) handleTorrents(w http.ResponseWriter, r *http.Request) {
 		ExcludePinned: !includePinned,
 	})
 	if err != nil {
+		if errors.Is(err, core.ErrQBRuntimeNotReady) {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

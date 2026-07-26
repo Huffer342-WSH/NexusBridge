@@ -205,6 +205,8 @@ export type TorrentPageQuery = {
   limit: number;
   site_id?: string;
   q?: string;
+  qb_task?: 'present' | 'absent';
+  qb_progress?: 'complete' | 'incomplete';
   include_pinned: boolean;
   sort_by?: 'published_at';
   sort_direction?: 'desc';

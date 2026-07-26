@@ -72,6 +72,7 @@ func (a *App) syncTorrentQBSnapshots(ctx context.Context, qb *qbittorrent.Client
 	for _, snapshot := range snapshots {
 		a.qbRuntime[storage.TorrentKey{SiteID: snapshot.SiteID, TorrentID: snapshot.TorrentID}] = snapshot
 	}
+	a.qbRuntimeReady = true
 	a.qbRuntimeMu.Unlock()
 	return matched, len(snapshots), removed, detailFailed, nil
 }

@@ -84,17 +84,19 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/torrents`
 
-先在 SQLite 执行站点筛选、普通记录排序与计数，再由核心层合并内存置顶快照；三个及以上字符的子串搜索使用独立索引库的 FTS5 trigram，短关键词回退 `LIKE`。接口不会读取 torrent 文件，普通请求不会访问 qB。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含仅在本次进程有效的 `sticky_level`。
+先在 SQLite 执行站点、qB 任务关联筛选、普通记录排序与计数，再由核心层合并内存置顶快照；三个及以上字符的子串搜索使用独立索引库的 FTS5 trigram，短关键词回退 `LIKE`。progress 筛选读取现有 qB 内存运行态，列表请求本身不会访问 qB，也不会读取 torrent 文件。响应结构为 `{ "items": [], "offset": 0, "limit": 50, "total": 10000 }`，种子对象包含仅在本次进程有效的 `sticky_level`。
 
 查询参数：
 
 - `offset`：从 0 开始，默认 0。
 - `limit`：默认 50，最大 100；WebUI 使用 20、50 或 100。
 - `site_id`、`q`：全库站点和包含式关键词筛选。
+- `qb_task`：`present` 只显示 qB 任务，`absent` 只显示非 qB 任务；省略时不筛选。
+- `qb_progress`：仅与 `qb_task=present` 一起使用；`complete` 表示 `progress >= 1`，`incomplete` 表示 `progress < 1`。
 - `include_pinned`：默认 `true`；关闭时排除置顶种子。
 - `sort_by`、`sort_direction`：默认 `published_at/desc`。
 
-默认排序先按内存 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。关键词搜索不触发站点抓取或自动订阅。
+默认排序先按内存 `sticky_level` 从高到低展示置顶种子，其余按 `published_at DESC`；无有效发布时间的记录排在最后，最后使用 `site_id + torrent_id` 保持稳定顺序。全部筛选都在范围截取前执行。首次成功同步 qB 运行态前请求 `qb_progress` 返回 `409 Conflict`；成功同步后断线仍使用本进程最后一次运行态。关键词和 qB 筛选都不触发站点抓取、自动订阅或额外 qB 同步。
 
 `GET /api/torrents/{site_id}/{torrent_id}/qb-status`
 

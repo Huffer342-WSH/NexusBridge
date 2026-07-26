@@ -290,6 +290,20 @@ paths:
           required: false
           schema:
             type: string
+        - name: qb_task
+          in: query
+          required: false
+          description: 按本地种子是否关联当前 qB 任务筛选；列表请求不会主动访问 qB。
+          schema:
+            type: string
+            enum: [present, absent]
+        - name: qb_progress
+          in: query
+          required: false
+          description: 仅与 qb_task=present 一起使用；complete 为 progress >= 1。
+          schema:
+            type: string
+            enum: [complete, incomplete]
         - name: include_pinned
           in: query
           required: false
@@ -319,6 +333,12 @@ paths:
                 $ref: "#/components/schemas/TorrentPage"
         "400":
           $ref: "#/components/responses/Error"
+        "409":
+          description: progress 筛选所需的 qB 运行态尚未完成首次同步
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/Error"
   /api/playback/torrents:

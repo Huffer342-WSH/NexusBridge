@@ -214,6 +214,100 @@ ORDER BY `+orderBy+` LIMIT ? OFFSET ?`, listArgs...)
 	return keys, total, rows.Err()
 }
 
+// listQBTorrentPage 在派生索引中先完成 qB 条件筛选和范围计算，再按键读取主库记录。
+func (s *SQLiteStore) listQBTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
+	keys, total, err := s.listQBTorrentKeys(ctx, query)
+	if err != nil || len(keys) == 0 {
+		return []TorrentRecord{}, total, err
+	}
+	records, err := s.listTorrentsByKeys(ctx, keys)
+	return records, total, err
+}
+
+func (s *SQLiteStore) listQBTorrentKeys(ctx context.Context, query TorrentListQuery) ([]TorrentKey, int, error) {
+	prefix := ""
+	args := []any{}
+	joins := `
+FROM torrent_search p
+LEFT JOIN torrent_qb_associations q
+	ON q.site_id = p.site_id AND q.torrent_id = p.torrent_id`
+	search := strings.TrimSpace(query.Search)
+	where := []string{"1=1"}
+	if len([]rune(search)) >= 3 {
+		matchedSQL := `SELECT site_id, torrent_id FROM torrent_search_fts WHERE torrent_search_fts MATCH ?`
+		args = append(args, `"`+strings.ReplaceAll(search, `"`, `""`)+`"`)
+		if len(query.SearchSiteIDs) > 0 {
+			placeholders := make([]string, len(query.SearchSiteIDs))
+			for i, siteID := range query.SearchSiteIDs {
+				placeholders[i] = "?"
+				args = append(args, siteID)
+			}
+			matchedSQL += ` UNION SELECT site_id, torrent_id FROM torrent_search WHERE site_id IN (` + strings.Join(placeholders, ",") + `)`
+		}
+		prefix = `WITH matched AS (` + matchedSQL + `) `
+		joins += `
+JOIN matched m ON m.site_id = p.site_id AND m.torrent_id = p.torrent_id`
+	} else if search != "" {
+		searchClauses := []string{"p.title LIKE ?", "p.category LIKE ?", "p.promotion LIKE ?", "p.site_id LIKE ?"}
+		pattern := "%" + search + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
+		for range query.SearchSiteIDs {
+			searchClauses = append(searchClauses, "p.site_id = ?")
+		}
+		for _, siteID := range query.SearchSiteIDs {
+			args = append(args, siteID)
+		}
+		where = append(where, "("+strings.Join(searchClauses, " OR ")+")")
+	}
+	if query.SiteID != "" {
+		where = append(where, "p.site_id = ?")
+		args = append(args, query.SiteID)
+	}
+	switch query.QBTask {
+	case "present":
+		where = append(where, "COALESCE(q.added, 0) = 1")
+	case "absent":
+		where = append(where, "COALESCE(q.added, 0) = 0")
+	default:
+		return nil, 0, fmt.Errorf("unsupported qB task filter %q", query.QBTask)
+	}
+	rows, err := s.indexDB.QueryContext(ctx, prefix+`
+SELECT p.site_id, p.torrent_id
+`+joins+`
+WHERE `+strings.Join(where, " AND ")+`
+ORDER BY `+torrentSearchOrder(query), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	excluded := make(map[TorrentKey]struct{}, len(query.ExcludeKeys))
+	for _, key := range query.ExcludeKeys {
+		excluded[key] = struct{}{}
+	}
+	keys := make([]TorrentKey, 0, query.Limit)
+	total := 0
+	for rows.Next() {
+		var key TorrentKey
+		if err := rows.Scan(&key.SiteID, &key.TorrentID); err != nil {
+			return nil, 0, err
+		}
+		if _, skip := excluded[key]; skip {
+			continue
+		}
+		if query.QBProgressKeys != nil {
+			if _, matches := query.QBProgressKeys[key]; !matches {
+				continue
+			}
+		}
+		if total >= query.Offset && len(keys) < query.Limit {
+			keys = append(keys, key)
+		}
+		total++
+	}
+	return keys, total, rows.Err()
+}
+
 func torrentSearchOrder(query TorrentListQuery) string {
 	column := map[string]string{
 		"source_order": "p.source_order",

@@ -170,7 +170,7 @@ KamePT 图片域通常还要求与 `cf_clearance` 配套的浏览器 User-Agent�
 
 WebUI 的 `设置 / qBittorrent` 页面保存时，会把地址、认证方式、用户名、分类、标签和三个轮询间隔写回当前 `config.json`；密码和 API Key 只保存在 SQLite `app_settings`，JSON 中保持为空。密码或 API Key 输入框留空时，服务端保留数据库中的已有值。旧 JSON 若含有这两个敏感字段，启动时会先写入数据库再清空文件字段。
 
-该页面同时控制增量刷新：`auto_sync` 默认启用；连接正常且媒体页位于前台时使用 `sync_interval_seconds=3`，页面隐藏或位于其他页面时使用 `inactive_sync_interval_seconds=30`，连接失败后使用 `disconnected_sync_interval_seconds=60` 重试。URL 为空或关闭自动同步时不轮询。
+该页面同时控制增量刷新：`auto_sync` 默认启用；配置加载完成或重新启用轮询时会立即建立一次运行态，连接正常且媒体页位于前台时使用 `sync_interval_seconds=3`，页面隐藏或位于其他页面时使用 `inactive_sync_interval_seconds=30`，连接失败后使用 `disconnected_sync_interval_seconds=60` 重试。URL 为空或关闭自动同步时不轮询；显式全量同步成功后仍可使用本次进程中的 progress 筛选。
 
 应用只为站点列表扫描中首次入库的种子主动下载 `.torrent` 文件，以内容 SHA256 命名保存到主数据库同级的 `torrents/`，数据库仅保存相对路径、校验信息、v1/v2 hash 和大小签名。该行为无需新增配置项，固定最多 3 个并发；订阅执行时仍会按需重试缺失文件。完整持久化边界见[存储与数据库](storage.md)。
 

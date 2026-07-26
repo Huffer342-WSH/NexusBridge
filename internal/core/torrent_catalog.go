@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,8 +10,15 @@ import (
 	"nexusbridge/internal/storage"
 )
 
+// ErrQBRuntimeNotReady 表示 progress 筛选尚无完整的 qB 运行态可用。
+var ErrQBRuntimeNotReady = errors.New("qBittorrent runtime status is not ready")
+
 // ListTorrents 查询本地种子缓存。
 func (a *App) ListTorrents(ctx context.Context, query TorrentQuery) ([]Torrent, error) {
+	if query.QBTask != "" {
+		page, err := a.ListTorrentPage(ctx, query)
+		return page.Items, err
+	}
 	searchSiteIDs := a.searchSiteIDs(query.Search)
 	pinned := a.pinnedSnapshot(query.SiteID)
 	excluded := []storage.TorrentKey(nil)
@@ -96,9 +104,13 @@ func (a *App) ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentP
 	if strings.TrimSpace(query.SortDirection) == "" {
 		query.SortDirection = "desc"
 	}
+	progressKeys, err := a.qbProgressFilterKeys(query)
+	if err != nil {
+		return TorrentPage{}, err
+	}
 	searchSiteIDs := a.searchSiteIDs(query.Search)
 	pinned := a.pinnedSnapshot(query.SiteID)
-	pinnedRecords, err := a.matchingPinnedRecords(ctx, pinned, query, searchSiteIDs)
+	pinnedRecords, err := a.matchingPinnedRecords(ctx, pinned, query, searchSiteIDs, progressKeys)
 	if err != nil {
 		return TorrentPage{}, err
 	}
@@ -121,6 +133,7 @@ func (a *App) ListTorrentPage(ctx context.Context, query TorrentQuery) (TorrentP
 	normalLimit := query.Limit - len(pinnedPage)
 	normalQuery := storage.TorrentListQuery{
 		SiteID: query.SiteID, Search: query.Search, SortBy: query.SortBy, SortDirection: query.SortDirection,
+		QBTask: query.QBTask, QBProgressKeys: progressKeys,
 		Limit: max(1, normalLimit), Offset: normalOffset, SearchSiteIDs: searchSiteIDs, ExcludeKeys: pinnedKeys(pinned),
 	}
 	normalRecords, normalTotal, err := a.store.ListTorrentPage(ctx, normalQuery)
@@ -207,10 +220,30 @@ func applyPinnedLevels(records []storage.TorrentRecord, pinned []pinnedTorrent) 
 	}
 }
 
-func (a *App) matchingPinnedRecords(ctx context.Context, pinned []pinnedTorrent, query TorrentQuery, searchSiteIDs []string) ([]storage.TorrentRecord, error) {
+func (a *App) matchingPinnedRecords(
+	ctx context.Context,
+	pinned []pinnedTorrent,
+	query TorrentQuery,
+	searchSiteIDs []string,
+	progressKeys map[storage.TorrentKey]struct{},
+) ([]storage.TorrentRecord, error) {
 	records, err := a.store.ListTorrentsByKeys(ctx, pinnedKeys(pinned))
 	if err != nil {
 		return nil, err
+	}
+	qbSnapshots := map[storage.TorrentKey]storage.QBSnapshotRecord{}
+	if query.QBTask != "" {
+		qbSnapshots, err = a.store.ListQBSnapshots(ctx, pinnedKeys(pinned))
+		if err != nil {
+			return nil, err
+		}
+		a.qbRuntimeMu.RLock()
+		for _, item := range pinned {
+			if snapshot, ok := a.qbRuntime[item.Key]; ok {
+				qbSnapshots[item.Key] = snapshot
+			}
+		}
+		a.qbRuntimeMu.RUnlock()
 	}
 	siteMatches := make(map[string]struct{}, len(searchSiteIDs))
 	for _, siteID := range searchSiteIDs {
@@ -223,6 +256,7 @@ func (a *App) matchingPinnedRecords(ctx context.Context, pinned []pinnedTorrent,
 	search := strings.ToLower(strings.TrimSpace(query.Search))
 	result := make([]storage.TorrentRecord, 0, len(records))
 	for _, record := range records {
+		key := storage.TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}
 		if query.SiteID != "" && record.SiteID != query.SiteID {
 			continue
 		}
@@ -236,8 +270,41 @@ func (a *App) matchingPinnedRecords(ctx context.Context, pinned []pinnedTorrent,
 				continue
 			}
 		}
-		record.StickyLevel = levels[storage.TorrentKey{SiteID: record.SiteID, TorrentID: record.TorrentID}]
+		if query.QBTask != "" {
+			added := qbSnapshots[key].Added
+			if (query.QBTask == "present" && !added) || (query.QBTask == "absent" && added) {
+				continue
+			}
+			if progressKeys != nil {
+				if _, matches := progressKeys[key]; !matches {
+					continue
+				}
+			}
+		}
+		record.StickyLevel = levels[key]
 		result = append(result, record)
+	}
+	return result, nil
+}
+
+func (a *App) qbProgressFilterKeys(query TorrentQuery) (map[storage.TorrentKey]struct{}, error) {
+	if query.QBProgress == "" {
+		return nil, nil
+	}
+	a.qbRuntimeMu.RLock()
+	defer a.qbRuntimeMu.RUnlock()
+	if !a.qbRuntimeReady {
+		return nil, ErrQBRuntimeNotReady
+	}
+	result := make(map[storage.TorrentKey]struct{})
+	for key, snapshot := range a.qbRuntime {
+		if !snapshot.Added {
+			continue
+		}
+		complete := snapshot.Progress >= 1
+		if (query.QBProgress == "complete" && complete) || (query.QBProgress == "incomplete" && !complete) {
+			result[key] = struct{}{}
+		}
 	}
 	return result, nil
 }

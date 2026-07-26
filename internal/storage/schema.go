@@ -411,6 +411,8 @@ CREATE INDEX IF NOT EXISTS idx_torrent_size_signature_lookup
 	ON torrent_size_signatures (signature, file_count, total_size, site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_torrent_qb_associations_hash
 	ON torrent_qb_associations (qb_hash COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_torrent_qb_associations_added
+	ON torrent_qb_associations (added, site_id, torrent_id);
 PRAGMA application_id = 1314406985;
 PRAGMA user_version = 1;
 PRAGMA optimize = 0x10002;

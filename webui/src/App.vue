@@ -136,6 +136,10 @@ const password = ref('');
 const { message: floatingMessage } = createDiscreteApi(['message']);
 const qbOptimisticUntil = new Map<string, number>();
 const qbOptimisticUpdateDelayMs = 800;
+type QBFilterBucket = 'absent' | 'incomplete' | 'complete';
+let qbFilterBuckets = new Map<string, QBFilterBucket>();
+let filteredPageReloadQueued = false;
+let torrentPageRequestVersion = 0;
 const autoFetchedSites = new Set<string>();
 const autoFetchingSites = new Set<string>();
 
@@ -159,6 +163,8 @@ const currentViewProps = computed<Record<string, unknown>>(() => {
         qbUrl: qbConfig.value.url,
         qbSyncing: qbSyncing.value,
         qbActioning: qbActioning.value,
+        qbConnected: qbConnected.value,
+        qbStatusReady: qbStatusReady.value,
       };
     case 'tasks':
       return {
@@ -237,21 +243,68 @@ const currentViewListeners = computed((): Record<string, CallableFunction> => {
   }
 });
 
-/** 将 qB 增量结果合并到当前媒体列表。 */
+function qbFilterBucket(status: Torrent['qb_status']): QBFilterBucket {
+  if (!status?.added) return 'absent';
+  return (status.progress ?? 0) >= 1 ? 'complete' : 'incomplete';
+}
+
+function matchesQBFilter(bucket: QBFilterBucket | undefined, query: TorrentPageQuery) {
+  const normalized = bucket ?? 'absent';
+  if (query.qb_task === 'absent') return normalized === 'absent';
+  if (query.qb_task !== 'present') return true;
+  if (normalized === 'absent') return false;
+  if (query.qb_progress === 'complete') return normalized === 'complete';
+  if (query.qb_progress === 'incomplete') return normalized === 'incomplete';
+  return true;
+}
+
+function qbFilterMembershipChanged(
+  previous: Map<string, QBFilterBucket>,
+  next: Map<string, QBFilterBucket>,
+  query: TorrentPageQuery,
+) {
+  if (!query.qb_task) return false;
+  const keys = new Set([...previous.keys(), ...next.keys()]);
+  for (const key of keys) {
+    if (matchesQBFilter(previous.get(key), query) !== matchesQBFilter(next.get(key), query)) return true;
+  }
+  return false;
+}
+
+function scheduleFilteredPageReload() {
+  if (filteredPageReloadQueued) return;
+  filteredPageReloadQueued = true;
+  queueMicrotask(() => {
+    filteredPageReloadQueued = false;
+    if (activePage.value === 'media' && mediaQuery.value.qb_task) void loadTorrentPage();
+  });
+}
+
+/** 将 qB 增量结果合并到当前媒体列表，并只在筛选归类跨界时重读分页。 */
 function applyQBPollResult(result: QBPollResult) {
+  const previousBuckets = qbFilterBuckets;
+  const nextBuckets = result.full_update ? new Map<string, QBFilterBucket>() : new Map(previousBuckets);
   const torrentsByKey = new Map(torrents.value.map((torrent) => [`${torrent.site_id}:${torrent.id}`, torrent]));
   for (const update of result.updates) {
     const key = `${update.site_id}:${update.torrent_id}`;
+    nextBuckets.set(key, qbFilterBucket(update.qb_status));
     if ((qbOptimisticUntil.get(key) ?? 0) > Date.now()) continue;
     const torrent = torrentsByKey.get(key);
-    if (torrent) torrent.qb_status = update.qb_status;
+    if (torrent) torrent.qb_status = { ...torrent.qb_status, ...update.qb_status };
+  }
+  qbFilterBuckets = nextBuckets;
+  if (qbStatusReady.value && qbFilterMembershipChanged(previousBuckets, nextBuckets, mediaQuery.value)) {
+    scheduleFilteredPageReload();
   }
 }
 
 const {
   connected: qbConnected,
   polling: qbPolling,
+  ready: qbStatusReady,
   trigger: triggerQBPoll,
+  reset: resetQBStatusPolling,
+  markReady: markQBStatusReady,
 } = useQBStatusPolling({
   config: qbConfig,
   isForeground: () => loggedIn.value && activePage.value === 'media',
@@ -385,16 +438,20 @@ async function refresh(clearMessage = true) {
 
 /** 按媒体视图给出的范围和筛选条件读取数据库。 */
 async function loadTorrentPage(query: TorrentPageQuery = mediaQuery.value) {
-  mediaQuery.value = { ...query, sort_by: 'published_at', sort_direction: 'desc' };
+  const normalizedQuery = { ...query, sort_by: 'published_at', sort_direction: 'desc' } as TorrentPageQuery;
+  mediaQuery.value = normalizedQuery;
+  const requestVersion = ++torrentPageRequestVersion;
   loading.value = true;
   try {
-    const result = await api.torrents(mediaQuery.value);
+    const result = await api.torrents(normalizedQuery);
+    if (requestVersion !== torrentPageRequestVersion) return;
     torrents.value = result.items;
     torrentTotal.value = result.total;
   } catch (error) {
+    if (requestVersion !== torrentPageRequestVersion) return;
     message.value = error instanceof Error ? error.message : '媒体列表加载失败';
   } finally {
-    loading.value = false;
+    if (requestVersion === torrentPageRequestVersion) loading.value = false;
   }
 }
 
@@ -540,6 +597,8 @@ async function saveQBittorrent() {
     const saved = await api.saveQBittorrent(payload);
     qbConfig.value = saved;
     qbTagsText.value = saved.tags?.join(', ') ?? '';
+    qbFilterBuckets = new Map();
+    resetQBStatusPolling();
     message.value = 'qBittorrent settings saved';
   } catch (error) {
     message.value = error instanceof Error ? error.message : 'Failed to save qBittorrent settings';
@@ -633,6 +692,7 @@ async function syncQBittorrent() {
   qbSyncing.value = true;
   try {
     const result = await api.syncQB();
+    markQBStatusReady();
     message.value = `qB 同步：匹配 ${result.torrent_matched ?? 0}，更新 ${result.torrent_updated ?? 0}，移除 ${result.torrent_removed ?? 0}，完成 ${result.completed}`;
     await refresh(false);
     triggerQBPoll(true);

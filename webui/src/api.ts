@@ -116,6 +116,8 @@ export const api = {
     });
     if (query.site_id) params.set('site_id', query.site_id);
     if (query.q?.trim()) params.set('q', query.q.trim());
+    if (query.qb_task) params.set('qb_task', query.qb_task);
+    if (query.qb_progress) params.set('qb_progress', query.qb_progress);
     return request<TorrentPage>(`/api/torrents?${params.toString()}`);
   },
   getTorrentPlayback: (siteID: string, torrentID: string, fileName = '') => {

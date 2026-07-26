@@ -29,6 +29,7 @@ type App struct {
 	qbPollLastAt       time.Time
 	qbRuntimeMu        sync.RWMutex
 	qbRuntime          map[storage.TorrentKey]storage.QBSnapshotRecord
+	qbRuntimeReady     bool
 	pinnedMu           sync.RWMutex
 	pinnedBySite       map[string]map[storage.TorrentKey]int
 	mihomoMu           sync.Mutex

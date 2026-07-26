@@ -143,6 +143,7 @@ func (a *App) refreshQBRuntime(ctx context.Context) error {
 	if err := a.store.SaveQBSnapshots(ctx, persist); err != nil {
 		return err
 	}
+	a.qbRuntimeReady = true
 	a.qbPollRID = mainData.RID
 	a.qbPollLastAt = now
 	if a.qbPollRevision == 0 || len(mainData.Torrents) > 0 || len(mainData.TorrentsRemoved) > 0 || mainData.FullUpdate {

@@ -59,14 +59,16 @@ type TorrentUpsertResult struct {
 
 // TorrentListQuery 描述种子数据库查询条件。
 type TorrentListQuery struct {
-	SiteID        string
-	Search        string
-	SearchSiteIDs []string
-	SortBy        string
-	SortDirection string
-	Limit         int
-	Offset        int
-	ExcludeKeys   []TorrentKey
+	SiteID         string
+	Search         string
+	SearchSiteIDs  []string
+	SortBy         string
+	SortDirection  string
+	QBTask         string
+	QBProgressKeys map[TorrentKey]struct{}
+	Limit          int
+	Offset         int
+	ExcludeKeys    []TorrentKey
 }
 
 // TorrentKey 唯一标识一个站点种子。
@@ -356,6 +358,9 @@ func countTorrents(ctx context.Context, db torrentQueryer, query TorrentListQuer
 
 // ListTorrentPage 在同一只读事务中返回筛选总数和当前范围。
 func (s *SQLiteStore) ListTorrentPage(ctx context.Context, query TorrentListQuery) ([]TorrentRecord, int, error) {
+	if query.QBTask != "" {
+		return s.listQBTorrentPage(ctx, query)
+	}
 	if len([]rune(strings.TrimSpace(query.Search))) >= 3 {
 		return s.searchTorrentPage(ctx, query)
 	}

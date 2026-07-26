@@ -125,6 +125,7 @@ func (a *App) SaveQBittorrentConfig(ctx context.Context, cfg config.QBittorrentC
 	a.qbPollLastAt = time.Time{}
 	a.qbRuntimeMu.Lock()
 	clear(a.qbRuntime)
+	a.qbRuntimeReady = false
 	a.qbRuntimeMu.Unlock()
 	a.qbPollMu.Unlock()
 	return cfg, nil
