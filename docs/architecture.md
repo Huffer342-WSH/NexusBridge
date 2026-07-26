@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[媒体播放](modules/playback.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 

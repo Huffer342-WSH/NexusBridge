@@ -16,7 +16,9 @@ NexusBridge 是一个面向 NexusPHP 站点和 qBittorrent 的跨平台管理工
 - 通过 JSON 站点定义适配 NexusPHP 站点，站点运行时配置来自 `sites_dir`。
 - 抓取并持久化种子列表、详情和 `.torrent` 文件。
 - 将站点种子与 qBittorrent 任务状态同步到本地 SQLite。
-- 在 WebUI 中按站点浏览媒体，查看下载状态并启动或停止 qB 任务。
+- 在 WebUI 中按站点、站点分类、促销和 qB 任务状态筛选媒体，查看下载状态并启动或停止 qB 任务。
+- 从媒体页或文件页播放 NexusBridge 所在机器上的源文件，支持浏览器 Range 请求和 MKV 内嵌文本字幕，不进行转码。
+- 删除 qB 任务时可明确选择保留下载文件或同时删除文件，默认保留文件。
 
 ### 规则与订阅自动化
 
@@ -185,7 +187,7 @@ go run ./cmd/nexusbridge qb sync
 go run ./cmd/nexusbridge organize pending
 ```
 
-`serve` 会启动已显式启用的站点计划；计划仅在该站点存在已启用订阅时抓取。`fetch` 使用统一的增量分页流程，逐页持久化新种子、消费订阅队列并按现有配额和幂等规则发送到 qB；单次命令结束后不保留后台调度器。
+`serve` 会启动已显式启用的站点计划；计划无论是否存在启用订阅都会按时抓取，抓取后仅由已启用订阅消费候选。`fetch` 使用统一的增量分页流程，逐页持久化新种子、消费订阅队列并按现有配额和幂等规则发送到 qB；单次命令结束后不保留后台调度器。
 
 ### 测试
 
@@ -231,7 +233,7 @@ wails3 build GOOS=linux ARCH=arm64
 
 `.github/workflows/build-release.yml` 负责构建，可通过 `workflow_dispatch` 单独选择 `linux-amd64`、`linux-arm64`、`windows-amd64` 或构建全部平台，也会在推送 `v*` tag 时构建全部平台。构建 workflow 专注打包，不执行测试或 vet；发布步骤拆到可复用的 `.github/workflows/publish-release.yml`。
 
-推送 `v*` tag 时，六个包构建成功后会直接发布正式 GitHub Release。手动运行时，只有选择 `all` 并启用 `publish_release` 才会发布；`release_tag` 留空会按 `Asia/Shanghai` 日期自动创建 `manual-YYYY.MM.DD.<run_number>` tag，并发布为 prerelease。同一天的多次手动发布通过 GitHub run number 区分。发布前会确认 tag 指向生成这些产物的 commit，随后用 `changelogithub` 汇总 Git commit message 和贡献者生成 Release Notes。
+推送 `v*` tag 时，六个包构建成功后会直接发布 GitHub Release；带连字符的版本 tag（例如 `v0.2.0-beta`）发布为 prerelease，其余 `v*` tag 发布为正式版本。手动运行时，只有选择 `all` 并启用 `publish_release` 才会发布；`release_tag` 留空会按 `Asia/Shanghai` 日期自动创建 `manual-YYYY.MM.DD.<run_number>` tag，并发布为 prerelease。同一天的多次手动发布通过 GitHub run number 区分。发布前会确认 tag 指向生成这些产物的 commit，随后用 `changelogithub` 汇总 Git commit message 和贡献者生成 Release Notes。
 
 手动调试单个平台时保持 `publish_release=false`，不会创建 tag 或 Release。需要手动指定 tag 时只能使用 `v*` 或 `manual-*` 前缀。
 
