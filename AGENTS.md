@@ -21,6 +21,7 @@
 - 运行配置：`docs/config.md`
 - 测试环境与真实服务安全边界：`docs/testing.md`
 - HTTP API：`docs/api.md` 和 `docs/api/openapi.yaml`
+- WebUI 美术风格：`docs/ui-style.md`
 
 ## 常用检查
 
