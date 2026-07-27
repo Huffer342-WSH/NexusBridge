@@ -5,6 +5,7 @@ import {
   Bot,
   CloudDownload,
   Database,
+  ExternalLink,
   FolderKanban,
   FolderOpen,
   KeyRound,
@@ -37,8 +38,8 @@ import { RouterLink, RouterView, useRoute } from 'vue-router';
 import { api } from './api';
 import { useQBStatusPolling } from './composables/useQBStatusPolling';
 import { useSiteFetchJobs } from './composables/useSiteFetchJobs';
-import { createDefaultQBittorrentConfig } from './config/qbittorrent';
-import { openExternalURL } from './utils/runtime';
+import { createDefaultQBittorrentConfig, resolveQBWebUIURL } from './config/qbittorrent';
+import { isWailsDesktop, openExternalURL } from './utils/runtime';
 import type {
   DownloadPreview,
   DownloadTask,
@@ -160,7 +161,6 @@ const currentViewProps = computed<Record<string, unknown>>(() => {
         torrents: torrents.value,
         total: torrentTotal.value,
         loading: loading.value,
-        qbUrl: qbConfig.value.url,
         qbSyncing: qbSyncing.value,
         qbActioning: qbActioning.value,
         qbConnected: qbConnected.value,
@@ -209,7 +209,6 @@ const currentViewListeners = computed((): Record<string, CallableFunction> => {
       return {
         download: openDownloadDialog,
         syncQb: syncQBittorrent,
-        openQb: openQBittorrent,
         controlQb: controlTorrentQB,
         queryChange: handleMediaQueryChange,
       };
@@ -736,15 +735,14 @@ async function controlTorrentQB(torrent: Torrent, action: 'start' | 'stop') {
 
 /** 使用浏览器或桌面系统默认浏览器打开 qBittorrent WebUI。 */
 async function openQBittorrent() {
-  let target = qbConfig.value.url.trim();
-  if (!target) {
+  if (!qbConfig.value.url.trim()) {
     message.value = '请先配置 qBittorrent WebUI URL';
     return;
   }
-  if (!target.includes('://')) {
-    target = `http://${target}`;
-  }
+
   try {
+    const nexusHostname = isWailsDesktop() ? '' : window.location.hostname;
+    const target = resolveQBWebUIURL(qbConfig.value.url, nexusHostname);
     await openExternalURL(target);
   } catch (error) {
     message.value = error instanceof Error ? error.message : '无法打开 qBittorrent WebUI';
@@ -827,6 +825,16 @@ watch(isPlaybackLayout, (playbackLayout, previous) => {
             </NButton>
           </RouterLink>
         </nav>
+
+        <div class="side-section">
+          <p>工具</p>
+          <NButton block secondary :disabled="!qbConfig.url.trim()" @click="openQBittorrent">
+            <template #icon>
+              <NIcon :component="ExternalLink" />
+            </template>
+            打开 qB WebUI
+          </NButton>
+        </div>
 
         <div class="side-section">
           <p>设置</p>

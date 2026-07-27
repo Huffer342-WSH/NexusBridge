@@ -8,6 +8,33 @@ export const QB_POLLING_LIMITS = {
   disconnectedSyncIntervalSeconds: { min: 15, max: 600, default: 60 },
 } as const;
 
+/** 判断 qB WebUI 主机是否只指向 NexusBridge 所在机器。 */
+function isLocalQBHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return (
+    normalized === 'localhost' ||
+    normalized === '::' ||
+    normalized === '::1' ||
+    normalized === '0.0.0.0' ||
+    normalized.startsWith('127.')
+  );
+}
+
+/**
+ * 解析浏览器应打开的 qB WebUI 地址。
+ * qB 配置指向本机时使用当前 NexusBridge WebUI 主机，同时保留 qB 的协议、端口和路径。
+ */
+export function resolveQBWebUIURL(configuredURL: string, nexusHostname = ''): string {
+  const value = configuredURL.trim();
+  if (!value) return '';
+
+  const target = new URL(value.includes('://') ? value : `http://${value}`);
+  if (nexusHostname && isLocalQBHostname(target.hostname)) {
+    target.hostname = nexusHostname;
+  }
+  return target.toString();
+}
+
 /** 创建可安全修改的 qBittorrent 默认配置。 */
 export function createDefaultQBittorrentConfig(): QBittorrentConfig {
   return {

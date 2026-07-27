@@ -1,17 +1,6 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
-import {
-  ChevronDown,
-  ExternalLink,
-  Film,
-  ListFilter,
-  Play,
-  RadioTower,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Trash2,
-} from '@lucide/vue';
+import { ChevronDown, Film, ListFilter, Play, RadioTower, RefreshCw, RotateCcw, Search, Trash2 } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   NAlert,
@@ -43,7 +32,6 @@ const props = defineProps<{
   torrents: Torrent[];
   total: number;
   loading: boolean;
-  qbUrl: string;
   qbSyncing: boolean;
   qbActioning: string;
   qbConnected: boolean | null;
@@ -53,7 +41,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   download: [torrent: Torrent];
   syncQb: [];
-  openQb: [];
   controlQb: [torrent: Torrent, action: 'start' | 'stop'];
   queryChange: [query: Omit<TorrentPageQuery, 'sort_by' | 'sort_direction'>];
 }>();
@@ -734,10 +721,6 @@ async function deleteQBTask(deleteFiles: boolean) {
             <NButton secondary :loading="qbSyncing" @click="emit('syncQb')">
               <template #icon><NIcon :component="RefreshCw" /></template>
               同步 qB
-            </NButton>
-            <NButton secondary :disabled="!qbUrl" @click="emit('openQb')">
-              <template #icon><NIcon :component="ExternalLink" /></template>
-              打开 qB WebUI
             </NButton>
           </NSpace>
         </div>

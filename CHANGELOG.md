@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- “打开 qB WebUI”入口从媒体页移至左侧栏；当 qBittorrent 配置为本机地址时，浏览器会使用当前 NexusBridge WebUI 的主机名并保留 qB 的协议、端口和路径，远程 qB 地址则保持不变。
+
 ## [0.2.0-beta] - 2026-07-26
 
 ### Added
