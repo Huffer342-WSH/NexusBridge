@@ -54,6 +54,10 @@ import type {
   TorrentPageQuery,
   SiteFetchJob,
   SiteFetchRequest,
+  SeriesDetail,
+  SeriesSaveRequest,
+  SeriesSelectionRequest,
+  SeriesSummary,
 } from './types';
 
 /** 发送 API 请求并统一解析错误响应。 */
@@ -143,6 +147,31 @@ export const api = {
   getFilePlayback: (path: string) => {
     const params = new URLSearchParams({ path });
     return request<PlaybackContext>(`/api/playback/file?${params.toString()}`);
+  },
+  getSeries: () => request<SeriesSummary[]>('/api/series'),
+  getSeriesDetail: (id: string) => request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}`),
+  createSeries: (payload: SeriesSaveRequest) =>
+    request<SeriesDetail>('/api/series', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateSeries: (id: string, payload: SeriesSaveRequest) =>
+    request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteSeries: (id: string) => request<DeletedResult>(`/api/series/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  scanSeries: (id: string) => request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}/scan`, { method: 'POST' }),
+  selectSeriesVideo: (id: string, payload: SeriesSelectionRequest) =>
+    request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}/selection`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getSeriesPlayback: (id: string, path = '') => {
+    const params = new URLSearchParams();
+    if (path) params.set('path', path);
+    const query = params.size ? `?${params.toString()}` : '';
+    return request<PlaybackContext>(`/api/series/${encodeURIComponent(id)}/playback${query}`);
   },
   getPlaybackTorrents: (excludeSiteID: string, excludeTorrentID: string, limit = 20) => {
     const params = new URLSearchParams({

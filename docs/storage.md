@@ -28,7 +28,7 @@ flowchart LR
 
 | 类型 | 内容 | 是否唯一数据 | 丢失后的处理 |
 | --- | --- | --- | --- |
-| 业务元数据 | 站点种子、规则、订阅、任务、凭据 | 是 | 从备份恢复或重新抓取 |
+| 业务元数据 | 站点种子、规则、订阅、剧集、任务、凭据 | 是 | 从备份恢复或重新抓取 |
 | 派生索引 | 搜索、大小签名、qB 稳定关联 | 否 | 从主库、torrent 文件和 qB 重建 |
 | 内容文件 | 原始 `.torrent` | 是，站点仍可下载时可恢复 | 按需重新下载 |
 | 缓存文件 | 封面图片 | 否 | 按需重新下载 |
@@ -71,7 +71,7 @@ flowchart LR
 - `.rebuilding` 只在派生索引重建期间存在；启动时发现残留标记会丢弃未完成的索引并重新构建。
 - `.torrent-*.tmp` 和 `.cover-*.tmp` 只在原子写入期间短暂存在。
 - qB 的下载内容由 qB 管理；NexusBridge 只记录保存位置和内容路径。
-- WebUI 布局等纯界面偏好保存在浏览器 `localStorage`，不进入服务端数据库。
+- WebUI 布局等纯界面偏好保存在浏览器 `localStorage`，不进入服务端数据库；剧集最后选集属于跨客户端业务状态，保存在主库。
 
 ## 3. 数据库约定
 
@@ -88,11 +88,11 @@ flowchart LR
 - 布尔值使用 `INTEGER` 的 `0/1`。
 - 数组和小型结构使用 JSON 文本，例如 `tags_json`。
 - 二进制内容不写入 SQLite。
-- 表之间目前通过业务键建立逻辑关联，没有声明 SQLite 外键约束。
+- 多数业务表通过业务键建立逻辑关联；剧集目录和视频缓存使用带级联删除的 SQLite 外键，删除剧集仍只影响元数据。
 
 ## 4. 主数据库表
 
-主数据库共有 18 张业务表。
+主数据库按站点资源、自动化、剧集和 qB 缓存等业务域分表保存。
 
 ### 4.1 站点、种子与本地资源
 
@@ -138,6 +138,16 @@ flowchart LR
 | `qb_cache_state` | `kind` | 各类 qB 缓存最近同步时间和错误 |
 
 这些表用于 qB 离线时返回最近一次分类和标签结果，不保存 torrent 的实时运行状态。
+
+### 4.5 本地剧集
+
+| 表 | 主键 | 主要内容 |
+| --- | --- | --- |
+| `series` | `id` | 大小写不敏感唯一名称、最后选集和最近扫描时间 |
+| `series_directories` | `(series_id, path)` | 有序绝对根目录、可用状态、扫描错误和时间 |
+| `series_videos` | `(series_id, path)` | 根目录归属、相对路径、大小、修改时间和可用状态 |
+
+剧集视频表只是可重扫缓存，不复制媒体内容。可读目录的缓存按目录事务替换；目录暂时不可读时保留旧行并将其标为不可用。外键只用于删除剧集或移除目录时级联删除对应缓存，任何操作都不会删除源文件。
 
 ## 5. 派生索引库表
 
@@ -241,9 +251,11 @@ erDiagram
     subscriptions ||--o{ subscription_runs : "subscription_id"
     subscriptions ||--o{ download_tasks : "subscription_id"
     download_tasks ||--o| organize_tasks : "download_task_id"
+    series ||--o{ series_directories : "series_id"
+    series_directories ||--o{ series_videos : "series_id + path"
 ```
 
-该图表示应用层关系，不代表数据库已经声明 `FOREIGN KEY`。
+种子、规则和任务连线表示应用层关系；剧集两条连线同时由数据库 `FOREIGN KEY` 约束。
 
 ## 9. 代码入口
 
@@ -255,6 +267,7 @@ erDiagram
 | 搜索和派生索引维护 | `internal/storage/torrent_search.go` |
 | qB 稳定关联持久化 | `internal/storage/qb_snapshots.go` |
 | 封面元数据 | `internal/storage/cover_cache.go` |
+| 剧集配置和扫描缓存 | `internal/storage/series.go` |
 | 封面文件缓存 | `internal/core/covercache/` |
 | 数据根目录和配置路径解析 | `internal/runtimeconfig/runtime.go` |
 | SQLite 配置定义和校验 | `internal/config/config.go` |

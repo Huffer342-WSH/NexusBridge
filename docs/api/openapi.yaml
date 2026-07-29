@@ -16,6 +16,8 @@ tags:
     description: 站点和凭据
   - name: torrents
     description: 本地种子缓存和手动下载
+  - name: series
+    description: 本地剧集配置、扫描和播放
   - name: rules
     description: 筛选规则
   - name: subscriptions
@@ -474,6 +476,167 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlaybackContext"
         "404":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/series:
+    get:
+      tags: [series]
+      summary: 获取全部剧集缓存摘要
+      responses:
+        "200":
+          description: 剧集目录、视频数量和上次扫描状态；不触发磁盘扫描。
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SeriesSummary"
+    post:
+      tags: [series]
+      summary: 创建并扫描本地剧集
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeriesSaveRequest"
+      responses:
+        "201":
+          description: 创建后的剧集详情和首次扫描结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/series/{series_id}:
+    parameters:
+      - name: series_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [series]
+      summary: 获取一个剧集的缓存详情
+      responses:
+        "200":
+          description: 剧集详情；不触发磁盘扫描。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [series]
+      summary: 更新并扫描本地剧集
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeriesSaveRequest"
+      responses:
+        "200":
+          description: 更新后的剧集详情和扫描结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [series]
+      summary: 删除剧集配置和缓存
+      description: 不删除目录或任何源文件。
+      responses:
+        "200":
+          description: 删除结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/series/{series_id}/scan:
+    parameters:
+      - name: series_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [series]
+      summary: 手动重扫剧集目录
+      responses:
+        "200":
+          description: 更新后的剧集详情；不可读目录保留旧缓存并标为不可用。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/series/{series_id}/selection:
+    parameters:
+      - name: series_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [series]
+      summary: 保存剧集最后选择的视频
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SeriesSelectionRequest"
+      responses:
+        "200":
+          description: 更新后的剧集详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeriesDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/series/{series_id}/playback:
+    parameters:
+      - name: series_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [series]
+      summary: 重扫剧集并获取统一播放上下文
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: 优先选择的剧集视频绝对路径。
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 带剧集摘要和有序视频清单的播放上下文
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlaybackContext"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
@@ -1948,6 +2111,84 @@ components:
         mime_type: { type: string }
         playable: { type: boolean }
         current: { type: boolean }
+    SeriesDirectory:
+      type: object
+      required: [path, order, available]
+      properties:
+        path:
+          type: string
+          description: NexusBridge 本机绝对目录。
+        order:
+          type: integer
+          minimum: 0
+        available: { type: boolean }
+        last_error: { type: string }
+        last_scanned_at: { type: string, format: date-time }
+    SeriesVideo:
+      type: object
+      required: [path, directory_path, relative_path, name, size, modified_at, available]
+      properties:
+        path:
+          type: string
+          description: NexusBridge 本机绝对文件路径。
+        directory_path:
+          type: string
+          description: 该视频所属的剧集根目录。
+        relative_path: { type: string }
+        name: { type: string }
+        size: { type: integer, format: int64 }
+        modified_at: { type: string, format: date-time }
+        available: { type: boolean }
+    SeriesSummary:
+      type: object
+      required:
+        [id, name, directories, video_count, available_video_count, scan_errors, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        directories:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesDirectory"
+        video_count:
+          type: integer
+          minimum: 0
+        available_video_count:
+          type: integer
+          minimum: 0
+        last_selected_path: { type: string }
+        last_scanned_at: { type: string, format: date-time }
+        scan_errors:
+          type: array
+          items:
+            type: string
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SeriesDetail:
+      allOf:
+        - $ref: "#/components/schemas/SeriesSummary"
+        - type: object
+          required: [videos]
+          properties:
+            videos:
+              type: array
+              items:
+                $ref: "#/components/schemas/SeriesVideo"
+    SeriesSaveRequest:
+      type: object
+      required: [name, directories]
+      properties:
+        name: { type: string }
+        directories:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    SeriesSelectionRequest:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
     PlaybackContext:
       type: object
       required: [source, title, current_path, current_directory, files, directory_files]
@@ -1981,6 +2222,12 @@ components:
         current_file_index:
           type: integer
           minimum: 0
+        series:
+          $ref: "#/components/schemas/SeriesSummary"
+        series_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesVideo"
     PlaybackTorrent:
       type: object
       required: [id, site_id, title]

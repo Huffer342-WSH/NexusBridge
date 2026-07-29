@@ -272,6 +272,50 @@ export type PlaybackDirectoryFile = {
   current: boolean;
 };
 
+export type SeriesDirectory = {
+  path: string;
+  order: number;
+  available: boolean;
+  last_error?: string;
+  last_scanned_at?: string;
+};
+
+export type SeriesVideo = {
+  path: string;
+  directory_path: string;
+  relative_path: string;
+  name: string;
+  size: number;
+  modified_at: string;
+  available: boolean;
+};
+
+export type SeriesSummary = {
+  id: string;
+  name: string;
+  directories: SeriesDirectory[];
+  video_count: number;
+  available_video_count: number;
+  last_selected_path?: string;
+  last_scanned_at?: string;
+  scan_errors: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type SeriesDetail = SeriesSummary & {
+  videos: SeriesVideo[];
+};
+
+export type SeriesSaveRequest = {
+  name: string;
+  directories: string[];
+};
+
+export type SeriesSelectionRequest = {
+  path: string;
+};
+
 export type PlaybackContext = {
   source: 'torrent' | 'qb' | 'file';
   title: string;
@@ -284,6 +328,8 @@ export type PlaybackContext = {
   directory_files: PlaybackDirectoryFile[];
   default_file_index?: number;
   current_file_index?: number;
+  series?: SeriesSummary;
+  series_files?: SeriesVideo[];
 };
 
 export type PlaybackTorrent = {

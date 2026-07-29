@@ -312,6 +312,40 @@ CREATE TABLE IF NOT EXISTS organize_tasks (
 	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS series (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	last_selected_path TEXT NOT NULL DEFAULT '',
+	last_scanned_at TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS series_directories (
+	series_id TEXT NOT NULL,
+	path TEXT NOT NULL,
+	source_order INTEGER NOT NULL DEFAULT 0,
+	available INTEGER NOT NULL DEFAULT 1,
+	last_error TEXT NOT NULL DEFAULT '',
+	last_scanned_at TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (series_id, path),
+	FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS series_videos (
+	series_id TEXT NOT NULL,
+	directory_path TEXT NOT NULL,
+	path TEXT NOT NULL,
+	relative_path TEXT NOT NULL,
+	name TEXT NOT NULL,
+	byte_size INTEGER NOT NULL DEFAULT 0,
+	modified_at TEXT NOT NULL DEFAULT '',
+	available INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY (series_id, path),
+	FOREIGN KEY (series_id, directory_path)
+		REFERENCES series_directories(series_id, path) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_download_tasks_site_torrent ON download_tasks (site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_qb_hash ON download_tasks (qb_hash);
 CREATE INDEX IF NOT EXISTS idx_torrent_files_info_hash_v1 ON torrent_files (info_hash_v1 COLLATE NOCASE);
@@ -332,6 +366,8 @@ CREATE INDEX IF NOT EXISTS idx_subscription_candidates_status ON subscription_ca
 CREATE INDEX IF NOT EXISTS idx_subscription_ingest_site_order ON subscription_ingest_queue (site_id, source_order, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_runs_subscription ON subscription_runs (subscription_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_subscription_status ON download_tasks (subscription_id, status, sent_at);
+CREATE INDEX IF NOT EXISTS idx_series_directories_order ON series_directories (series_id, source_order, path);
+CREATE INDEX IF NOT EXISTS idx_series_videos_directory ON series_videos (series_id, directory_path, relative_path);
 CREATE TRIGGER IF NOT EXISTS prevent_duplicate_download_task_rule
 BEFORE INSERT ON download_tasks
 WHEN EXISTS (

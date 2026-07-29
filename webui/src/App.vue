@@ -6,6 +6,7 @@ import {
   CloudDownload,
   Database,
   ExternalLink,
+  Film,
   FolderKanban,
   FolderOpen,
   KeyRound,
@@ -59,7 +60,7 @@ import type {
   QBPollResult,
 } from './types';
 
-type PageKey = 'media' | 'files' | 'subscriptions' | 'tasks' | 'settings';
+type PageKey = 'media' | 'series' | 'files' | 'subscriptions' | 'tasks' | 'settings';
 type SettingsPageKey = 'sites' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
@@ -80,6 +81,7 @@ const themeOverrides: GlobalThemeOverrides = {
 
 const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload; to: string }> = [
   { key: 'media', label: '媒体', icon: CloudDownload, to: '/media' },
+  { key: 'series', label: '剧集', icon: Film, to: '/series' },
   { key: 'files', label: '文件', icon: FolderOpen, to: '/files' },
   { key: 'subscriptions', label: '订阅', icon: BellRing, to: '/subscriptions' },
   { key: 'tasks', label: '任务', icon: FolderKanban, to: '/tasks' },
@@ -784,15 +786,17 @@ watch(isPlaybackLayout, (playbackLayout, previous) => {
     <NGlobalStyle />
     <div v-if="isPlaybackLayout && !showLogin" class="playback-app-shell">
       <header class="playback-app-header">
-        <RouterLink to="/media" class="playback-brand">
+        <RouterLink :to="route.name === 'playback-series' ? '/series' : '/media'" class="playback-brand">
           <NIcon :component="Database" size="25" class="brand-icon" />
           <span>
             <strong>NexusBridge</strong>
             <small>{{ currentTitle }}</small>
           </span>
         </RouterLink>
-        <RouterLink v-slot="{ href, navigate }" to="/media" custom>
-          <NButton tag="a" :href="href" secondary @click="navigate">返回媒体库</NButton>
+        <RouterLink v-slot="{ href, navigate }" :to="route.name === 'playback-series' ? '/series' : '/media'" custom>
+          <NButton tag="a" :href="href" secondary @click="navigate">
+            {{ route.name === 'playback-series' ? '返回剧集' : '返回媒体库' }}
+          </NButton>
         </RouterLink>
       </header>
       <RouterView />
@@ -869,7 +873,12 @@ watch(isPlaybackLayout, (playbackLayout, previous) => {
             <strong>{{ currentTitle }}</strong>
             <span>{{ health?.addr ?? '0.0.0.0:8090' }}</span>
           </div>
-          <NButton v-if="!showLogin" type="primary" :loading="loading" @click="() => refresh()">
+          <NButton
+            v-if="!showLogin && activePage !== 'series'"
+            type="primary"
+            :loading="loading"
+            @click="() => refresh()"
+          >
             <template #icon>
               <NIcon :component="RefreshCw" />
             </template>

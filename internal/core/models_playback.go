@@ -74,6 +74,8 @@ type PlaybackContext struct {
 	DirectoryFiles   []PlaybackDirectoryFile `json:"directory_files"`
 	DefaultFileIndex *int                    `json:"default_file_index,omitempty"`
 	CurrentFileIndex *int                    `json:"current_file_index,omitempty"`
+	Series           *SeriesSummary          `json:"series,omitempty"`
+	SeriesFiles      []SeriesVideo           `json:"series_files,omitempty"`
 }
 
 // PlaybackTorrent 表示播放页右侧可跳转的其他种子。

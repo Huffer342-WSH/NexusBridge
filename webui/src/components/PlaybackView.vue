@@ -12,6 +12,7 @@ import type {
   PlaybackTorrent,
   FileBrowseResult,
   FileEntry,
+  SeriesVideo,
 } from '../types';
 import { formatByteSize } from '../utils/format';
 import QBDeleteDialog from './QBDeleteDialog.vue';
@@ -44,6 +45,7 @@ let preserveDirectoryOnNextLoad = false;
 const siteID = computed(() => routeParam('site_id'));
 const torrentID = computed(() => routeParam('torrent_id'));
 const qbHash = computed(() => routeParam('hash'));
+const seriesID = computed(() => routeParam('series_id'));
 const routeFileName = computed(() => routeQuery('file'));
 const routeFilePath = computed(() => routeQuery('path'));
 const currentFile = computed(() => playback.value?.files.find((item) => item.index === selectedIndex.value) ?? null);
@@ -108,7 +110,8 @@ function otherCoverURL(torrent: PlaybackTorrent) {
 function applyManifest(next: PlaybackContext, keepSelection: boolean) {
   const previous = keepSelection ? selectedIndex.value : null;
   playback.value = next;
-  if (!keepSelection && next.source === 'file') mediaTab.value = 'files';
+  if (!keepSelection && next.series) mediaTab.value = 'series';
+  else if (!keepSelection && next.source === 'file') mediaTab.value = 'files';
   const retained = previous == null ? undefined : next.files.find((item) => item.index === previous && item.available);
   selectedIndex.value = retained?.index ?? next.current_file_index ?? next.default_file_index ?? null;
   document.title = `${next.title} - NexusBridge`;
@@ -127,7 +130,14 @@ async function browsePlaybackDirectory(path: string) {
   }
 }
 
-function playbackRoute(next: PlaybackContext) {
+function playbackRoute(next: PlaybackContext, retainSeries = true) {
+  if (retainSeries && next.series) {
+    return {
+      name: 'playback-series',
+      params: { series_id: next.series.id },
+      query: next.current_path ? { path: next.current_path } : {},
+    };
+  }
   const file = next.files.find((item) => item.index === next.current_file_index)?.name;
   if (next.source === 'torrent' && next.torrent) {
     return {
@@ -155,7 +165,9 @@ async function normalizePlaybackURL(next: PlaybackContext) {
 
 async function refreshManifest(token: number, keepSelection: boolean, preserveDirectory = false) {
   let next: PlaybackContext;
-  if (route.name === 'playback-file') {
+  if (route.name === 'playback-series') {
+    next = await api.getSeriesPlayback(seriesID.value, routeFilePath.value);
+  } else if (route.name === 'playback-file') {
     next = await api.getFilePlayback(routeFilePath.value);
   } else if (route.name === 'playback-qb') {
     next = await api.getQBPlayback(qbHash.value, routeFileName.value);
@@ -172,7 +184,7 @@ async function refreshManifest(token: number, keepSelection: boolean, preserveDi
 
 function schedulePolling(token: number) {
   if (pollTimer) window.clearTimeout(pollTimer);
-  if (!hasActiveDownloads.value) return;
+  if (!hasActiveDownloads.value || playback.value?.series) return;
   pollTimer = window.setTimeout(async () => {
     try {
       await refreshManifest(token, true);
@@ -238,8 +250,26 @@ async function selectFile(file: PlaybackMedia) {
   autoplayBlocked.value = false;
   const context = playback.value;
   if (!context) return;
-  const target = playbackRoute({ ...context, current_file_index: file.index });
+  const target = playbackRoute({ ...context, current_file_index: file.index }, false);
   if (router.resolve(target).fullPath !== route.fullPath) await router.push(target);
+}
+
+async function selectSeriesFile(file: SeriesVideo) {
+  const context = playback.value;
+  if (!context?.series || !file.available || file.path === context.current_path) return;
+  playerError.value = '';
+  autoplayBlocked.value = false;
+  try {
+    await api.selectSeriesVideo(context.series.id, { path: file.path });
+    preserveDirectoryOnNextLoad = true;
+    await router.push({
+      name: 'playback-series',
+      params: { series_id: context.series.id },
+      query: { path: file.path },
+    });
+  } catch (reason) {
+    playerError.value = reason instanceof Error ? reason.message : '剧集选集切换失败';
+  }
 }
 
 async function openDirectoryEntry(file: FileEntry) {
@@ -409,6 +439,45 @@ onBeforeUnmount(() => {
         <aside class="playback-sidebar">
           <NCard :bordered="false" class="playback-panel media-browser-panel">
             <NTabs v-model:value="mediaTab" type="line" animated>
+              <NTabPane v-if="playback.series" name="series">
+                <template #tab>
+                  <span>剧集</span>
+                  <NTag size="small">
+                    {{ playback.series.available_video_count }} / {{ playback.series.video_count }}
+                  </NTag>
+                </template>
+                <NAlert
+                  v-if="playback.series.scan_errors.length"
+                  type="warning"
+                  :bordered="false"
+                  class="series-playback-alert"
+                >
+                  部分目录暂时不可读，已保留上次扫描到的文件。
+                </NAlert>
+                <div v-if="playback.series_files?.length" class="episode-list">
+                  <button
+                    v-for="file in playback.series_files"
+                    :key="file.path"
+                    type="button"
+                    class="episode-item"
+                    :class="{ active: file.path === playback.current_path, disabled: !file.available }"
+                    :disabled="!file.available"
+                    @click="selectSeriesFile(file)"
+                  >
+                    <NIcon :component="Film" size="18" />
+                    <span class="episode-copy">
+                      <strong>{{ file.name }}</strong>
+                      <small :title="file.path">
+                        {{ file.relative_path }} · {{ formatByteSize(file.size) }}
+                        <template v-if="!file.available"> · 目录不可用</template>
+                      </small>
+                    </span>
+                    <NIcon v-if="file.available" :component="Play" size="17" />
+                  </button>
+                </div>
+                <NEmpty v-else description="剧集中没有扫描到支持的视频" />
+              </NTabPane>
+
               <NTabPane v-if="playback.source !== 'file'" name="episodes">
                 <template #tab>
                   <span>选集</span>

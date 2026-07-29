@@ -7,6 +7,8 @@ WebUI 使用 Vue Router History 模式。浏览器版和 Wails 桌面版使用�
 | 路径 | 页面 |
 | --- | --- |
 | `/media` | 媒体库 |
+| `/series` | 本地剧集管理 |
+| `/play/series/:series_id?path=...` | 本地剧集播放页 |
 | `/play/:site_id/:torrent_id?file=...` | 数据库种子播放页 |
 | `/play/qb/:hash?file=...` | qB 任务播放页 |
 | `/play/file?path=...` | 本机文件播放页 |
@@ -54,11 +56,21 @@ qB 筛选按钮使用固定的 `qB` 标识和当前筛选摘要。它会打开�
 
 ## 播放页
 
-媒体卡片和文件管理器都能在新标签页打开播放页。文件入口会自动判断文件是否属于实时 qB 任务，并继续按 hash 补充数据库种子详情；匹配结果会规范化为数据库种子、qB-only 或本机文件 URL。`file` 或 `path` 始终标识当前文件。播放路由使用独立外壳，不加载普通 Dashboard 数据，也不会触发媒体页自动抓取。
+媒体卡片、文件管理器和剧集都能打开播放页。文件入口会自动判断文件是否属于实时 qB 任务，并继续按 hash 补充数据库种子详情；匹配结果会规范化为数据库种子、qB-only 或本机文件 URL。剧集入口保留 `/play/series/:series_id` 作为规范 URL，通过 `path` 标识当前剧集视频，同时复用相同的文件归属识别。播放路由使用独立外壳，不加载普通 Dashboard 数据，也不会触发媒体页自动抓取。
 
 完整的清单生成、默认选集、播放器分派、源文件读取和路径边界见[媒体播放](modules/playback.md)。
 
-播放页采用连续分栏区块。左侧是媒体画布和可选种子简介；右侧用一个“选集 / 文件”双标签窗格承载 qB 选集和当前目录浏览，文件标签中的 `..` 可进入父目录。文件列表使用资源管理器式紧凑行，路径超宽时省略显示；文件夹不显示播放操作。从该窗格切换媒体时保留当前目录和标签，只局部更新播放器及关联信息。右侧下方展示其他可播放种子。纯本机文件没有种子详情和选集，仅保留播放与文件浏览。
+播放页采用连续分栏区块。左侧是媒体画布和可选种子简介；右侧使用“剧集 / 选集 / 文件”标签窗格，其中“剧集”仅在剧集路由显示，“选集”仍只显示 qB 文件，“文件”浏览当前目录。文件标签中的 `..` 可进入父目录，列表使用资源管理器式紧凑行；从剧集或文件窗格切换媒体时保留当前浏览目录，只局部更新播放器及关联信息。右侧下方展示其他可播放种子。纯本机文件没有种子详情和 qB 选集。
+
+## 剧集页与路径状态
+
+`/series` 显示持久化剧集摘要，不因打开列表而扫描磁盘。创建或编辑剧集时提交名称和有序绝对目录，保存成功后立即扫描；页面另提供显式重扫。扫描递归识别播放器白名单中的视频，目录按用户添加顺序排列，目录内部按相对路径自然排序。
+
+剧集目录既可直接输入，也可通过文件选择浏览器选择。完成后的目录按分隔行展示，完整路径可换行；此时“浏览”只读查看当前目录，双击路径进入编辑状态后才显示可替换目录的“选择”。文件选择浏览器支持目录、文件和只读浏览模式，调用方可传入起始目录；没有指定起始目录时使用当前浏览器 `localStorage` 中记录的上次使用目录。
+
+剧集新增/编辑和文件选择弹窗使用紧凑默认宽度，可拖动右边缘调整，并分别记住当前浏览器中的上次宽度。文件选择弹窗高度固定，目录数量只改变内部列表的滚动范围，不改变弹窗高度。路径和弹窗宽度记录都只属于当前浏览器的界面偏好，不进入服务端数据库。
+
+进入 `/play/series/:series_id` 时再次扫描，并按 URL `path`、上次选集、第一项的顺序选择可用视频，再使用 `replace` 把规范绝对路径写回 URL。暂时不可读目录保留上次缓存但禁用其中视频；可读目录中已经删除的文件会从缓存移除。删除剧集只删除配置和扫描缓存，不删除源目录或视频。
 
 播放器实现由 `src/config/mediaPlayer.ts` 的构建配置选择：
 
@@ -85,8 +97,8 @@ qB 筛选按钮使用固定的 `qB` 标识和当前筛选摘要。它会打开�
 ## 状态边界与路由回退
 
 - 设置表单草稿、订阅页内部标签、弹窗和任务临时状态不进入 URL。
-- 媒体卡片布局等纯显示偏好保存在浏览器 `localStorage`。
+- 媒体卡片布局、文件选择浏览器的上次目录、可调弹窗宽度等纯显示或交互偏好保存在浏览器 `localStorage`。
 - Web 服务的 SPA catch-all 对未命中的非 `/api`、`/rss` 路径返回 `index.html`。
 - Wails 只对 `GET/HEAD`、接受 HTML、没有文件扩展名且原响应为 404 的页面导航回退 `index.html`；缺失静态资源、API 和 Runtime 请求不会被前端路由吞掉。
 
-代码入口是 `webui/src/router.ts`、`webui/src/App.vue`、`webui/src/components/MediaView.vue`、`webui/src/components/PlaybackView.vue` 和 `webui/src/components/FileManagerView.vue`；Web 与桌面回退分别位于 `internal/server/http_helpers.go` 和 `internal/desktop/assets.go`。
+代码入口是 `webui/src/router.ts`、`webui/src/App.vue`、`webui/src/components/MediaView.vue`、`webui/src/components/SeriesView.vue`、`webui/src/components/FilePickerDialog.vue`、`webui/src/components/ResizableModal.vue`、`webui/src/components/PlaybackView.vue` 和 `webui/src/components/FileManagerView.vue`；Web 与桌面回退分别位于 `internal/server/http_helpers.go` 和 `internal/desktop/assets.go`。

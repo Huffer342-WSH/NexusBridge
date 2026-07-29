@@ -50,6 +50,8 @@ type App struct {
 	subscriptionLocks  map[string]*contextMutex
 	hashLockMu         sync.Mutex
 	hashLocks          map[string]*contextMutex
+	seriesLockMu       sync.Mutex
+	seriesLocks        map[string]*contextMutex
 	fetchMu            sync.Mutex
 	activeFetches      map[string]*activeSiteFetch
 	fetchWG            sync.WaitGroup
@@ -87,7 +89,8 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		ctx: appCtx, cancel: cancel, qbRuntime: map[storage.TorrentKey]storage.QBSnapshotRecord{},
 		pinnedBySite:   map[string]map[storage.TorrentKey]int{},
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
-		hashLocks: map[string]*contextMutex{}, activeFetches: map[string]*activeSiteFetch{},
+		hashLocks: map[string]*contextMutex{}, seriesLocks: map[string]*contextMutex{},
+		activeFetches: map[string]*activeSiteFetch{},
 	}
 	coverCache, err := covercache.New(store, coverDownloader{app: app}, filepath.Join(filepath.Dir(cfg.Storage.Path), "covers"))
 	if err != nil {

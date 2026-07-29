@@ -127,6 +127,30 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 读取本机媒体文件，并按规范化路径精确匹配实时 qB 文件清单。匹配后自动提升为数据库种子或 qB-only 上下文；未匹配时返回 `source=file` 的单文件上下文。上下文中的 `current_path`、`current_directory` 和目录文件路径均可能是本机绝对路径。
 
+### 本地剧集
+
+`GET /api/series`
+
+返回持久化剧集摘要和上次扫描状态，不扫描磁盘。摘要包含有序目录、视频总数、可用数、最后选集、最近扫描时间和目录错误。
+
+`POST /api/series`
+
+`GET|PUT|DELETE /api/series/{series_id}`
+
+创建或更新接收 `{ "name": "...", "directories": ["C:/Media/Season 1"] }`；目录必须是当前可读的绝对目录，同一剧集拒绝重复或嵌套重叠目录。创建、更新会立即递归扫描。删除只清理剧集配置和扫描缓存，不操作源目录或视频。
+
+`POST /api/series/{series_id}/scan`
+
+显式重扫全部目录。可读目录独立替换缓存；暂时不可读目录返回错误状态并保留旧缓存，但其中视频标为不可用。
+
+`POST /api/series/{series_id}/selection`
+
+接收 `{ "path": "C:/Media/Season 1/Episode 01.mkv" }`，只允许选择当前缓存中可用的视频，并持久化为最后选集。
+
+`GET /api/series/{series_id}/playback?path={absolute_path}`
+
+进入播放前先重扫，再按有效 `path`、可用的最后选集、第一项选择视频。返回统一 `PlaybackContext`，并通过 `series`、`series_files` 补充剧集上下文；源文件仍使用现有 file/qB 流接口。剧集或视频不存在返回 `404`，当前没有可用视频返回 `409`。
+
 `GET /api/playback/torrents?exclude_site_id={site_id}&exclude_torrent_id={torrent_id}&limit=20`
 
 返回其他已关联 qB、且至少存在一个完整并可读取的音频或视频文件的种子。结果按站点 `published_at DESC` 排序，缺失发布时间的记录置后；`limit` 默认 20、最大 50。只有完整图片的种子不会进入该列表。

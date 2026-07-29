@@ -19,6 +19,7 @@ type Server struct {
 	sites         core.SiteService
 	torrents      core.TorrentService
 	playback      core.PlaybackService
+	series        core.SeriesService
 	fetcher       core.FetchService
 	rules         core.RuleService
 	subscriptions core.SubscriptionService
@@ -55,6 +56,7 @@ func New(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.SeriesService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -74,6 +76,7 @@ func NewWithAssets(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.SeriesService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -93,6 +96,7 @@ func newServer(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.SeriesService
 	core.FetchService
 	core.RuleService
 	core.SubscriptionService
@@ -109,6 +113,7 @@ func newServer(cfg config.Config, app interface {
 		sites:         app,
 		torrents:      app,
 		playback:      app,
+		series:        app,
 		fetcher:       app,
 		rules:         app,
 		subscriptions: app,
@@ -140,6 +145,14 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/torrents", s.handleTorrents)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/cover", s.handleTorrentCover)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/playback", s.handleTorrentPlayback)
+	r.Get("/api/series", s.handleSeries)
+	r.Post("/api/series", s.handleCreateSeries)
+	r.Get("/api/series/{series_id}", s.handleGetSeries)
+	r.Put("/api/series/{series_id}", s.handleUpdateSeries)
+	r.Delete("/api/series/{series_id}", s.handleDeleteSeries)
+	r.Post("/api/series/{series_id}/scan", s.handleScanSeries)
+	r.Post("/api/series/{series_id}/selection", s.handleSelectSeriesVideo)
+	r.Get("/api/series/{series_id}/playback", s.handleSeriesPlayback)
 	r.Get("/api/playback/torrents", s.handlePlaybackTorrents)
 	r.Get("/api/playback/qb/{hash}", s.handleQBPlayback)
 	r.Get("/api/playback/file", s.handleFilePlayback)

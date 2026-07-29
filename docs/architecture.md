@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[媒体播放](modules/playback.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
@@ -242,6 +242,7 @@ flowchart LR
 flowchart LR
     Card[媒体卡片] --> Playback[WebUI 播放页]
     Files[文件管理器] --> Detect[文件归属识别]
+    Series[剧集目录缓存] --> Detect
     Detect --> Playback
     Playback --> Manifest[统一播放上下文 API]
     Manifest --> QB[qB 文件清单]
@@ -254,7 +255,7 @@ flowchart LR
     LocalFile -->|原始字节| Browser[浏览器解码]
 ```
 
-播放入口既可来自数据库种子，也可来自文件管理器。文件路径先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流仍会验证解析路径位于下载根目录；普通文件沿用文件管理器的本机访问边界。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级，也不持久化文件清单。完整流程见[媒体播放](modules/playback.md)。
+播放入口可来自数据库种子、文件管理器或本地剧集。剧集只保存名称、有序目录、扫描缓存和最后选集；保存、手动重扫和进入剧集播放页时才递归扫描，不运行目录 watcher 或定时任务。选中的文件仍先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流仍会验证解析路径位于下载根目录；普通文件沿用文件管理器的本机访问边界。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级。剧集完整结构见[本地剧集](modules/series.md)，通用播放流程见[媒体播放](modules/playback.md)。
 
 ## 5. 代码导航
 
@@ -278,18 +279,18 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点、种子与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`playback.go`、`covers.go` |
+| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`playback.go`、`covers.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |
 | 任务与可选能力 | `task_service.go`、`mihomo.go`、`network.go` |
-| 领域模型 | `models_site.go`、`models_torrent.go`、`models_playback.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
+| 领域模型 | `models_site.go`、`models_torrent.go`、`models_series.go`、`models_playback.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
 
 ### 5.3 基础设施包
 
 | 包 | 职责与主要文件 |
 | --- | --- |
-| `internal/storage` | `sqlite.go` 管理 WAL、单写者和双数据库，`schema.go` 定义完整新库；其余文件按 torrent、搜索/恢复索引、rule、subscription、task、qB 稳定关联、credential 和 cover cache 分域持久化。 |
+| `internal/storage` | `sqlite.go` 管理 WAL、单写者和双数据库，`schema.go` 定义完整新库；其余文件按 torrent、剧集、搜索/恢复索引、rule、subscription、task、qB 稳定关联、credential 和 cover cache 分域持久化。 |
 | `internal/parser` | `definitions.go` 加载站点定义，`parser.go` 提供解析入口，`search_form.go`、`torrent_rows.go`、`pagination.go` 分解页面解析。 |
 | `internal/fetcher` | HTTP 请求、重定向和 curl 输入解析。 |
 | `internal/requestpolicy` | 域名规则、Cookie 白名单和请求决策。 |
@@ -304,7 +305,7 @@ flowchart LR
 | 区域 | 主要路径 |
 | --- | --- |
 | WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
-| 业务界面 | `webui/src/components/MediaView.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
+| 业务界面 | `webui/src/components/MediaView.vue`、`SeriesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
 | 前端行为文档 | `docs/frontend.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |

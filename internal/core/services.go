@@ -34,6 +34,17 @@ type PlaybackService interface {
 	GetFileSubtitle(ctx context.Context, path string, trackID uint64) ([]byte, error)
 }
 
+// SeriesService 提供本地剧集配置、访问时扫描和剧集播放上下文。
+type SeriesService interface {
+	ListSeries(ctx context.Context) ([]SeriesSummary, error)
+	GetSeries(ctx context.Context, id string) (SeriesDetail, error)
+	SaveSeries(ctx context.Context, id string, request SeriesSaveRequest) (SeriesDetail, error)
+	DeleteSeries(ctx context.Context, id string) (bool, error)
+	ScanSeries(ctx context.Context, id string) (SeriesDetail, error)
+	SelectSeriesVideo(ctx context.Context, id string, request SeriesSelectionRequest) (SeriesDetail, error)
+	GetSeriesPlayback(ctx context.Context, id, path string) (PlaybackContext, error)
+}
+
 type FetchService interface {
 	StartSiteFetch(ctx context.Context, siteID, trigger string, request SiteFetchRequest) (SiteFetchJob, error)
 	ListSiteFetchJobs(ctx context.Context, siteID string, limit int) ([]SiteFetchJob, error)
