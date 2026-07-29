@@ -72,6 +72,8 @@ qB 选集展示固定扩展名白名单识别出的图片、视频和音频。�
 - 右侧下方是其他含完整音视频的数据库种子；纯本机文件不显示。
 - 窄屏按媒体画布、简介、媒体浏览、其他种子的顺序纵向排列。
 
+主文件页、文件选择器及右侧“剧集 / 选集 / 文件”只为当前可读取的视频返回 `thumbnail_url`。共享 `VideoThumbnail` 组件使用固定占位、原生 `loading=lazy` 和异步解码；目录、音频、图片、普通文件、不可用视频及缩略图请求失败时继续显示原图标。清单 API 只拼接 URL，不运行 FFmpeg。
+
 页面路由和播放器按需加载。`MediaCanvas` 根据 `media_type` 分派播放器，切换文件时卸载旧播放器：
 
 | 类型 | 默认播放器 | 可选配置 |
@@ -104,6 +106,29 @@ qB 接口每次都按 hash 和文件索引重新读取实时清单，不信任�
 
 所有源文件使用 `http.ServeContent` 返回，支持 Range、seek、HEAD、`Content-Length` 和 `Last-Modified`。浏览器不支持的容器或编码只显示播放错误，不提供转换回退。
 
+## 按需视频缩略图
+
+```mermaid
+flowchart LR
+    List[文件或播放清单 API] -->|仅返回 thumbnail_url| Browser[浏览器懒加载图片]
+    Browser --> Resolve[复用 file / qB 源文件解析]
+    Resolve --> Fingerprint[规范路径 + 大小 + mtime + 版本]
+    Fingerprint --> Hit{JPEG 缓存命中?}
+    Hit -->|是| Serve[ETag + ServeContent]
+    Hit -->|否| Probe[FFprobe 时长]
+    Probe --> Frame[FFmpeg 在 10% 处取帧<br/>探测失败使用 5 秒]
+    Frame --> Atomic[同目录临时文件原子提交]
+    Atomic --> Serve
+    Resolve -. 错误 .-> Fallback[前端视频图标]
+    Frame -. 错误 .-> Fallback
+```
+
+每个规范源路径使用独立进程内互斥锁，全局最多同时运行两个 FFmpeg 任务。单次探测与生成合计 30 秒；JPEG 最大 `320×180` 并保持比例。失败不写状态或负缓存，下一次新图片请求会重新尝试。成功响应使用内容指纹 ETag、`image/jpeg`、`private, no-cache` 和 `nosniff`；错误响应使用 `no-store`。
+
+缓存位于元数据库同级 `thumbnails/`，不新增数据库表或后台任务。源文件大小或修改时间变化时使用新指纹，成功写入后清理同一路径的旧版本；已删除源文件遗留的目录不做全局 GC，可删除整个 `thumbnails/` 重建。FFmpeg 路径只在启动时读取，工具缺失不阻止应用启动。
+
+完整的字段注入、缓存布局、生成参数、并发、动态库部署和故障处理见[按需视频缩略图](video-thumbnails.md)。
+
 ## 剧集扫描与选择
 
 剧集保存名称、有序目录、扫描缓存、最近扫描时间和最后选集。创建、编辑、手动重扫和进入剧集播放页会执行递归扫描；列表查询不会扫描，也没有后台 watcher 或周期轮询。扫描仅保留现有视频白名单中的普通文件，不跟随目录符号链接；同一剧集拒绝重复或嵌套重叠目录，不同剧集可以引用相同目录。
@@ -120,7 +145,8 @@ qB 接口每次都按 hash 和文件索引重新读取实时清单，不信任�
 | 剧集 CRUD、扫描和选择 | `internal/core/series.go` |
 | 播放领域模型 | `internal/core/models_playback.go` |
 | HTTP 路由与响应 | `internal/server/server.go`、`internal/server/handlers_torrents.go` |
+| 缩略图生成与缓存 | `internal/core/video_thumbnails.go`、`internal/core/videothumbnail/` |
 | 页面路由和状态 | `webui/src/router.ts`、`webui/src/components/PlaybackView.vue` |
-| 文件管理器入口 | `webui/src/components/FileManagerView.vue` |
+| 文件管理器与缩略图 | `webui/src/components/FileManagerView.vue`、`webui/src/components/VideoThumbnail.vue` |
 | 播放器分派和实现 | `webui/src/components/player/` |
 | API | `docs/api.md`、`docs/api/openapi.yaml` |

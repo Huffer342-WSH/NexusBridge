@@ -54,5 +54,8 @@
     "root": "/downloads",
     "dry_run": true
   },
+  "video_thumbnail": {
+    "ffmpeg_path": ""
+  },
   "rules": []
 }

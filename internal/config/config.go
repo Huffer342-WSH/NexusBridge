@@ -42,6 +42,7 @@ type Config struct {
 	LLM               LLMConfig          `json:"llm"`
 	Network           NetworkConfig      `json:"network"`
 	MediaLibrary      MediaLibraryConfig `json:"media_library"`
+	VideoThumbnail    VideoThumbnailConfig `json:"video_thumbnail"`
 	Rules             []RuleConfig       `json:"rules"`
 }
 
@@ -107,6 +108,11 @@ type NetworkConfig struct {
 type MediaLibraryConfig struct {
 	Root   string `json:"root"`
 	DryRun bool   `json:"dry_run"`
+}
+
+// VideoThumbnailConfig 描述按需视频缩略图使用的 FFmpeg 可执行文件。
+type VideoThumbnailConfig struct {
+	FFmpegPath string `json:"ffmpeg_path"`
 }
 
 type RuleConfig struct {
@@ -255,6 +261,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.Storage.Path == "" {
 		cfg.Storage.Path = DefaultStoragePath
 	}
+	cfg.VideoThumbnail.FFmpegPath = strings.TrimSpace(cfg.VideoThumbnail.FFmpegPath)
 	if cfg.Storage.SQLite.BusyTimeoutMillis <= 0 {
 		cfg.Storage.SQLite.BusyTimeoutMillis = defaultSQLiteBusyTimeoutMillis
 	}

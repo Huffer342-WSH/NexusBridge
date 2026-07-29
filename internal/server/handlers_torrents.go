@@ -285,6 +285,60 @@ func (s *Server) handleFileMedia(w http.ResponseWriter, r *http.Request) {
 	servePlaybackSource(w, r, source)
 }
 
+// handleTorrentVideoThumbnail 按需返回数据库种子视频的 JPEG 缩略图。
+func (s *Server) handleTorrentVideoThumbnail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
+		return
+	}
+	thumbnail, err := s.playback.GetTorrentVideoThumbnail(
+		r.Context(),
+		chi.URLParam(r, "site_id"),
+		chi.URLParam(r, "torrent_id"),
+		fileIndex,
+	)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	serveVideoThumbnail(w, r, thumbnail)
+}
+
+// handleQBVideoThumbnail 按需返回 qB 视频的 JPEG 缩略图。
+func (s *Server) handleQBVideoThumbnail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	fileIndex, ok := playbackFileIndex(w, r)
+	if !ok {
+		return
+	}
+	thumbnail, err := s.playback.GetQBVideoThumbnail(
+		r.Context(),
+		chi.URLParam(r, "hash"),
+		fileIndex,
+	)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	serveVideoThumbnail(w, r, thumbnail)
+}
+
+// handleFileVideoThumbnail 按需返回本机视频的 JPEG 缩略图。
+func (s *Server) handleFileVideoThumbnail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if strings.TrimSpace(r.URL.Query().Get("path")) == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("media file path is required"))
+		return
+	}
+	thumbnail, err := s.playback.GetFileVideoThumbnail(r.Context(), r.URL.Query().Get("path"))
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	serveVideoThumbnail(w, r, thumbnail)
+}
+
 // handleTorrentSubtitle 导出数据库种子 MKV 文件的内嵌文本字幕。
 func (s *Server) handleTorrentSubtitle(w http.ResponseWriter, r *http.Request) {
 	fileIndex, ok := playbackFileIndex(w, r)
@@ -384,6 +438,22 @@ func servePlaybackSource(w http.ResponseWriter, r *http.Request, source core.Pla
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, source.Name, source.ModTime, source.File)
+}
+
+// serveVideoThumbnail 使用内容指纹条件请求返回持久缓存的 JPEG。
+func serveVideoThumbnail(w http.ResponseWriter, r *http.Request, thumbnail core.VideoThumbnail) {
+	file, err := os.Open(thumbnail.Path)
+	if err != nil {
+		w.Header().Set("Cache-Control", "no-store")
+		writePlaybackError(w, fmt.Errorf("%w: %v", core.ErrPlaybackUnavailable, err))
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("ETag", `"`+thumbnail.ETag+`"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, filepath.Base(thumbnail.Path), thumbnail.ModTime, file)
 }
 
 // writePlaybackError 将播放领域错误映射为稳定的 HTTP 状态码。

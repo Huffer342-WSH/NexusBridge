@@ -51,6 +51,7 @@ import type {
   Site,
   TorrentSizeIndexStatus,
 } from '../types';
+import VideoThumbnail from './VideoThumbnail.vue';
 
 const props = defineProps<{ sites: Site[] }>();
 const emit = defineEmits<{ message: [value: string] }>();
@@ -598,7 +599,16 @@ onBeforeUnmount(() => {
           @contextmenu="showContextMenu($event, entry)"
         >
           <div class="file-name">
-            <NIcon :component="entry.is_dir ? Folder : File" :class="entry.is_dir ? 'folder-icon' : 'file-icon'" />
+            <VideoThumbnail
+              v-if="entry.media_type === 'video'"
+              :src="entry.thumbnail_url"
+              :alt="`${entry.name} 缩略图`"
+            />
+            <NIcon
+              v-else
+              :component="entry.is_dir ? Folder : File"
+              :class="entry.is_dir ? 'folder-icon' : 'file-icon'"
+            />
             <span :title="entry.path">{{ entry.name }}</span>
           </div>
           <span>{{ entry.is_dir ? '—' : formatBytes(entry.size) }}</span>
@@ -878,7 +888,7 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(260px, 2fr) 110px 180px minmax(200px, 1fr) 78px;
   gap: 12px;
   align-items: center;
-  min-height: 48px;
+  min-height: 58px;
   padding: 0 12px;
 }
 .file-header {
@@ -901,6 +911,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   font-weight: 600;
+}
+.file-name > :deep(.video-thumbnail) {
+  margin-block: 5px;
 }
 .file-name span {
   overflow: hidden;

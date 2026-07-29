@@ -25,17 +25,18 @@ const (
 
 // PlaybackMedia 表示播放上下文中的一个浏览器媒体文件。
 type PlaybackMedia struct {
-	Index     int                `json:"index"`
-	Name      string             `json:"name"`
-	MediaType PlaybackMediaType  `json:"media_type"`
-	MIMEType  string             `json:"mime_type"`
-	Size      int64              `json:"size"`
-	Progress  float64            `json:"progress"`
-	Selected  bool               `json:"selected"`
-	Complete  bool               `json:"complete"`
-	Available bool               `json:"available"`
-	StreamURL string             `json:"stream_url"`
-	Subtitles []PlaybackSubtitle `json:"subtitles,omitempty"`
+	Index        int                `json:"index"`
+	Name         string             `json:"name"`
+	MediaType    PlaybackMediaType  `json:"media_type"`
+	MIMEType     string             `json:"mime_type"`
+	Size         int64              `json:"size"`
+	Progress     float64            `json:"progress"`
+	Selected     bool               `json:"selected"`
+	Complete     bool               `json:"complete"`
+	Available    bool               `json:"available"`
+	StreamURL    string             `json:"stream_url"`
+	ThumbnailURL string             `json:"thumbnail_url,omitempty"`
+	Subtitles    []PlaybackSubtitle `json:"subtitles,omitempty"`
 }
 
 // PlaybackSubtitle 表示可由浏览器加载的 MKV 内嵌文本字幕轨。
@@ -57,6 +58,7 @@ type PlaybackDirectoryFile struct {
 	ModifiedAt time.Time         `json:"modified_at"`
 	MediaType  PlaybackMediaType `json:"media_type,omitempty"`
 	MIMEType   string            `json:"mime_type,omitempty"`
+	ThumbnailURL string          `json:"thumbnail_url,omitempty"`
 	Playable   bool              `json:"playable"`
 	Current    bool              `json:"current"`
 }
@@ -95,4 +97,11 @@ type PlaybackSource struct {
 	Name        string
 	ContentType string
 	ModTime     time.Time
+}
+
+// VideoThumbnail 表示已经生成的本地 JPEG 缩略图。
+type VideoThumbnail struct {
+	Path    string
+	ETag    string
+	ModTime time.Time
 }

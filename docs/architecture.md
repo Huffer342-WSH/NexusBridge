@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)、[视频缩略图](modules/video-thumbnails.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
@@ -63,6 +63,7 @@ flowchart TB
     subgraph Domain[业务层]
         Core[core]
         CoverCache[core/covercache]
+        ThumbnailCache[core/videothumbnail]
     end
 
     subgraph Infra[基础设施层]
@@ -86,6 +87,7 @@ flowchart TB
     WebAssets --> HTTP
 
     Core --> CoverCache
+    Core --> ThumbnailCache
     Core --> Storage
     Core --> Parser
     Core --> Fetcher
@@ -253,9 +255,14 @@ flowchart LR
     Stream --> Validate[hash + 文件索引<br/>路径与普通文件校验]
     Validate --> LocalFile[(同机 qB 下载文件)]
     LocalFile -->|原始字节| Browser[浏览器解码]
+    Playback -->|懒加载 thumbnail_url| Thumbnail[按需缩略图 API]
+    Thumbnail --> Validate
+    Validate --> FFmpeg[FFprobe / FFmpeg CLI]
+    FFmpeg --> ThumbnailFiles[(thumbnails JPEG)]
+    ThumbnailFiles --> Browser
 ```
 
-播放入口可来自数据库种子、文件管理器或本地剧集。剧集只保存名称、有序目录、扫描缓存和最后选集；保存、手动重扫和进入剧集播放页时才递归扫描，不运行目录 watcher 或定时任务。选中的文件仍先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流仍会验证解析路径位于下载根目录；普通文件沿用文件管理器的本机访问边界。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级。剧集完整结构见[本地剧集](modules/series.md)，通用播放流程见[媒体播放](modules/playback.md)。
+播放入口可来自数据库种子、文件管理器或本地剧集。剧集只保存名称、有序目录、扫描缓存和最后选集；保存、手动重扫和进入剧集播放页时才递归扫描，不运行目录 watcher 或定时任务。选中的文件仍先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流和缩略图请求都会重新验证下载根目录与文件索引；普通文件沿用文件管理器的本机访问边界。缩略图只在浏览器请求 `thumbnail_url` 时以 FFprobe/FFmpeg CLI 生成并保存到数据库同级文件缓存，最多两路并发，不写数据库或失败状态。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级。剧集完整结构见[本地剧集](modules/series.md)，通用播放流程见[媒体播放](modules/playback.md)，缩略图缓存与部署边界见[按需视频缩略图](modules/video-thumbnails.md)。
 
 ## 5. 代码导航
 
@@ -279,7 +286,7 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`playback.go`、`covers.go` |
+| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`playback.go`、`video_thumbnails.go`、`covers.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |
@@ -296,6 +303,7 @@ flowchart LR
 | `internal/requestpolicy` | 域名规则、Cookie 白名单和请求决策。 |
 | `internal/qbittorrent` | qB 认证、torrent、文件、分类、标签、控制、同步和元数据 API。 |
 | `internal/core/covercache` | 封面文件缓存、状态机和并发控制；持久状态仍由 storage 保存。 |
+| `internal/core/videothumbnail` | FFprobe/FFmpeg 按需取帧、文件指纹、原子 JPEG 缓存和并发限制；不写 SQLite。 |
 | `internal/llm`、`internal/organizer` | OpenAI-compatible 客户端和媒体整理建议校验；当前为可选 demo 链路。 |
 | `internal/config`、`internal/network`、`internal/mihomo` | 配置校验、代理环境和 Mihomo Provider 管理。 |
 | `internal/stringutil`、`internal/urlutil` | 无状态、无业务依赖的共用工具。 |

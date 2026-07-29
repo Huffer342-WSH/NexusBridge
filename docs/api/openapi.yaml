@@ -756,6 +756,77 @@ paths:
           $ref: "#/components/responses/Error"
         "503":
           $ref: "#/components/responses/Error"
+  /api/torrents/{site_id}/{torrent_id}/media/{file_index}/thumbnail:
+    parameters:
+      - $ref: "#/components/parameters/SiteID"
+      - $ref: "#/components/parameters/TorrentID"
+      - name: file_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      tags: [torrents, qbittorrent]
+      summary: 按需生成或读取数据库种子视频缩略图
+      responses:
+        "200":
+          description: JPEG 视频缩略图
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, example: "private, no-cache" }
+            X-Content-Type-Options:
+              schema: { type: string, example: nosniff }
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /api/playback/qb/{hash}/media/{file_index}/thumbnail:
+    parameters:
+      - name: hash
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: file_index
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    get:
+      tags: [qbittorrent]
+      summary: 按需生成或读取 qB 视频缩略图
+      responses:
+        "200":
+          description: JPEG 视频缩略图
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, example: "private, no-cache" }
+            X-Content-Type-Options:
+              schema: { type: string, example: nosniff }
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
   /api/playback/file/media:
     get:
       tags: [files]
@@ -795,6 +866,37 @@ paths:
         "400":
           $ref: "#/components/responses/Error"
         "404":
+          $ref: "#/components/responses/Error"
+  /api/playback/file/thumbnail:
+    get:
+      tags: [files]
+      summary: 按需生成或读取本机视频缩略图
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: JPEG 视频缩略图
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string, example: "private, no-cache" }
+            X-Content-Type-Options:
+              schema: { type: string, example: nosniff }
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "503":
           $ref: "#/components/responses/Error"
   /api/torrents/{site_id}/{torrent_id}/media/{file_index}/subtitles/{track_id}:
     parameters:
@@ -2077,6 +2179,9 @@ components:
           description: 下载进度大于零且同机普通文件通过路径安全校验。
         stream_url:
           type: string
+        thumbnail_url:
+          type: string
+          description: 仅当前可读取的视频存在；请求该 URL 时才生成或读取 JPEG 缓存。
         subtitles:
           type: array
           items:
@@ -2109,6 +2214,9 @@ components:
           type: string
           enum: [video, audio, image]
         mime_type: { type: string }
+        thumbnail_url:
+          type: string
+          description: 仅当前可读取的视频存在。
         playable: { type: boolean }
         current: { type: boolean }
     SeriesDirectory:
@@ -2122,6 +2230,9 @@ components:
           type: integer
           minimum: 0
         available: { type: boolean }
+        thumbnail_url:
+          type: string
+          description: 仅当前可读取的视频存在。
         last_error: { type: string }
         last_scanned_at: { type: string, format: date-time }
     SeriesVideo:
@@ -3049,6 +3160,9 @@ components:
         media_type:
           type: string
           enum: [video, audio, image]
+        thumbnail_url:
+          type: string
+          description: 仅当前可读取的视频存在。
         qb_tasks:
           type: array
           items:

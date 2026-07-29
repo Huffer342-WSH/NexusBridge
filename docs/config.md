@@ -34,8 +34,11 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
 - `logging.level`：`info`
 - `auth.enabled`：`false`
 - `network.mode`：`system`
+- `video_thumbnail.ffmpeg_path`：空字符串，从 `PATH` 查找
 
-`storage.path` 指向业务元数据库；同目录自动创建同名 `.index.db` 派生索引库、`torrents/` 内容寻址文件目录和 `covers/` 封面缓存目录。WAL、`temp_store=MEMORY`、外键和写事务 `IMMEDIATE` 固定启用，SQLite 子项只开放锁等待、连接池、页缓存、mmap 与同步级别。派生索引丢失时会从元数据重建；它不保存唯一数据。完整布局和表职责见[存储与数据库](storage.md)。
+`storage.path` 指向业务元数据库；同目录自动创建同名 `.index.db` 派生索引库、`torrents/` 内容寻址文件目录、`covers/` 封面缓存目录和 `thumbnails/` 视频缩略图缓存目录。WAL、`temp_store=MEMORY`、外键和写事务 `IMMEDIATE` 固定启用，SQLite 子项只开放锁等待、连接池、页缓存、mmap 与同步级别。派生索引丢失时会从元数据重建；它不保存唯一数据。完整布局和表职责见[存储与数据库](storage.md)。
+
+`video_thumbnail.ffmpeg_path` 留空时分别从进程 `PATH` 查找 `ffmpeg` 和 `ffprobe`。指定 FFmpeg 可执行文件时，FFprobe 优先使用同目录文件，再回退 `PATH`。配置在启动时读取，修改后需要重启；工具缺失不会阻止启动，只会让缩略图请求返回错误并由 WebUI 回退为视频图标。一体化 Docker 镜像使用 Alpine 发行版的动态链接 FFmpeg 包，包含 CLI 及其共享 libav 运行库；当前版本仍只调用 CLI，不通过 C API。
 
 当前开发版不执行旧库迁移。启动时若精确识别到旧 NexusBridge BLOB schema，会删除配置路径对应的主库、WAL/SHM 和派生索引并创建新库；未知数据库会拒绝覆盖。`synchronous=NORMAL` 是默认的 WAL 平衡策略；`VACUUM` 不自动执行，`PRAGMA optimize` 每日及正常关闭时执行。
 
@@ -97,6 +100,9 @@ Mihomo Provider 设置默认读取 `~/.config/mihomo/config.yaml`；当该目录
   "media_library": {
     "root": "",
     "dry_run": true
+  },
+  "video_thumbnail": {
+    "ffmpeg_path": ""
   },
   "rules": []
 }

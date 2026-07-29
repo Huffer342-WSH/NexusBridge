@@ -91,7 +91,8 @@ LABEL org.opencontainers.image.title="NexusBridge all-in-one" \
       org.opencontainers.image.mihomo.version="$MIHOMO_VERSION"
 
 USER root
-RUN apk add --no-cache ca-certificates nano && update-ca-certificates
+# Alpine 的 ffmpeg 包使用共享 libav* 运行库，同时提供 ffmpeg/ffprobe CLI。
+RUN apk add --no-cache ca-certificates ffmpeg nano && update-ca-certificates
 
 COPY --from=nexusbridge-build /out/nexusbridge /app/nexusbridge
 COPY --from=mihomo-download /out-mihomo /app/mihomo

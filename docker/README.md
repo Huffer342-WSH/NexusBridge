@@ -35,6 +35,7 @@ mihomo 控制器默认监听 `0.0.0.0:9090`，Compose 会发布 `9090:9090`，We
 ├── nexusbridge/
 │   ├── config.json           # NexusBridge 主配置
 │   ├── nexusbridge.db
+│   ├── thumbnails/           # 按需生成的视频缩略图
 │   ├── logs/
 │   └── sites/
 └── mihomo/
@@ -56,6 +57,8 @@ mihomo 默认配置不内置任何节点。在 `/config/mihomo/config.yaml` 的 
 镜像不会把默认模板直接写进 `/config`：模板保存在镜像内不会被 volume 遮蔽的 `/defaults`，Docker 完成 `/config` 挂载后，s6 启动脚本才把缺失的模板复制到已经挂载的目录。若直接在 Dockerfile 中 `COPY` 到 `/config`，容器启动时确实会被 bind mount 或 volume 覆盖；当前 `/defaults -> /config` 的启动时复制正是为了避免这个问题。
 
 运行镜像显式安装并刷新 `ca-certificates`，NexusBridge、qBittorrent 和 mihomo 可以使用系统 CA 信任库访问 HTTPS 服务。镜像还安装了 `nano`，可在容器中直接执行 `nano /config/mihomo/config.yaml` 修改配置。
+
+镜像通过 Alpine 发行版包安装动态链接的 FFmpeg、FFprobe 和共享 libav 运行库。当前视频缩略图功能只调用 CLI；共享库保留在运行镜像内，为后续切换 C API 提供运行时基础。
 
 ## 多架构构建
 

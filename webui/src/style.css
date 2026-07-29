@@ -1473,6 +1473,10 @@ h3 {
   padding: 10px;
 }
 
+.episode-item.video-row {
+  grid-template-columns: 72px minmax(0, 1fr) 18px;
+}
+
 .episode-item:hover:not(:disabled),
 .directory-item:hover:not(:disabled),
 .other-torrent:hover {
@@ -1540,6 +1544,11 @@ h3 {
   border-radius: 0;
   padding: 5px 7px;
   transition: background 100ms ease;
+}
+
+.directory-item.video-row {
+  grid-template-columns: 56px minmax(0, 1fr) 16px;
+  min-height: 42px;
 }
 
 .directory-item:hover:not(:disabled) {

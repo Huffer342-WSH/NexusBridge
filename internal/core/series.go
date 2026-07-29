@@ -378,6 +378,9 @@ func seriesDetailFromRecord(record storage.SeriesBundleRecord) SeriesDetail {
 			RelativePath: video.RelativePath, Name: video.Name,
 			Size: video.ByteSize, ModifiedAt: video.ModifiedAt, Available: video.Available,
 		})
+		if video.Available && fileReadable(video.Path) {
+			videos[len(videos)-1].ThumbnailURL = localVideoThumbnailURL(video.Path)
+		}
 		if video.Available {
 			available++
 		}

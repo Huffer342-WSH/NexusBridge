@@ -13,12 +13,14 @@ flowchart LR
     Index[(派生索引库<br/>nexusbridge.index.db)]
     Torrents[torrents/<br/>原始 torrent]
     Covers[covers/<br/>封面缓存]
+    Thumbnails[thumbnails/<br/>视频缩略图缓存]
     QB[qBittorrent]
 
     Core --> Metadata
     Core --> Index
     Core --> Torrents
     Core --> Covers
+    Core --> Thumbnails
     Core -->|实时查询| QB
     Metadata -->|重建| Index
     Torrents -->|解析签名| Index
@@ -31,7 +33,7 @@ flowchart LR
 | 业务元数据 | 站点种子、规则、订阅、剧集、任务、凭据 | 是 | 从备份恢复或重新抓取 |
 | 派生索引 | 搜索、大小签名、qB 稳定关联 | 否 | 从主库、torrent 文件和 qB 重建 |
 | 内容文件 | 原始 `.torrent` | 是，站点仍可下载时可恢复 | 按需重新下载 |
-| 缓存文件 | 封面图片 | 否 | 按需重新下载 |
+| 缓存文件 | 封面图片、视频缩略图 | 否 | 按需重新下载或生成 |
 | qB 实时状态 | 进度、速度、ETA、当前做种状态 | 否 | 使用时直接查询 qB |
 
 ## 2. 本地文件布局
@@ -56,6 +58,10 @@ flowchart LR
 ├── covers/
 │   └── <SHA256 前两位>/
 │       └── <完整 SHA256>.img
+├── thumbnails/
+│   └── <源路径 SHA256 前两位>/
+│       └── <源路径 SHA256>/
+│           └── <内容指纹>.jpg
 ├── logs/
 │   └── nexusbridge.log
 └── sites/
@@ -63,13 +69,14 @@ flowchart LR
         └── **/*.json
 ```
 
-`storage.path` 可以指向其他位置。派生索引库、`torrents/` 和 `covers/` 始终位于主数据库同级目录；日志和站点定义按各自配置解析。
+`storage.path` 可以指向其他位置。派生索引库、`torrents/`、`covers/` 和 `thumbnails/` 始终位于主数据库同级目录；日志和站点定义按各自配置解析。
 
 - `.torrent` 以内容 SHA256 命名并分片存放，相同内容不会重复写入。
 - `.img` 是封面响应体，真实 MIME 类型和校验信息记录在 `cover_cache`。
+- 缩略图内容指纹包含规范源路径、文件大小、修改时间和生成版本，不写入 SQLite；源文件变化并成功生成新版本后会删除该路径的旧 JPEG。
 - `-wal` 和 `-shm` 是 SQLite WAL 模式的运行时附属文件，不是独立业务数据。
 - `.rebuilding` 只在派生索引重建期间存在；启动时发现残留标记会丢弃未完成的索引并重新构建。
-- `.torrent-*.tmp` 和 `.cover-*.tmp` 只在原子写入期间短暂存在。
+- `.torrent-*.tmp`、`.cover-*.tmp` 和缩略图目录内的 `.thumbnail-*.jpg` 只在原子写入期间短暂存在。
 - qB 的下载内容由 qB 管理；NexusBridge 只记录保存位置和内容路径。
 - WebUI 布局等纯界面偏好保存在浏览器 `localStorage`，不进入服务端数据库；剧集最后选集属于跨客户端业务状态，保存在主库。
 
@@ -269,5 +276,6 @@ erDiagram
 | 封面元数据 | `internal/storage/cover_cache.go` |
 | 剧集配置和扫描缓存 | `internal/storage/series.go` |
 | 封面文件缓存 | `internal/core/covercache/` |
+| 视频缩略图文件缓存 | `internal/core/videothumbnail/` |
 | 数据根目录和配置路径解析 | `internal/runtimeconfig/runtime.go` |
 | SQLite 配置定义和校验 | `internal/config/config.go` |

@@ -191,7 +191,7 @@ flowchart TD
 - `series`：当前剧集摘要。
 - `series_files`：按目录顺序和自然顺序排列的完整视频缓存。
 
-源文件仍由现有播放接口读取。qB 文件继续按 hash 和文件索引校验；普通本机文件沿用文件管理器的访问边界。浏览器不支持的容器或编码不会转码回退。
+源文件仍由现有播放接口读取。qB 文件继续按 hash 和文件索引校验；普通本机文件沿用文件管理器的访问边界。可用剧集视频包含按需 `thumbnail_url`，右侧剧集窗格懒加载 JPEG，失败时保留视频图标；清单和扫描本身不运行 FFmpeg。浏览器不支持的容器或编码不会转码回退。
 
 ## HTTP API
 
@@ -241,4 +241,5 @@ flowchart TD
 | 管理页面 | `webui/src/components/SeriesView.vue` |
 | 文件选择与可调弹窗 | `webui/src/components/FilePickerDialog.vue`、`webui/src/components/ResizableModal.vue` |
 | 播放页面与剧集窗格 | `webui/src/components/PlaybackView.vue` |
+| 视频缩略图组件 | `webui/src/components/VideoThumbnail.vue` |
 | 页面路由与导航 | `webui/src/router.ts`、`webui/src/App.vue` |

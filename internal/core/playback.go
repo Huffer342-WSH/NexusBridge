@@ -105,6 +105,9 @@ func (a *App) GetFilePlayback(ctx context.Context, filePath string) (PlaybackCon
 		Size: info.Size(), Progress: 1, Selected: true, Complete: true, Available: true,
 		StreamURL: "/api/playback/file/media?path=" + url.QueryEscape(resolved),
 	}}
+	if mediaType == PlaybackMediaVideo && fileReadable(resolved) {
+		files[0].ThumbnailURL = localVideoThumbnailURL(resolved)
+	}
 	files[0].Subtitles = discoverMKVSubtitles(ctx, resolved, func(trackID uint64) string {
 		return fmt.Sprintf("/api/playback/file/subtitles/%d?path=%s", trackID, url.QueryEscape(resolved))
 	})
@@ -377,9 +380,9 @@ func playbackMediaList(qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent
 		if !ok {
 			continue
 		}
-		_, _, pathErr := resolvePlaybackFile(qbTorrent.SavePath, content.Name)
+		resolved, _, pathErr := resolvePlaybackFile(qbTorrent.SavePath, content.Name)
 		available := content.Progress > 0 && pathErr == nil
-		files = append(files, PlaybackMedia{
+		item := PlaybackMedia{
 			Index: content.Index, Name: content.Name, MediaType: mediaType, MIMEType: mimeType,
 			Size: content.Size, Progress: content.Progress, Selected: content.Priority > 0,
 			Complete: content.Progress >= 1, Available: available,
@@ -389,7 +392,11 @@ func playbackMediaList(qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent
 				content.Index,
 				url.QueryEscape(path.Base(content.Name)),
 			),
-		})
+		}
+		if mediaType == PlaybackMediaVideo && available && fileReadable(resolved) {
+			item.ThumbnailURL = fmt.Sprintf("%s/%d/thumbnail", streamBase, content.Index)
+		}
+		files = append(files, item)
 	}
 	sort.SliceStable(files, func(i, j int) bool { return naturalLess(files[i].Name, files[j].Name) })
 	return files
@@ -576,9 +583,25 @@ func playbackDirectoryFiles(currentPath string) []PlaybackDirectoryFile {
 			MediaType: mediaType, MIMEType: mimeType, Playable: playable,
 			Current: sameFilesystemPath(resolved, currentPath),
 		})
+		if mediaType == PlaybackMediaVideo && playable && fileReadable(resolved) {
+			files[len(files)-1].ThumbnailURL = localVideoThumbnailURL(resolved)
+		}
 	}
 	sort.SliceStable(files, func(i, j int) bool { return naturalLess(files[i].Name, files[j].Name) })
 	return files
+}
+
+func localVideoThumbnailURL(path string) string {
+	return "/api/playback/file/thumbnail?path=" + url.QueryEscape(path)
+}
+
+func fileReadable(path string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	return true
 }
 
 // resolvePlaybackFile 解析 qB 相对文件名，确保最终普通文件位于任务保存目录内。

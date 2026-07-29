@@ -248,6 +248,7 @@ export type PlaybackMedia = {
   complete: boolean;
   available: boolean;
   stream_url: string;
+  thumbnail_url?: string;
   subtitles?: PlaybackSubtitle[];
 };
 
@@ -268,6 +269,7 @@ export type PlaybackDirectoryFile = {
   modified_at: string;
   media_type?: PlaybackMediaType;
   mime_type?: string;
+  thumbnail_url?: string;
   playable: boolean;
   current: boolean;
 };
@@ -288,6 +290,7 @@ export type SeriesVideo = {
   size: number;
   modified_at: string;
   available: boolean;
+  thumbnail_url?: string;
 };
 
 export type SeriesSummary = {
@@ -702,6 +705,7 @@ export type FileEntry = {
   size?: number;
   modified_at?: string;
   media_type?: PlaybackMediaType;
+  thumbnail_url?: string;
   qb_tasks: FileQBTask[];
 };
 

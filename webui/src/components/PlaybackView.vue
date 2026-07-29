@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import { formatByteSize } from '../utils/format';
 import QBDeleteDialog from './QBDeleteDialog.vue';
+import VideoThumbnail from './VideoThumbnail.vue';
 import MediaCanvas from './player/MediaCanvas.vue';
 
 const route = useRoute();
@@ -460,11 +461,15 @@ onBeforeUnmount(() => {
                     :key="file.path"
                     type="button"
                     class="episode-item"
-                    :class="{ active: file.path === playback.current_path, disabled: !file.available }"
+                    :class="{
+                      active: file.path === playback.current_path,
+                      disabled: !file.available,
+                      'video-row': true,
+                    }"
                     :disabled="!file.available"
                     @click="selectSeriesFile(file)"
                   >
-                    <NIcon :component="Film" size="18" />
+                    <VideoThumbnail :src="file.thumbnail_url" :alt="`${file.name} 缩略图`" />
                     <span class="episode-copy">
                       <strong>{{ file.name }}</strong>
                       <small :title="file.path">
@@ -489,11 +494,20 @@ onBeforeUnmount(() => {
                     :key="file.index"
                     type="button"
                     class="episode-item"
-                    :class="{ active: file.index === selectedIndex, disabled: !file.available }"
+                    :class="{
+                      active: file.index === selectedIndex,
+                      disabled: !file.available,
+                      'video-row': file.media_type === 'video',
+                    }"
                     :disabled="!file.available"
                     @click="selectFile(file)"
                   >
-                    <NIcon :component="mediaIcon(file.media_type)" size="18" />
+                    <VideoThumbnail
+                      v-if="file.media_type === 'video'"
+                      :src="file.thumbnail_url"
+                      :alt="`${baseName(file.name)} 缩略图`"
+                    />
+                    <NIcon v-else :component="mediaIcon(file.media_type)" size="18" />
                     <span class="episode-copy">
                       <strong>{{ baseName(file.name) }}</strong>
                       <small>
@@ -536,11 +550,19 @@ onBeforeUnmount(() => {
                       :class="{
                         active: file.path === playback.current_path,
                         disabled: !file.is_dir && !file.media_type,
+                        'video-row': file.media_type === 'video',
                       }"
                       :disabled="(!file.is_dir && !file.media_type) || file.path === playback.current_path"
                       @click="openDirectoryEntry(file)"
                     >
+                      <VideoThumbnail
+                        v-if="file.media_type === 'video'"
+                        :src="file.thumbnail_url"
+                        :alt="`${file.name} 缩略图`"
+                        size="compact"
+                      />
                       <NIcon
+                        v-else
                         :component="file.is_dir ? Folder : file.media_type ? mediaIcon(file.media_type) : File"
                         size="18"
                       />

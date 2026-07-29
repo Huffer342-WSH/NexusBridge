@@ -10,6 +10,7 @@ import (
 
 	"nexusbridge/internal/config"
 	"nexusbridge/internal/core/covercache"
+	"nexusbridge/internal/core/videothumbnail"
 	"nexusbridge/internal/parser"
 	"nexusbridge/internal/qbittorrent"
 	"nexusbridge/internal/storage"
@@ -36,6 +37,7 @@ type App struct {
 	qbCached           *qbittorrent.Client
 	qbCacheKey         string
 	coverCache         *covercache.Service
+	videoThumbnail     *videothumbnail.Service
 	sites              map[string]runtimeSite
 	siteIDs            []string
 	automationOnce     sync.Once
@@ -99,6 +101,16 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	app.coverCache = coverCache
+	videoThumbnail, err := videothumbnail.New(
+		filepath.Join(filepath.Dir(cfg.Storage.Path), "thumbnails"),
+		cfg.VideoThumbnail.FFmpegPath,
+	)
+	if err != nil {
+		cancel()
+		_ = store.Close()
+		return nil, err
+	}
+	app.videoThumbnail = videoThumbnail
 	if err := app.initializeQBConfig(ctx); err != nil {
 		cancel()
 		_ = store.Close()

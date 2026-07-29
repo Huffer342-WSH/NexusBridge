@@ -47,6 +47,9 @@
     "root": "",
     "dry_run": true
   },
+  "video_thumbnail": {
+    "ffmpeg_path": ""
+  },
   "rules": [
     {
       "name": "示例筛选规则",

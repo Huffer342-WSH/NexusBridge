@@ -20,6 +20,7 @@ type SeriesVideo struct {
 	Size          int64     `json:"size"`
 	ModifiedAt    time.Time `json:"modified_at"`
 	Available     bool      `json:"available"`
+	ThumbnailURL  string    `json:"thumbnail_url,omitempty"`
 }
 
 // SeriesSummary 返回剧集管理页所需的缓存摘要。

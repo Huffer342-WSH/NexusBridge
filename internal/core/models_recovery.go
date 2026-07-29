@@ -122,6 +122,7 @@ type FileEntry struct {
 	Size       int64             `json:"size,omitempty"`
 	ModifiedAt time.Time         `json:"modified_at,omitempty"`
 	MediaType  PlaybackMediaType `json:"media_type,omitempty"`
+	ThumbnailURL string          `json:"thumbnail_url,omitempty"`
 	QBTasks    []FileQBTask      `json:"qb_tasks"`
 }
 

@@ -6,6 +6,7 @@ import { NAlert, NButton, NEmpty, NIcon, NInput, NSpin } from 'naive-ui';
 import { api } from '../api';
 import type { FileBrowseResult, FileEntry } from '../types';
 import ResizableModal from './ResizableModal.vue';
+import VideoThumbnail from './VideoThumbnail.vue';
 
 type FilePickerMode = 'directory' | 'file';
 
@@ -213,7 +214,17 @@ watch(
             @click="selectEntry(entry)"
             @dblclick="activateEntry(entry)"
           >
-            <NIcon :component="entry.is_dir ? Folder : File" :class="entry.is_dir ? 'folder-icon' : 'file-icon'" />
+            <VideoThumbnail
+              v-if="entry.media_type === 'video'"
+              :src="entry.thumbnail_url"
+              :alt="`${entry.name} 缩略图`"
+              size="compact"
+            />
+            <NIcon
+              v-else
+              :component="entry.is_dir ? Folder : File"
+              :class="entry.is_dir ? 'folder-icon' : 'file-icon'"
+            />
             <span>
               <strong>{{ entry.name }}</strong>
               <small>{{ entry.path }}</small>
@@ -277,7 +288,8 @@ watch(
   gap: 10px;
   border: 0;
   border-bottom: 1px solid #eef2f6;
-  padding: 9px 12px;
+  min-height: 52px;
+  padding: 6px 12px;
   color: #344054;
   background: #fff;
   text-align: left;
