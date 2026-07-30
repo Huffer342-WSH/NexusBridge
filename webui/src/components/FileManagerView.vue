@@ -51,7 +51,7 @@ import type {
   Site,
   TorrentSizeIndexStatus,
 } from '../types';
-import VideoThumbnail from './VideoThumbnail.vue';
+import MediaThumbnail from './MediaThumbnail.vue';
 
 const props = defineProps<{ sites: Site[] }>();
 const emit = defineEmits<{ message: [value: string] }>();
@@ -599,10 +599,11 @@ onBeforeUnmount(() => {
           @contextmenu="showContextMenu($event, entry)"
         >
           <div class="file-name">
-            <VideoThumbnail
-              v-if="entry.media_type === 'video'"
+            <MediaThumbnail
+              v-if="entry.media_type === 'video' || entry.media_type === 'image'"
               :src="entry.thumbnail_url"
               :alt="`${entry.name} 缩略图`"
+              :media-type="entry.media_type"
             />
             <NIcon
               v-else
@@ -619,7 +620,7 @@ onBeforeUnmount(() => {
               {{ task.category || '无分类' }} · {{ task.state }}
             </NTag>
           </div>
-          <NSpace :size="2" :wrap="false">
+          <NSpace class="file-actions" :size="4" :wrap="false">
             <NButton v-if="entry.media_type" quaternary circle aria-label="播放" @click.stop="openPlayback(entry)">
               <template #icon><NIcon :component="Play" /></template>
             </NButton>
@@ -884,11 +885,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 .file-row {
+  --file-row-height: 58px;
+  --file-action-size: calc(var(--file-row-height) - 16px);
+
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) 110px 180px minmax(200px, 1fr) 78px;
+  grid-template-columns: minmax(260px, 2fr) 110px 180px minmax(200px, 1fr) 96px;
   gap: 12px;
   align-items: center;
-  min-height: 58px;
+  min-height: var(--file-row-height);
   padding: 0 12px;
 }
 .file-header {
@@ -906,16 +910,24 @@ onBeforeUnmount(() => {
   background: #f8fafc;
 }
 .file-name {
-  display: flex;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
   min-width: 0;
   align-items: center;
   gap: 10px;
   font-weight: 600;
 }
-.file-name > :deep(.video-thumbnail) {
+.file-name > :deep(.n-icon) {
+  width: calc(var(--file-row-height) - 18px);
+  height: calc(var(--file-row-height) - 18px);
+  flex: none;
+  font-size: calc(var(--file-row-height) - 18px);
+  justify-self: center;
+}
+.file-name > :deep(.media-thumbnail) {
   margin-block: 5px;
 }
-.file-name span {
+.file-name > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -930,6 +942,14 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.file-actions {
+  justify-self: end;
+}
+.file-actions :deep(.n-button) {
+  width: var(--file-action-size);
+  height: var(--file-action-size);
+  font-size: 20px;
 }
 .recovery-modal {
   width: min(760px, calc(100vw - 32px));

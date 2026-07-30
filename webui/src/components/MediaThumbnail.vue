@@ -1,24 +1,27 @@
-<!-- 视频缩略图固定占位尺寸，并在按需生成失败时静默回退为原视频图标。 -->
+<!-- 媒体缩略图固定占位尺寸，并在加载失败时静默回退为对应媒体图标。 -->
 <script setup lang="ts">
-import { Film } from '@lucide/vue';
+import { Film, Image } from '@lucide/vue';
 import { NIcon } from 'naive-ui';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = withDefaults(
   defineProps<{
     src?: string;
     alt?: string;
+    mediaType?: 'video' | 'image';
     size?: 'compact' | 'default';
   }>(),
   {
     src: '',
     alt: '',
+    mediaType: 'video',
     size: 'default',
   },
 );
 
 const failed = ref(false);
 const loaded = ref(false);
+const fallbackIcon = computed(() => (props.mediaType === 'image' ? Image : Film));
 
 watch(
   () => props.src,
@@ -30,8 +33,12 @@ watch(
 </script>
 
 <template>
-  <span class="video-thumbnail" :class="`video-thumbnail--${size}`" aria-hidden="true">
-    <NIcon :component="Film" class="video-thumbnail-fallback" />
+  <span
+    class="media-thumbnail"
+    :class="[`media-thumbnail--${size}`, `media-thumbnail--${mediaType}`]"
+    aria-hidden="true"
+  >
+    <NIcon :component="fallbackIcon" class="media-thumbnail-fallback" />
     <img
       v-if="src && !failed"
       :src="src"
@@ -39,6 +46,7 @@ watch(
       :class="{ loaded }"
       loading="lazy"
       decoding="async"
+      :fetchpriority="mediaType === 'image' ? 'high' : 'auto'"
       @load="loaded = true"
       @error="failed = true"
     />
@@ -46,7 +54,7 @@ watch(
 </template>
 
 <style scoped>
-.video-thumbnail {
+.media-thumbnail {
   position: relative;
   display: inline-flex;
   flex: none;
@@ -58,22 +66,27 @@ watch(
   color: #64748b;
 }
 
-.video-thumbnail--default {
+.media-thumbnail--default {
   width: 72px;
   height: 42px;
 }
 
-.video-thumbnail--compact {
+.media-thumbnail--compact {
   width: 56px;
   height: 34px;
 }
 
-.video-thumbnail-fallback {
-  width: 18px;
-  height: 18px;
+.media-thumbnail-fallback {
+  width: 26px;
+  height: 26px;
 }
 
-.video-thumbnail img {
+.media-thumbnail--compact .media-thumbnail-fallback {
+  width: 22px;
+  height: 22px;
+}
+
+.media-thumbnail img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -83,7 +96,11 @@ watch(
   transition: opacity 120ms ease;
 }
 
-.video-thumbnail img.loaded {
+.media-thumbnail img.loaded {
   opacity: 1;
+}
+
+.media-thumbnail--image img {
+  transition: none;
 }
 </style>

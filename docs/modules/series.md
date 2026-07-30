@@ -241,5 +241,5 @@ flowchart TD
 | 管理页面 | `webui/src/components/SeriesView.vue` |
 | 文件选择与可调弹窗 | `webui/src/components/FilePickerDialog.vue`、`webui/src/components/ResizableModal.vue` |
 | 播放页面与剧集窗格 | `webui/src/components/PlaybackView.vue` |
-| 视频缩略图组件 | `webui/src/components/VideoThumbnail.vue` |
+| 媒体缩略图组件 | `webui/src/components/MediaThumbnail.vue` |
 | 页面路由与导航 | `webui/src/router.ts`、`webui/src/App.vue` |

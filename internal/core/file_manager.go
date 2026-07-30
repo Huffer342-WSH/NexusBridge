@@ -58,8 +58,8 @@ func (a *App) BrowseFiles(ctx context.Context, request FileBrowseRequest) (FileB
 		}
 		if !item.IsDir {
 			item.MediaType, _, _ = playbackMediaType(item.Name)
-			if item.MediaType == PlaybackMediaVideo && fileReadable(item.Path) {
-				item.ThumbnailURL = localVideoThumbnailURL(item.Path)
+			if mediaUsesThumbnail(item.MediaType) && fileReadable(item.Path) {
+				item.ThumbnailURL = localMediaThumbnailURL(item.Path, item.MediaType)
 			}
 		}
 		entries = append(entries, item)

@@ -2181,7 +2181,7 @@ components:
           type: string
         thumbnail_url:
           type: string
-          description: 仅当前可读取的视频存在；请求该 URL 时才生成或读取 JPEG 缓存。
+          description: 当前可读取的视频使用按需 JPEG，图片直接复用该媒体的受控 stream_url。
         subtitles:
           type: array
           items:
@@ -2216,7 +2216,7 @@ components:
         mime_type: { type: string }
         thumbnail_url:
           type: string
-          description: 仅当前可读取的视频存在。
+          description: 当前可读取的视频使用按需 JPEG，图片直接使用受控原文件 URL。
         playable: { type: boolean }
         current: { type: boolean }
     SeriesDirectory:
@@ -2230,9 +2230,6 @@ components:
           type: integer
           minimum: 0
         available: { type: boolean }
-        thumbnail_url:
-          type: string
-          description: 仅当前可读取的视频存在。
         last_error: { type: string }
         last_scanned_at: { type: string, format: date-time }
     SeriesVideo:
@@ -2250,6 +2247,9 @@ components:
         size: { type: integer, format: int64 }
         modified_at: { type: string, format: date-time }
         available: { type: boolean }
+        thumbnail_url:
+          type: string
+          description: 仅当前可读取的视频存在。
     SeriesSummary:
       type: object
       required:
@@ -3162,7 +3162,7 @@ components:
           enum: [video, audio, image]
         thumbnail_url:
           type: string
-          description: 仅当前可读取的视频存在。
+          description: 当前可读取的视频使用按需 JPEG，图片直接使用受控原文件 URL。
         qb_tasks:
           type: array
           items:

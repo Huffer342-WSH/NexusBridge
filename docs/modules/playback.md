@@ -72,7 +72,7 @@ qB 选集展示固定扩展名白名单识别出的图片、视频和音频。�
 - 右侧下方是其他含完整音视频的数据库种子；纯本机文件不显示。
 - 窄屏按媒体画布、简介、媒体浏览、其他种子的顺序纵向排列。
 
-主文件页、文件选择器及右侧“剧集 / 选集 / 文件”只为当前可读取的视频返回 `thumbnail_url`。共享 `VideoThumbnail` 组件使用固定占位、原生 `loading=lazy` 和异步解码；目录、音频、图片、普通文件、不可用视频及缩略图请求失败时继续显示原图标。清单 API 只拼接 URL，不运行 FFmpeg。
+主文件页、文件选择器及右侧“剧集 / 选集 / 文件”为当前可读取的视频返回 `thumbnail_url`；文件浏览条目和 qB 选集还会为图片返回直接指向对应受控原文件接口的 URL，不创建图片缩略图缓存。共享 `MediaThumbnail` 组件使用固定占位、原生 `loading=lazy` 和异步解码；图片请求使用较高优先级且不等待淡入动画。目录、音频、普通文件、不可用媒体及缩略图请求失败时继续显示原图标。清单 API 只拼接 URL，不运行 FFmpeg。
 
 页面路由和播放器按需加载。`MediaCanvas` 根据 `media_type` 分派播放器，切换文件时卸载旧播放器：
 
@@ -106,7 +106,9 @@ qB 接口每次都按 hash 和文件索引重新读取实时清单，不信任�
 
 所有源文件使用 `http.ServeContent` 返回，支持 Range、seek、HEAD、`Content-Length` 和 `Last-Modified`。浏览器不支持的容器或编码只显示播放错误，不提供转换回退。
 
-## 按需视频缩略图
+## 媒体缩略图
+
+文件浏览器中的图片通过 `/api/playback/file/media?path=...` 懒加载原文件，qB 选集图片复用自身 `stream_url`；两者都复用既有路径和媒体白名单校验，不经过 FFprobe/FFmpeg，也不写入 `thumbnails/`。以下流程只适用于视频：
 
 ```mermaid
 flowchart LR
@@ -127,7 +129,7 @@ flowchart LR
 
 缓存位于元数据库同级 `thumbnails/`，不新增数据库表或后台任务。源文件大小或修改时间变化时使用新指纹，成功写入后清理同一路径的旧版本；已删除源文件遗留的目录不做全局 GC，可删除整个 `thumbnails/` 重建。FFmpeg 路径只在启动时读取，工具缺失不阻止应用启动。
 
-完整的字段注入、缓存布局、生成参数、并发、动态库部署和故障处理见[按需视频缩略图](video-thumbnails.md)。
+完整的字段注入、图片原图预览、视频缓存布局、生成参数、并发、动态库部署和故障处理见[媒体缩略图](video-thumbnails.md)。
 
 ## 剧集扫描与选择
 
@@ -147,6 +149,6 @@ flowchart LR
 | HTTP 路由与响应 | `internal/server/server.go`、`internal/server/handlers_torrents.go` |
 | 缩略图生成与缓存 | `internal/core/video_thumbnails.go`、`internal/core/videothumbnail/` |
 | 页面路由和状态 | `webui/src/router.ts`、`webui/src/components/PlaybackView.vue` |
-| 文件管理器与缩略图 | `webui/src/components/FileManagerView.vue`、`webui/src/components/VideoThumbnail.vue` |
+| 文件管理器与缩略图 | `webui/src/components/FileManagerView.vue`、`webui/src/components/MediaThumbnail.vue` |
 | 播放器分派和实现 | `webui/src/components/player/` |
 | API | `docs/api.md`、`docs/api/openapi.yaml` |

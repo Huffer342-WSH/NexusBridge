@@ -165,7 +165,7 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 传输文件管理器可访问的本机媒体。三类接口均使用 `http.ServeContent`，支持浏览器 `Range`、seek、`Content-Length` 和条件请求。qB 接口额外验证解析后的文件仍位于任务 `save_path` 内。响应不做转码、解码或格式转换，最终兼容性由浏览器决定。
 
-### 视频缩略图
+### 媒体缩略图
 
 `GET /api/torrents/{site_id}/{torrent_id}/media/{file_index}/thumbnail`
 
@@ -173,9 +173,9 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/playback/file/thumbnail?path={absolute_path}`
 
-三个入口复用对应源文件接口的 qB hash、文件索引、下载数据和本机路径边界。只接受白名单中的可读视频；缓存未命中时同步调用 FFprobe/FFmpeg 生成最大 `320×180` 的 JPEG。成功响应包含内容指纹 ETag、`Content-Type: image/jpeg`、`Cache-Control: private, no-cache` 和 `X-Content-Type-Options: nosniff`；源文件缺失、非视频、无下载数据、工具缺失或生成失败返回 JSON 错误和 `Cache-Control: no-store`。
+以上三个视频入口复用对应源文件接口的 qB hash、文件索引、下载数据和本机路径边界。只接受白名单中的可读视频；缓存未命中时同步调用 FFprobe/FFmpeg 生成最大 `320×180` 的 JPEG。成功响应包含内容指纹 ETag、`Content-Type: image/jpeg`、`Cache-Control: private, no-cache` 和 `X-Content-Type-Options: nosniff`；源文件缺失、非视频、无下载数据、工具缺失或生成失败返回 JSON 错误和 `Cache-Control: no-store`。
 
-`FileEntry`、`PlaybackMedia`、`PlaybackDirectoryFile` 和 `SeriesVideo` 只在当前视频可读取时包含可选 `thumbnail_url`。浏览和播放上下文接口只生成 URL，不运行 FFmpeg；实际图片请求才生成或读取缓存。
+`SeriesVideo` 只在当前视频可读取时包含可选 `thumbnail_url`。`PlaybackMedia`、`FileEntry` 和 `PlaybackDirectoryFile` 还会为当前可读图片返回同一字段：qB 选集图片复用自身受控 `stream_url`，本机文件图片使用 `/api/playback/file/media?path=...`，都不生成或保存图片缩略图。浏览和播放上下文接口只生成 URL，不运行 FFmpeg；浏览器实际请求视频 URL 时才生成或读取 JPEG 缓存。
 
 `GET /api/torrents/{site_id}/{torrent_id}/media/{file_index}/subtitles/{track_id}`
 

@@ -393,8 +393,13 @@ func playbackMediaList(qbTorrent qbittorrent.TorrentInfo, contents []qbittorrent
 				url.QueryEscape(path.Base(content.Name)),
 			),
 		}
-		if mediaType == PlaybackMediaVideo && available && fileReadable(resolved) {
-			item.ThumbnailURL = fmt.Sprintf("%s/%d/thumbnail", streamBase, content.Index)
+		if available && fileReadable(resolved) {
+			switch mediaType {
+			case PlaybackMediaVideo:
+				item.ThumbnailURL = fmt.Sprintf("%s/%d/thumbnail", streamBase, content.Index)
+			case PlaybackMediaImage:
+				item.ThumbnailURL = item.StreamURL
+			}
 		}
 		files = append(files, item)
 	}
@@ -583,8 +588,8 @@ func playbackDirectoryFiles(currentPath string) []PlaybackDirectoryFile {
 			MediaType: mediaType, MIMEType: mimeType, Playable: playable,
 			Current: sameFilesystemPath(resolved, currentPath),
 		})
-		if mediaType == PlaybackMediaVideo && playable && fileReadable(resolved) {
-			files[len(files)-1].ThumbnailURL = localVideoThumbnailURL(resolved)
+		if playable && mediaUsesThumbnail(mediaType) && fileReadable(resolved) {
+			files[len(files)-1].ThumbnailURL = localMediaThumbnailURL(resolved, mediaType)
 		}
 	}
 	sort.SliceStable(files, func(i, j int) bool { return naturalLess(files[i].Name, files[j].Name) })
@@ -593,6 +598,21 @@ func playbackDirectoryFiles(currentPath string) []PlaybackDirectoryFile {
 
 func localVideoThumbnailURL(path string) string {
 	return "/api/playback/file/thumbnail?path=" + url.QueryEscape(path)
+}
+
+func localMediaThumbnailURL(path string, mediaType PlaybackMediaType) string {
+	switch mediaType {
+	case PlaybackMediaVideo:
+		return localVideoThumbnailURL(path)
+	case PlaybackMediaImage:
+		return "/api/playback/file/media?path=" + url.QueryEscape(path)
+	default:
+		return ""
+	}
+}
+
+func mediaUsesThumbnail(mediaType PlaybackMediaType) bool {
+	return mediaType == PlaybackMediaVideo || mediaType == PlaybackMediaImage
 }
 
 func fileReadable(path string) bool {

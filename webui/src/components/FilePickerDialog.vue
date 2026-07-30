@@ -6,7 +6,7 @@ import { NAlert, NButton, NEmpty, NIcon, NInput, NSpin } from 'naive-ui';
 import { api } from '../api';
 import type { FileBrowseResult, FileEntry } from '../types';
 import ResizableModal from './ResizableModal.vue';
-import VideoThumbnail from './VideoThumbnail.vue';
+import MediaThumbnail from './MediaThumbnail.vue';
 
 type FilePickerMode = 'directory' | 'file';
 
@@ -214,10 +214,11 @@ watch(
             @click="selectEntry(entry)"
             @dblclick="activateEntry(entry)"
           >
-            <VideoThumbnail
-              v-if="entry.media_type === 'video'"
+            <MediaThumbnail
+              v-if="entry.media_type === 'video' || entry.media_type === 'image'"
               :src="entry.thumbnail_url"
               :alt="`${entry.name} 缩略图`"
+              :media-type="entry.media_type"
               size="compact"
             />
             <NIcon
@@ -283,7 +284,7 @@ watch(
 .file-picker-entry {
   display: grid;
   width: 100%;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border: 0;
@@ -312,7 +313,11 @@ watch(
   box-shadow: inset 3px 0 #2563eb;
 }
 
-.file-picker-entry > span {
+.file-picker-entry > :deep(.n-icon) {
+  justify-self: center;
+}
+
+.file-picker-entry > span:nth-child(2) {
   display: grid;
   min-width: 0;
 }
