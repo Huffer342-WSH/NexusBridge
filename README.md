@@ -137,7 +137,7 @@ docker compose -f docker/compose.yaml logs -f nexusbridge
 
 ### 开发环境
 
-- Go 1.25+
+- Go 1.26.1+
 - Node.js 22+
 - pnpm 11+
 - Wails v3 CLI `v3.0.0-alpha2.117`

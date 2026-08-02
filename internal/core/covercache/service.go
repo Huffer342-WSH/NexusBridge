@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 )
 
 const (
-	currentAttemptVersion = 2
+	currentAttemptVersion = 4
 
 	// StatusPending 表示缓存正在准备或上次准备被进程中断。
 	StatusPending = "pending"
@@ -147,7 +148,19 @@ func (s *Service) GetCover(ctx context.Context, source Source) (Result, error) {
 		err = validateDownload(download)
 	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if transientCoverDownloadError(err) {
+			if ctx.Err() == nil {
+				retryable := pending
+				retryable.LastError = err.Error()
+				retryable.LastFailedAt = time.Now().UTC()
+				retryable.FailCount++
+				if saveErr := s.repository.UpsertCoverCache(ctx, retryable); saveErr != nil && !hasPrevious {
+					return Result{}, errors.Join(err, fmt.Errorf("save retryable cover failure: %w", saveErr))
+				}
+			}
+			if hasPrevious {
+				return previous, nil
+			}
 			return Result{}, err
 		}
 		failed := pending
@@ -200,6 +213,15 @@ func (s *Service) GetCover(ctx context.Context, source Source) (Result, error) {
 		Path: absolutePath, MIMEType: ready.MIMEType, SHA256: ready.SHA256,
 		FileSize: ready.FileSize, ModTime: info.ModTime(), FromCache: false,
 	}, nil
+}
+
+// transientCoverDownloadError 判断下载错误是否适合由后续请求再次尝试。
+func transientCoverDownloadError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError) && networkError.Timeout()
 }
 
 func (s *Service) cachedResult(record storage.CoverCacheRecord) (Result, bool) {

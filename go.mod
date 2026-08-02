@@ -1,14 +1,16 @@
 module nexusbridge
 
-go 1.25.0
+go 1.26.1
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/anacrolix/torrent v1.61.0
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/gravity-zero/mkvgo v0.25.1
+	github.com/skrashevich/go-webp v0.1.0
 	github.com/spf13/cobra v1.9.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117
+	golang.org/x/image v0.40.0
 	golang.org/x/net v0.54.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.3

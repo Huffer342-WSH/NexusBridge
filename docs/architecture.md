@@ -286,7 +286,7 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`series_episode.go`、`playback.go`、`video_thumbnails.go`、`covers.go` |
+| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`series_episode.go`、`playback.go`、`video_thumbnails.go`、`covers.go`、`cover_images.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |

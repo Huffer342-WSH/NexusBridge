@@ -15,7 +15,9 @@ import (
 	"nexusbridge/internal/core/covercache"
 )
 
-const maxCoverImageBytes = 10 << 20
+const (
+	coverDownloadTimeout = 90 * time.Second
+)
 
 // CoverImage 表示可直接写入 HTTP 响应的封面图片。
 type CoverImage struct {
@@ -63,19 +65,20 @@ func (d coverDownloader) DownloadCover(ctx context.Context, source covercache.So
 		return covercache.Download{}, err
 	}
 	result, err := d.app.fetchSiteResource(ctx, site, source.SourceURL, siteRequestOptions{
-		Headers: headers, Timeout: defaultSiteRequestTimeout,
+		Headers: headers, Timeout: coverDownloadTimeout,
 	})
 	if err != nil {
 		return covercache.Download{}, err
-	}
-	if len(result.Body) == 0 || len(result.Body) > maxCoverImageBytes {
-		return covercache.Download{}, fmt.Errorf("invalid cover image size: %d", len(result.Body))
 	}
 	contentType := http.DetectContentType(result.Body)
 	if !strings.HasPrefix(strings.ToLower(contentType), "image/") {
 		return covercache.Download{}, fmt.Errorf("unexpected cover content type: %s", contentType)
 	}
-	return covercache.Download{Data: result.Body, MIMEType: contentType}, nil
+	encoded, err := encodeCoverForCache(result.Body)
+	if err != nil {
+		return covercache.Download{}, err
+	}
+	return covercache.Download{Data: encoded, MIMEType: "image/webp"}, nil
 }
 
 // coverRequestHeaders 根据站点页面与封面地址的关系构造浏览器图片请求头。
@@ -98,7 +101,7 @@ func coverRequestHeaders(siteBaseURL, sourceURL string) (http.Header, error) {
 	}
 
 	headers := http.Header{}
-	headers.Set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+	headers.Set("Accept", "image/webp,image/apng,image/png,image/jpeg,image/gif,image/*;q=0.8,*/*;q=0.5")
 	headers.Set("Priority", priority)
 	headers.Set("Referer", referer)
 	headers.Set("Sec-Fetch-Dest", "image")

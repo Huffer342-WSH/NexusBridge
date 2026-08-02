@@ -11,7 +11,7 @@ RUN pnpm install --frozen-lockfile
 COPY webui/ ./
 RUN pnpm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS nexusbridge-build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS nexusbridge-build
 
 ARG TARGETOS
 ARG TARGETARCH
