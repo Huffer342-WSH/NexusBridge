@@ -94,7 +94,9 @@ func (a *App) SaveSeries(ctx context.Context, id string, request SeriesSaveReque
 			SeriesID: id, Path: directory, SourceOrder: index,
 		})
 	}
-	if err := a.store.SaveSeries(ctx, storage.SeriesRecord{ID: id, Name: name}, records); err != nil {
+	if err := a.store.SaveSeries(ctx, storage.SeriesRecord{
+		ID: id, Name: name, EpisodeNumberDetection: request.EpisodeNumberDetection,
+	}, records); err != nil {
 		return SeriesDetail{}, err
 	}
 	return a.scanSeriesLocked(ctx, id)
@@ -385,6 +387,9 @@ func seriesDetailFromRecord(record storage.SeriesBundleRecord) SeriesDetail {
 			available++
 		}
 	}
+	if record.Series.EpisodeNumberDetection {
+		detectSeriesEpisodeNumbers(videos)
+	}
 	sort.SliceStable(videos, func(i, j int) bool {
 		leftOrder := order[normalizedFilesystemPath(videos[i].DirectoryPath)]
 		rightOrder := order[normalizedFilesystemPath(videos[j].DirectoryPath)]
@@ -400,7 +405,8 @@ func seriesDetailFromRecord(record storage.SeriesBundleRecord) SeriesDetail {
 		return naturalLess(videos[i].Path, videos[j].Path)
 	})
 	summary := SeriesSummary{
-		ID: record.Series.ID, Name: record.Series.Name, Directories: directories,
+		ID: record.Series.ID, Name: record.Series.Name,
+		EpisodeNumberDetection: record.Series.EpisodeNumberDetection, Directories: directories,
 		VideoCount: len(videos), AvailableVideoCount: available,
 		LastSelectedPath: record.Series.LastSelectedPath, ScanErrors: scanErrors,
 		CreatedAt: record.Series.CreatedAt, UpdatedAt: record.Series.UpdatedAt,

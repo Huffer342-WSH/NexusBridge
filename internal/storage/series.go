@@ -10,12 +10,13 @@ import (
 
 // SeriesRecord 表示一个本地剧集及其最近播放、扫描状态。
 type SeriesRecord struct {
-	ID               string
-	Name             string
-	LastSelectedPath string
-	LastScannedAt    time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                     string
+	Name                   string
+	EpisodeNumberDetection bool
+	LastSelectedPath       string
+	LastScannedAt          time.Time
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // SeriesDirectoryRecord 表示剧集中的一个有序扫描根目录。
@@ -59,6 +60,14 @@ ON CONFLICT(id) DO UPDATE SET
 `, record.ID, record.Name); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO series_options (series_id, episode_number_detection)
+VALUES (?, ?)
+ON CONFLICT(series_id) DO UPDATE SET
+	episode_number_detection = excluded.episode_number_detection
+`, record.ID, record.EpisodeNumberDetection); err != nil {
+			return err
+		}
 		for _, directory := range directories {
 			if _, err := tx.ExecContext(ctx, `
 INSERT INTO series_directories (
@@ -88,9 +97,11 @@ ON CONFLICT(series_id, path) DO UPDATE SET
 // ListSeries 返回全部剧集及其缓存，名称使用不区分大小写的稳定顺序。
 func (s *SQLiteStore) ListSeries(ctx context.Context) ([]SeriesBundleRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, last_selected_path, last_scanned_at, created_at, updated_at
-FROM series
-ORDER BY name COLLATE NOCASE, id
+SELECT s.id, s.name, COALESCE(o.episode_number_detection, 0),
+	s.last_selected_path, s.last_scanned_at, s.created_at, s.updated_at
+FROM series s
+LEFT JOIN series_options o ON o.series_id = s.id
+ORDER BY s.name COLLATE NOCASE, s.id
 `)
 	if err != nil {
 		return nil, err
@@ -123,9 +134,11 @@ ORDER BY name COLLATE NOCASE, id
 // GetSeries 按 ID 返回剧集及其目录和视频缓存。
 func (s *SQLiteStore) GetSeries(ctx context.Context, id string) (SeriesBundleRecord, bool, error) {
 	record, err := scanSeries(s.db.QueryRowContext(ctx, `
-SELECT id, name, last_selected_path, last_scanned_at, created_at, updated_at
-FROM series
-WHERE id = ?
+SELECT s.id, s.name, COALESCE(o.episode_number_detection, 0),
+	s.last_selected_path, s.last_scanned_at, s.created_at, s.updated_at
+FROM series s
+LEFT JOIN series_options o ON o.series_id = s.id
+WHERE s.id = ?
 `, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -316,13 +329,15 @@ func (s *SQLiteStore) DeleteSeries(ctx context.Context, id string) (bool, error)
 
 func scanSeries(scanner rowScanner) (SeriesRecord, error) {
 	var record SeriesRecord
+	var episodeNumberDetection int
 	var lastScannedAt, createdAt, updatedAt string
 	if err := scanner.Scan(
-		&record.ID, &record.Name, &record.LastSelectedPath,
+		&record.ID, &record.Name, &episodeNumberDetection, &record.LastSelectedPath,
 		&lastScannedAt, &createdAt, &updatedAt,
 	); err != nil {
 		return SeriesRecord{}, err
 	}
+	record.EpisodeNumberDetection = episodeNumberDetection != 0
 	record.LastScannedAt = parseDBTime(lastScannedAt)
 	record.CreatedAt = parseDBTime(createdAt)
 	record.UpdatedAt = parseDBTime(updatedAt)

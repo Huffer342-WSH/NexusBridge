@@ -14,6 +14,7 @@ import {
   NPopconfirm,
   NSpace,
   NSpin,
+  NSwitch,
   NTag,
 } from 'naive-ui';
 import { useRouter } from 'vue-router';
@@ -31,7 +32,7 @@ const editorOpen = ref(false);
 const editorLoading = ref(false);
 const editorError = ref('');
 const editingID = ref('');
-const draft = ref<SeriesSaveRequest>({ name: '', directories: [''] });
+const draft = ref<SeriesSaveRequest>({ name: '', directories: [''], episode_number_detection: false });
 const editingDirectoryIndex = ref<number | null>(0);
 const pickerOpen = ref(false);
 const pickerDirectoryIndex = ref(0);
@@ -63,7 +64,7 @@ function replaceSummary(detail: SeriesDetail) {
 
 function openCreate() {
   editingID.value = '';
-  draft.value = { name: '', directories: [''] };
+  draft.value = { name: '', directories: [''], episode_number_detection: false };
   editingDirectoryIndex.value = 0;
   pickerOpen.value = false;
   editorError.value = '';
@@ -72,14 +73,22 @@ function openCreate() {
 
 async function openEdit(item: SeriesSummary) {
   editingID.value = item.id;
-  draft.value = { name: item.name, directories: item.directories.map((directory) => directory.path) };
+  draft.value = {
+    name: item.name,
+    directories: item.directories.map((directory) => directory.path),
+    episode_number_detection: item.episode_number_detection,
+  };
   editingDirectoryIndex.value = null;
   pickerOpen.value = false;
   editorError.value = '';
   editorOpen.value = true;
   try {
     const detail = await api.getSeriesDetail(item.id);
-    draft.value = { name: detail.name, directories: detail.directories.map((directory) => directory.path) };
+    draft.value = {
+      name: detail.name,
+      directories: detail.directories.map((directory) => directory.path),
+      episode_number_detection: detail.episode_number_detection,
+    };
   } catch (reason) {
     editorError.value = reason instanceof Error ? reason.message : '剧集详情加载失败';
   }
@@ -141,6 +150,7 @@ async function saveSeries() {
   const payload = {
     name: draft.value.name.trim(),
     directories: draft.value.directories.map((path) => path.trim()),
+    episode_number_detection: draft.value.episode_number_detection,
   };
   try {
     const saved = editingID.value ? await api.updateSeries(editingID.value, payload) : await api.createSeries(payload);
@@ -253,7 +263,10 @@ onMounted(loadSeries);
           </NAlert>
 
           <div class="series-card-footer">
-            <small>最近扫描：{{ formatDate(item.last_scanned_at) }}</small>
+            <div class="series-card-meta">
+              <small>最近扫描：{{ formatDate(item.last_scanned_at) }}</small>
+              <NTag v-if="item.episode_number_detection" size="small" type="info">自动识别集数</NTag>
+            </div>
             <NSpace>
               <NButton size="small" secondary @click="openEdit(item)">
                 <template #icon><NIcon :component="Edit3" /></template>
@@ -298,6 +311,12 @@ onMounted(loadSeries);
       <NForm class="dialog-form" @submit.prevent="saveSeries">
         <NFormItem label="名称">
           <NInput v-model:value="draft.name" placeholder="例如：某部动画 / 某系列" />
+        </NFormItem>
+        <NFormItem label="集数识别">
+          <div class="series-detection-option">
+            <NSwitch v-model:value="draft.episode_number_detection" />
+            <span>仅在同一目录下多数视频文件名高度相似、数字近连续时显示自动识别的集数。</span>
+          </div>
         </NFormItem>
         <NFormItem label="目录（按当前顺序排列）">
           <div class="series-directory-editor">
@@ -485,6 +504,23 @@ onMounted(loadSeries);
 .series-card-footer {
   margin-top: 14px;
   align-items: flex-end;
+}
+
+.series-card-meta,
+.series-detection-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.series-card-meta {
+  flex-wrap: wrap;
+}
+
+.series-detection-option span {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .series-editor-error {

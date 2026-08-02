@@ -66,6 +66,7 @@ const description = computed(() => {
 const hasActiveDownloads = computed(
   () => playback.value?.files.some((item) => item.selected && item.progress < 1) ?? false,
 );
+const seriesEpisodeTitles = computed(() => analyzeSeriesEpisodeTitles(playback.value?.series_files ?? []));
 
 function routeParam(name: string) {
   const value = route.params[name];
@@ -91,6 +92,122 @@ function mediaIcon(type: PlaybackMediaType) {
 
 function baseName(name: string) {
   return name.split(/[\\/]/).pop() || name;
+}
+
+function seriesEpisodeTitle(file: SeriesVideo) {
+  return seriesEpisodeTitles.value.get(file.path) ?? '';
+}
+
+function analyzeSeriesEpisodeTitles(files: SeriesVideo[]) {
+  const result = new Map<string, string>();
+  const groups = new Map<string, SeriesVideo[]>();
+  for (const file of files) {
+    if (!file.episode_label || file.episode_number === undefined) continue;
+    const normalized = file.relative_path.replaceAll('\\', '/');
+    const separator = normalized.lastIndexOf('/');
+    const parent = separator >= 0 ? normalized.slice(0, separator).toLowerCase() : '';
+    const key = `${file.directory_path.toLowerCase()}\u0000${parent}`;
+    groups.set(key, [...(groups.get(key) ?? []), file]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const sources = group.map((file) => episodeTitleSource(file));
+    const outsideTokens = sources.map((source) => source.outside.split(/\s+/).filter(Boolean));
+    const prefixLength = commonTokenPrefix(outsideTokens);
+    const suffixLength = commonTokenSuffix(outsideTokens, prefixLength);
+    const repeatedThreshold = Math.ceil(group.length * 0.7);
+    const bracketCounts = new Map<string, number>();
+    for (const source of sources) {
+      for (const bracket of new Set(source.brackets.map(normalizeTitleFragment).filter(Boolean))) {
+        bracketCounts.set(bracket, (bracketCounts.get(bracket) ?? 0) + 1);
+      }
+    }
+    for (const [index, source] of sources.entries()) {
+      const end = source.outsideTokens.length - suffixLength;
+      const outside = cleanTitleFragment(
+        source.outsideTokens.slice(prefixLength, Math.max(prefixLength, end)).join(' '),
+      );
+      const uniqueBrackets = source.brackets.filter((bracket) => {
+        const normalized = normalizeTitleFragment(bracket);
+        return (
+          normalized && (bracketCounts.get(normalized) ?? 0) < repeatedThreshold && meaningfulTitleFragment(bracket)
+        );
+      });
+      const pieces = [outside, ...uniqueBrackets.map(cleanTitleFragment)].filter(
+        (piece, pieceIndex, all) => meaningfulTitleFragment(piece) && all.indexOf(piece) === pieceIndex,
+      );
+      if (pieces.length) result.set(group[index].path, pieces.join(' · '));
+    }
+  }
+  return result;
+}
+
+function episodeTitleSource(file: SeriesVideo) {
+  const stem = file.name.replace(/\.[^.]+$/, '');
+  const brackets = [...stem.matchAll(/\[([^\]]*)\]|【([^】]*)】/g)].map((match) => match[1] || match[2] || '');
+  const outside = removeEpisodeMarker(stem.replace(/\[[^\]]*\]|【[^】]*】/g, ' '), file);
+  return {
+    outside: outside.replace(/\s+/g, ' ').trim(),
+    outsideTokens: outside.replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean),
+    brackets: brackets.map((bracket) => removeEpisodeMarker(bracket, file)).filter(Boolean),
+  };
+}
+
+function removeEpisodeMarker(value: string, file: SeriesVideo) {
+  const number = file.episode_number;
+  if (number === undefined) return value;
+  return value
+    .replace(/\d+/g, (token) => (Number.parseInt(token, 10) === number ? ' ' : token))
+    .replace(/\bv\d+\b/gi, ' ');
+}
+
+function commonTokenPrefix(values: string[][]) {
+  const shortest = Math.min(...values.map((value) => value.length));
+  let length = 0;
+  while (
+    length < shortest &&
+    values.every((value) => value[length].localeCompare(values[0][length], undefined, { sensitivity: 'base' }) === 0)
+  ) {
+    length++;
+  }
+  return length;
+}
+
+function commonTokenSuffix(values: string[][], prefixLength: number) {
+  const shortest = Math.min(...values.map((value) => value.length));
+  let length = 0;
+  while (
+    length < shortest - prefixLength &&
+    values.every(
+      (value) =>
+        value[value.length - 1 - length].localeCompare(values[0][values[0].length - 1 - length], undefined, {
+          sensitivity: 'base',
+        }) === 0,
+    )
+  ) {
+    length++;
+  }
+  return length;
+}
+
+function normalizeTitleFragment(value: string) {
+  return cleanTitleFragment(value).toLocaleLowerCase();
+}
+
+function cleanTitleFragment(value: string) {
+  return value
+    .replace(/^[\s\-_.·:：]+|[\s\-_.·:：]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function meaningfulTitleFragment(value: string) {
+  const cleaned = cleanTitleFragment(value);
+  if (cleaned.length < 2 || !/\p{L}/u.test(cleaned)) return false;
+  if (/^[a-f\d]{6,}$/i.test(cleaned.replace(/\s+/g, ''))) return false;
+  return !/(?:2160|1080|720|480)[pi]?|web[- ]?dl|webrip|bluray|bdrip|hevc|avc|x26[45]|10bit|aac|flac|srt|ass|chs|cht/i.test(
+    cleaned,
+  );
 }
 
 function formatProgress(progress: number) {
@@ -442,7 +559,7 @@ onBeforeUnmount(() => {
             <NTabs v-model:value="mediaTab" type="line" animated>
               <NTabPane v-if="playback.series" name="series">
                 <template #tab>
-                  <span>剧集</span>
+                  <span>选集</span>
                   <NTag size="small">
                     {{ playback.series.available_video_count }} / {{ playback.series.video_count }}
                   </NTag>
@@ -455,6 +572,10 @@ onBeforeUnmount(() => {
                 >
                   部分目录暂时不可读，已保留上次扫描到的文件。
                 </NAlert>
+                <div class="series-selection-heading">
+                  <strong>{{ playback.series.name }}</strong>
+                  <small v-if="playback.series.episode_number_detection">已启用自动集数识别</small>
+                </div>
                 <div v-if="playback.series_files?.length" class="episode-list">
                   <button
                     v-for="file in playback.series_files"
@@ -470,9 +591,13 @@ onBeforeUnmount(() => {
                   >
                     <MediaThumbnail :src="file.thumbnail_url" :alt="`${file.name} 缩略图`" media-type="video" />
                     <span class="episode-copy">
-                      <strong>{{ file.name }}</strong>
+                      <strong class="series-episode-title" :title="file.name">
+                        <span v-if="file.episode_label" class="series-episode-label">{{ file.episode_label }}</span>
+                        <span v-if="seriesEpisodeTitle(file)">{{ seriesEpisodeTitle(file) }}</span>
+                        <span v-else-if="!file.episode_label">{{ file.name }}</span>
+                      </strong>
                       <small :title="file.path">
-                        {{ file.relative_path }} · {{ formatByteSize(file.size) }}
+                        {{ formatByteSize(file.size) }}
                         <template v-if="!file.available"> · 目录不可用</template>
                       </small>
                     </span>
@@ -484,7 +609,7 @@ onBeforeUnmount(() => {
 
               <NTabPane v-if="playback.source !== 'file'" name="episodes">
                 <template #tab>
-                  <span>选集</span>
+                  <span>种子文件</span>
                   <NTag size="small">{{ playback.files.length }}</NTag>
                 </template>
                 <div v-if="playback.files.length" class="episode-list">
@@ -525,7 +650,7 @@ onBeforeUnmount(() => {
 
               <NTabPane name="files">
                 <template #tab>
-                  <span>文件</span>
+                  <span>浏览</span>
                   <NTag size="small">{{ directory?.entries.length ?? 0 }}</NTag>
                 </template>
                 <p class="directory-path" :title="directory?.path">{{ directory?.path }}</p>

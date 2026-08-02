@@ -321,6 +321,12 @@ CREATE TABLE IF NOT EXISTS series (
 	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS series_options (
+	series_id TEXT PRIMARY KEY,
+	episode_number_detection INTEGER NOT NULL DEFAULT 0,
+	FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS series_directories (
 	series_id TEXT NOT NULL,
 	path TEXT NOT NULL,

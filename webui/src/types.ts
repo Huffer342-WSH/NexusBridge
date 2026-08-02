@@ -305,12 +305,16 @@ export type SeriesVideo = {
   size: number;
   modified_at: string;
   available: boolean;
+  episode_number?: number;
+  episode_version?: number;
+  episode_label?: string;
   thumbnail_url?: string;
 };
 
 export type SeriesSummary = {
   id: string;
   name: string;
+  episode_number_detection: boolean;
   directories: SeriesDirectory[];
   video_count: number;
   available_video_count: number;
@@ -328,6 +332,7 @@ export type SeriesDetail = SeriesSummary & {
 export type SeriesSaveRequest = {
   name: string;
   directories: string[];
+  episode_number_detection: boolean;
 };
 
 export type SeriesSelectionRequest = {
