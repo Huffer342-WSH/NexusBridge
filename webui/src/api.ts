@@ -11,6 +11,7 @@ import type {
   FileBrowseResult,
   FetchSettings,
   Health,
+  LogSnapshot,
   LLMConfig,
   NetworkConfig,
   MihomoProviderCreateRequest,
@@ -98,6 +99,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   health: () => request<Health>('/api/health'),
+  logs: (limit = 500) => request<LogSnapshot>(`/api/logs?limit=${Math.max(1, Math.trunc(limit))}`),
   sites: () => request<Site[]>('/api/sites'),
   getMediaFilterOptions: (siteID: string) =>
     request<MediaFilterOptions>(`/api/sites/${encodeURIComponent(siteID)}/media-filter-options`),

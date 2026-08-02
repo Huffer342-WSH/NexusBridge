@@ -10,6 +10,21 @@ export type Health = {
   addr: string;
 };
 
+export type LogEntry = {
+  timestamp: string;
+  level: string;
+  module: string;
+  message: string;
+  fields: string[];
+  text: string;
+};
+
+export type LogSnapshot = {
+  items: LogEntry[];
+  total: number;
+  capacity: number;
+};
+
 export type Site = {
   id: string;
   name: string;

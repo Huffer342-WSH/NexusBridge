@@ -12,6 +12,7 @@ import {
   KeyRound,
   Network,
   RefreshCw,
+  ScrollText,
   Settings,
   ShieldCheck,
 } from '@lucide/vue';
@@ -60,7 +61,7 @@ import type {
   QBPollResult,
 } from './types';
 
-type PageKey = 'media' | 'series' | 'files' | 'subscriptions' | 'tasks' | 'settings';
+type PageKey = 'media' | 'series' | 'files' | 'subscriptions' | 'tasks' | 'logs' | 'settings';
 type SettingsPageKey = 'sites' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
@@ -85,6 +86,7 @@ const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload;
   { key: 'files', label: '文件', icon: FolderOpen, to: '/files' },
   { key: 'subscriptions', label: '订阅', icon: BellRing, to: '/subscriptions' },
   { key: 'tasks', label: '任务', icon: FolderKanban, to: '/tasks' },
+  { key: 'logs', label: '日志', icon: ScrollText, to: '/logs' },
   { key: 'settings', label: '设置', icon: Settings, to: '/settings/sites' },
 ];
 
@@ -874,7 +876,7 @@ watch(isPlaybackLayout, (playbackLayout, previous) => {
             <span>{{ health?.addr ?? '0.0.0.0:8090' }}</span>
           </div>
           <NButton
-            v-if="!showLogin && activePage !== 'series'"
+            v-if="!showLogin && activePage !== 'series' && activePage !== 'logs'"
             type="primary"
             :loading="loading"
             @click="() => refresh()"

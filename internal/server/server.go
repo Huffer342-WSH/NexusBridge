@@ -133,6 +133,8 @@ func newServer(cfg config.Config, app interface {
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/health", s.handleHealth)
+	r.Get("/api/logs", s.handleLogs)
+	r.Get("/api/logs/stream", s.handleLogStream)
 	r.Get("/api/session", s.handleSession)
 	r.Post("/api/session/login", s.handleLogin)
 	r.Get("/api/sites", s.handleSites)

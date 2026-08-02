@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('./components/TasksView.vue'),
     meta: { page: 'tasks', title: '任务' },
   },
+  {
+    path: '/logs',
+    name: 'logs',
+    component: () => import('./components/LogsView.vue'),
+    meta: { page: 'logs', title: '日志' },
+  },
   { path: '/settings', redirect: { name: 'settings-sites' } },
   {
     path: '/settings/sites',

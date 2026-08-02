@@ -18,14 +18,17 @@ import (
 )
 
 const (
-	logTimeLayout = "2006/01/02 15:04:05"
-	defaultModule = "app"
+	logTimeLayout     = "2006/01/02 15:04:05"
+	defaultModule     = "app"
+	recentLogCapacity = 2000
+	logSubscriberSize = 128
 )
 
 type bracketHandler struct {
 	writer io.Writer
 	level  slog.Leveler
 	mu     *sync.Mutex
+	store  *recentLogStore
 	attrs  []scopedAttr
 	groups []string
 }
@@ -34,6 +37,37 @@ type scopedAttr struct {
 	groups []string
 	attr   slog.Attr
 }
+
+// Entry 表示 WebUI 可以安全读取的一条已格式化运行日志。
+type Entry struct {
+	Timestamp string   `json:"timestamp"`
+	Level     string   `json:"level"`
+	Module    string   `json:"module"`
+	Message   string   `json:"message"`
+	Fields    []string `json:"fields"`
+	Text      string   `json:"text"`
+}
+
+// Snapshot 表示当前进程内最近日志的只读快照。
+type Snapshot struct {
+	Items    []Entry `json:"items"`
+	Total    int     `json:"total"`
+	Capacity int     `json:"capacity"`
+}
+
+type recentLogStore struct {
+	mu               sync.RWMutex
+	entries          []Entry
+	start            int
+	size             int
+	nextSubscriberID uint64
+	subscribers      map[uint64]chan Entry
+}
+
+var (
+	activeStoreMu sync.RWMutex
+	activeStore   = newRecentLogStore(recentLogCapacity)
+)
 
 // Setup 初始化终端和文件日志输出。
 func Setup(cfg config.LoggingConfig) (func() error, error) {
@@ -57,7 +91,11 @@ func Setup(cfg config.LoggingConfig) (func() error, error) {
 		writers = append(writers, file)
 	}
 
-	handler := newBracketHandler(io.MultiWriter(writers...), level)
+	store := newRecentLogStore(recentLogCapacity)
+	activeStoreMu.Lock()
+	activeStore = store
+	activeStoreMu.Unlock()
+	handler := newBracketHandler(io.MultiWriter(writers...), level, store)
 	slog.SetDefault(slog.New(handler))
 	log.SetFlags(0)
 	log.SetPrefix("")
@@ -69,8 +107,8 @@ func Setup(cfg config.LoggingConfig) (func() error, error) {
 	}, nil
 }
 
-func newBracketHandler(writer io.Writer, level slog.Leveler) *bracketHandler {
-	return &bracketHandler{writer: writer, level: level, mu: &sync.Mutex{}}
+func newBracketHandler(writer io.Writer, level slog.Leveler, store *recentLogStore) *bracketHandler {
+	return &bracketHandler{writer: writer, level: level, mu: &sync.Mutex{}, store: store}
 }
 
 func (h *bracketHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -93,24 +131,38 @@ func (h *bracketHandler) Handle(_ context.Context, record slog.Record) error {
 		return true
 	})
 
+	module = sanitizeModule(module)
+	message := sanitizeMessage(record.Message)
+	timestamp := loggedAt.Local().Format(logTimeLayout)
 	var line strings.Builder
 	fmt.Fprintf(
 		&line,
 		"[%s][%s][%s] %s",
-		loggedAt.Local().Format(logTimeLayout),
+		timestamp,
 		record.Level.String(),
-		sanitizeModule(module),
-		sanitizeMessage(record.Message),
+		module,
+		message,
 	)
 	if len(fields) > 0 {
 		line.WriteByte(' ')
 		line.WriteString(strings.Join(fields, " "))
 	}
+	text := line.String()
 	line.WriteByte('\n')
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	_, err := io.WriteString(h.writer, line.String())
+	if h.store != nil {
+		h.store.add(Entry{
+			Timestamp: timestamp,
+			Level:     record.Level.String(),
+			Module:    module,
+			Message:   message,
+			Fields:    append([]string{}, fields...),
+			Text:      text,
+		})
+	}
 	return err
 }
 
@@ -216,6 +268,100 @@ func sanitizeModule(module string) string {
 
 func sanitizeMessage(message string) string {
 	return strings.NewReplacer("\r", "\\r", "\n", "\\n").Replace(message)
+}
+
+func newRecentLogStore(capacity int) *recentLogStore {
+	return &recentLogStore{
+		entries:     make([]Entry, capacity),
+		subscribers: make(map[uint64]chan Entry),
+	}
+}
+
+func (s *recentLogStore) add(entry Entry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.entries) == 0 {
+		return
+	}
+	index := (s.start + s.size) % len(s.entries)
+	if s.size == len(s.entries) {
+		index = s.start
+		s.start = (s.start + 1) % len(s.entries)
+	} else {
+		s.size++
+	}
+	s.entries[index] = entry
+	for _, subscriber := range s.subscribers {
+		select {
+		case subscriber <- entry:
+		default:
+			select {
+			case <-subscriber:
+			default:
+			}
+			select {
+			case subscriber <- entry:
+			default:
+			}
+		}
+	}
+}
+
+func (s *recentLogStore) snapshot(limit int) Snapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.snapshotLocked(limit)
+}
+
+func (s *recentLogStore) snapshotLocked(limit int) Snapshot {
+	if limit <= 0 || limit > s.size {
+		limit = s.size
+	}
+	items := make([]Entry, 0, limit)
+	first := (s.start + s.size - limit) % len(s.entries)
+	for offset := 0; offset < limit; offset++ {
+		entry := s.entries[(first+offset)%len(s.entries)]
+		entry.Fields = append([]string{}, entry.Fields...)
+		items = append(items, entry)
+	}
+	return Snapshot{Items: items, Total: s.size, Capacity: len(s.entries)}
+}
+
+func (s *recentLogStore) subscribe(limit int) (Snapshot, <-chan Entry, func()) {
+	s.mu.Lock()
+	snapshot := s.snapshotLocked(limit)
+	s.nextSubscriberID++
+	subscriberID := s.nextSubscriberID
+	updates := make(chan Entry, logSubscriberSize)
+	s.subscribers[subscriberID] = updates
+	s.mu.Unlock()
+
+	var cancelOnce sync.Once
+	cancel := func() {
+		cancelOnce.Do(func() {
+			s.mu.Lock()
+			delete(s.subscribers, subscriberID)
+			close(updates)
+			s.mu.Unlock()
+		})
+	}
+	return snapshot, updates, cancel
+}
+
+// Recent 返回当前进程最近的日志，结果按时间从旧到新排列。
+func Recent(limit int) Snapshot {
+	activeStoreMu.RLock()
+	store := activeStore
+	activeStoreMu.RUnlock()
+	return store.snapshot(limit)
+}
+
+// Subscribe 返回无缺口的最近日志快照和后续实时日志流。
+func Subscribe(limit int) (Snapshot, <-chan Entry, func()) {
+	activeStoreMu.RLock()
+	store := activeStore
+	activeStoreMu.RUnlock()
+	return store.subscribe(limit)
 }
 
 // parseLevel 解析日志等级。
