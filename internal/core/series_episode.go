@@ -44,7 +44,7 @@ type episodeDetectionResult struct {
 func detectSeriesEpisodeNumbers(videos []SeriesVideo) {
 	groups := make(map[string][]int)
 	for index, video := range videos {
-		parent := filepath.Dir(video.RelativePath)
+		parent := seriesEpisodeGroupParent(video)
 		key := normalizedFilesystemPath(video.DirectoryPath) + "\x00" + normalizedFilesystemPath(parent)
 		groups[key] = append(groups[key], index)
 	}
@@ -63,6 +63,19 @@ func detectSeriesEpisodeNumbers(videos []SeriesVideo) {
 			}
 		}
 	}
+}
+
+// seriesEpisodeGroupParent 折叠“同名目录包裹同名视频”的单集下载目录。
+func seriesEpisodeGroupParent(video SeriesVideo) string {
+	parent := filepath.Dir(video.RelativePath)
+	if parent == "." {
+		return parent
+	}
+	stem := strings.TrimSuffix(video.Name, filepath.Ext(video.Name))
+	if strings.EqualFold(filepath.Base(parent), stem) {
+		return filepath.Dir(parent)
+	}
+	return parent
 }
 
 func detectEpisodeGroup(videos []SeriesVideo, indexes []int) episodeDetectionResult {
