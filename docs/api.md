@@ -26,6 +26,18 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 返回 API 状态和监听地址。
 
+## 运行日志
+
+`GET /api/logs?limit=500`
+
+返回当前进程内最近的格式化日志快照，按时间从旧到新排列。`limit` 必须位于 `1..2000`；响应包含 `items`、缓冲区当前 `total` 和固定 `capacity`。接口不读取 `logging.file` 指向的历史文件。
+
+`GET /api/logs/stream?limit=500`
+
+建立 `text/event-stream` 实时连接。服务端先发送一个 `snapshot` 事件，再为每条新日志发送 `log` 事件，并定期发送 SSE 注释保持连接；快照与订阅在同一锁内建立，切换期间不会漏掉日志。慢客户端的单订阅缓冲区满时丢弃最旧待发项，日志写入和其他客户端不被阻塞。
+
+每条日志包含 `timestamp`、`level`、`module`、`message`、结构化 `fields` 和已经按 `[时间][等级][模块] 内容` 组合的 `text`。该页面用于运行诊断，仍可能包含调用方写入日志的路径和业务字段，不应向不受信任用户公开 WebUI。
+
 ## 会话
 
 `GET /api/session`
@@ -137,7 +149,9 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET|PUT|DELETE /api/series/{series_id}`
 
-创建或更新接收 `{ "name": "...", "directories": ["C:/Media/Season 1"] }`；目录必须是当前可读的绝对目录，同一剧集拒绝重复或嵌套重叠目录。创建、更新会立即递归扫描。删除只清理剧集配置和扫描缓存，不操作源目录或视频。
+创建或更新接收 `{ "name": "...", "directories": ["C:/Media/Season 1"], "episode_number_detection": true }`；目录必须是当前可读的绝对目录，同一剧集拒绝重复或嵌套重叠目录。创建、更新会立即递归扫描。删除只清理剧集配置和扫描缓存，不操作源目录或视频。
+
+`episode_number_detection` 为每个剧集独立保存的手动开关。开启后只分析扫描得到的视频，并按同一扫描根目录与相对父目录分组；满足高相似文件名、近连续数字和最低覆盖比例时，`SeriesVideo` 才包含 `episode_number`、`episode_version` 和 `episode_label`。这些字段是读取详情时派生的显示信息，不写入视频缓存。
 
 `POST /api/series/{series_id}/scan`
 

@@ -277,7 +277,7 @@ flowchart LR
 | `desktop/main.go` | Wails 窗口、托盘和单实例入口。 |
 | `internal/desktop/runtime.go`、`internal/desktop/assets.go` | 桌面端共享 core/server 生命周期与前端 History 路由回退。 |
 | `internal/server/server.go` | HTTP 服务组装和路由。 |
-| `internal/server/handlers_*.go` | 按 session、torrent、automation、recovery、settings、task 分组的 JSON 适配。 |
+| `internal/server/handlers_*.go` | 按 session、torrent、series、logs、automation、recovery、settings、task 分组的 HTTP 适配。 |
 | `internal/server/http_helpers.go` | JSON 响应、查询参数和静态 WebUI 服务。 |
 | `internal/runtimeconfig/` | 数据目录、配置文件、内置站点和构建模式。 |
 
@@ -286,7 +286,7 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`playback.go`、`video_thumbnails.go`、`covers.go` |
+| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`series_episode.go`、`playback.go`、`video_thumbnails.go`、`covers.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |
@@ -304,6 +304,7 @@ flowchart LR
 | `internal/qbittorrent` | qB 认证、torrent、文件、分类、标签、控制、同步和元数据 API。 |
 | `internal/core/covercache` | 封面文件缓存、状态机和并发控制；持久状态仍由 storage 保存。 |
 | `internal/core/videothumbnail` | FFprobe/FFmpeg 按需取帧、文件指纹、原子 JPEG 缓存和并发限制；不写 SQLite。 |
+| `internal/logging` | 方括号结构化日志、当前进程最近日志环形缓冲区和实时订阅；不读取历史日志文件。 |
 | `internal/llm`、`internal/organizer` | OpenAI-compatible 客户端和媒体整理建议校验；当前为可选 demo 链路。 |
 | `internal/config`、`internal/network`、`internal/mihomo` | 配置校验、代理环境和 Mihomo Provider 管理。 |
 | `internal/stringutil`、`internal/urlutil` | 无状态、无业务依赖的共用工具。 |
@@ -313,7 +314,7 @@ flowchart LR
 | 区域 | 主要路径 |
 | --- | --- |
 | WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
-| 业务界面 | `webui/src/components/MediaView.vue`、`SeriesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`TasksView.vue`、`Settings*.vue` |
+| 业务界面 | `webui/src/components/MediaView.vue`、`SeriesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`LogsView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
 | 前端行为文档 | `docs/frontend.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |

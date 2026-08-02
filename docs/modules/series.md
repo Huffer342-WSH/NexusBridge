@@ -20,7 +20,7 @@ flowchart LR
     subgraph WebUI[WebUI]
         SeriesView[剧集管理页]
         Picker[文件选择浏览器]
-        PlaybackView[播放页<br/>剧集 / 选集 / 文件]
+        PlaybackView[播放页<br/>选集 / 种子文件 / 浏览]
     end
 
     subgraph HTTP[HTTP 适配层]
@@ -60,13 +60,14 @@ flowchart LR
     StreamAPI --> Filesystem
 ```
 
-剧集路由保持 `/play/series/:series_id?path=...`，不会因为选中的文件属于 qB 或数据库种子而改写为其他播放路由。所选文件仍复用现有本机文件归属识别，因此可以获得数据库种子详情、qB 选集、Range、字幕和原文件解码能力。
+剧集路由保持 `/play/series/:series_id?path=...`，不会因为选中的文件属于 qB 或数据库种子而改写为其他播放路由。所选文件仍复用现有本机文件归属识别，因此可以获得数据库种子详情、qB 种子文件、Range、字幕和原文件解码能力。
 
 ## 数据模型
 
 ```mermaid
 erDiagram
     series ||--|{ series_directories : contains
+    series ||--o| series_options : configures
     series_directories ||--o{ series_videos : caches
 
     series {
@@ -87,6 +88,11 @@ erDiagram
         datetime last_scanned_at
     }
 
+    series_options {
+        string series_id PK, FK
+        bool episode_number_detection
+    }
+
     series_videos {
         string series_id PK, FK
         string path PK
@@ -101,10 +107,11 @@ erDiagram
 | 数据 | 语义 |
 | --- | --- |
 | `series` | 剧集身份、大小写不敏感唯一名称、最后选集和总体扫描时间 |
+| `series_options` | 每个剧集独立的集数识别开关；旧剧集没有记录时按关闭处理 |
 | `series_directories` | 有序扫描根目录，以及各目录独立的可用状态、错误和扫描时间 |
 | `series_videos` | 可重建的视频清单缓存，保存根目录归属、相对路径、大小、修改时间和可用状态 |
 
-剧集 ID 由后端随机生成。移除目录或删除剧集时，SQLite 外键只级联清理对应缓存。不同剧集可以引用同一个目录。
+剧集 ID 由后端随机生成。移除目录或删除剧集时，SQLite 外键只级联清理对应选项和缓存。不同剧集可以引用同一个目录。识别得到的集数和版本不写入 SQLite，而是在读取视频缓存时派生。
 
 ## 创建与编辑
 
@@ -114,6 +121,7 @@ erDiagram
 2. 至少提供一个目录；每个目录都必须是当前可解析、可读取的绝对目录。
 3. 根目录会解析为规范路径。同一剧集内拒绝重复目录，以及父子嵌套的重叠目录。
 4. 目录数组顺序写入 `source_order`，后续决定选集分组顺序。
+5. `episode_number_detection` 保存为该剧集的独立开关；关闭时不运行文件名识别。
 
 保存配置后立即扫描。编辑时移除的目录会同时移除该目录的旧视频缓存，但不会触碰磁盘文件。
 
@@ -149,7 +157,29 @@ flowchart TD
     Finalize --> Detail[返回最新剧集详情]
 ```
 
-结果排序先按目录添加顺序分组，再按各目录内的相对路径自然排序。因此 `Episode 2` 会排在 `Episode 10` 前面，但本期不会根据文件名推断季、集编号。
+结果排序先按目录添加顺序分组，再按各目录内的相对路径自然排序。因此 `Episode 2` 会排在 `Episode 10` 前面。开启集数识别时只补充显示标签，不改变缓存内容或上述文件顺序。
+
+### 集数识别
+
+集数识别是剧集级手动开关，使用保守的组内判断：
+
+1. 输入只来自 `series_videos`，即扫描白名单确认的视频；图片、字幕、音频和其他文件不会进入分母。
+2. 视频按扫描根目录和相对父目录分组，至少需要 3 个视频，不跨季目录或不同根目录比较。
+3. 对每个文件名数字位置分别尝试候选，把该数字替换为统一占位后比较文件名骨架；文件名中的 `v2` 等版本数字先被屏蔽，避免误认成集数。
+4. 候选聚类至少覆盖组内 70% 的视频，骨架相似度至少为 0.84，并要求数字大体连续、相邻差值主要位于 1 到 3。
+5. 识别成功的视频返回 `episode_number` 和 `episode_label`；紧跟集数的 `v2` 会额外返回 `episode_version=2`，标签显示为“第 06 集 · v2”。未进入高置信聚类的视频保持无标签。
+
+```mermaid
+flowchart LR
+    Videos[同一根目录和父目录的视频] --> Count{至少 3 个?}
+    Count -->|否| Original[保留原文件名]
+    Count -->|是| Candidates[逐个数字位置生成骨架]
+    Candidates --> Similar{覆盖至少 70%<br/>相似度至少 0.84?}
+    Similar -->|否| Original
+    Similar -->|是| Sequence{数字近连续?}
+    Sequence -->|否| Original
+    Sequence -->|是| Labels[派生集数与修订版标签]
+```
 
 ### 可读与离线目录
 
@@ -184,23 +214,25 @@ flowchart TD
     Enhance --> UI[保持剧集规范 URL<br/>显示剧集选集窗格]
 ```
 
-进入播放页只按上述优先级选择当前视频，不会擅自覆盖最后选集。用户在右侧“剧集”标签主动切换视频时，前端先调用 selection API 保存选择，再更新 `path` 路由。暂时不可用的视频保留在清单中展示，但不能点击。
+进入播放页只按上述优先级选择当前视频，不会擅自覆盖最后选集。用户在右侧“选集”标签主动切换视频时，前端先调用 selection API 保存选择，再更新 `path` 路由。暂时不可用的视频保留在清单中展示，但不能点击。
+
+识别成功时，选集卡片把集数作为主标识。前端先按 `[]` 和 `【】` 切分文件名，再排除组内多数视频共有的片段、集数本身和常见技术参数，只把有区分度的剩余片段作为短标题；卡片副信息只显示体积，完整文件名保留在悬停提示中。没有集数标签时继续显示原文件名，不执行激进裁剪。qB 上下文和目录浏览分别使用“种子文件”“浏览”标签，避免与剧集选集混淆。
 
 统一 `PlaybackContext` 保留原有 `source`、`files`、qB 状态、目录文件和字幕结构，并额外提供：
 
 - `series`：当前剧集摘要。
 - `series_files`：按目录顺序和自然顺序排列的完整视频缓存。
 
-源文件仍由现有播放接口读取。qB 文件继续按 hash 和文件索引校验；普通本机文件沿用文件管理器的访问边界。可用剧集视频包含按需 `thumbnail_url`，右侧剧集窗格懒加载 JPEG，失败时保留视频图标；清单和扫描本身不运行 FFmpeg。浏览器不支持的容器或编码不会转码回退。
+源文件仍由现有播放接口读取。qB 文件继续按 hash 和文件索引校验；普通本机文件沿用文件管理器的访问边界。可用剧集视频包含按需 `thumbnail_url`，右侧选集窗格懒加载 JPEG，失败时保留视频图标；清单和扫描本身不运行 FFmpeg。浏览器不支持的容器或编码不会转码回退。
 
 ## HTTP API
 
 | 接口 | 行为 | 是否扫描 |
 | --- | --- | --- |
 | `GET /api/series` | 返回全部缓存摘要 | 否 |
-| `POST /api/series` | 创建剧集并返回详情 | 是 |
+| `POST /api/series` | 创建剧集、保存识别开关并返回详情 | 是 |
 | `GET /api/series/{id}` | 返回缓存详情和视频清单 | 否 |
-| `PUT /api/series/{id}` | 更新名称和目录 | 是 |
+| `PUT /api/series/{id}` | 更新名称、目录和识别开关 | 是 |
 | `DELETE /api/series/{id}` | 删除配置和缓存 | 否 |
 | `POST /api/series/{id}/scan` | 手动重扫 | 是 |
 | `POST /api/series/{id}/selection` | 校验并保存可用视频路径 | 否 |
@@ -213,7 +245,7 @@ flowchart TD
 | 页面或状态 | 行为 |
 | --- | --- |
 | `/series` | 展示缓存摘要、目录状态、可用/总视频数、扫描时间和错误；支持新增、编辑、删除、重扫 |
-| `/play/series/:series_id?path=...` | 进入时重扫，默认打开右侧“剧集”标签并保持规范剧集 URL |
+| `/play/series/:series_id?path=...` | 进入时重扫，默认打开右侧“选集”标签并保持规范剧集 URL |
 | URL `path` | 当前播放视频的绝对路径，刷新后可恢复；可能暴露本机目录结构 |
 | SQLite `last_selected_path` | 跨刷新、重启和客户端共享的最后选集业务状态 |
 | `localStorage` | 文件选择器上次目录和弹窗宽度等当前浏览器 UI 偏好 |
@@ -234,12 +266,13 @@ flowchart TD
 | --- | --- |
 | 领域模型 | `internal/core/models_series.go` |
 | 校验、锁、扫描、排序和播放选择 | `internal/core/series.go` |
+| 高相似视频文件名与集数识别 | `internal/core/series_episode.go` |
 | SQLite 配置与缓存 | `internal/storage/series.go`、`internal/storage/schema.go` |
 | HTTP handler 与路由 | `internal/server/handlers_series.go`、`internal/server/server.go` |
 | 统一文件播放与归属识别 | `internal/core/playback.go` |
 | 前端类型和请求 | `webui/src/types.ts`、`webui/src/api.ts` |
 | 管理页面 | `webui/src/components/SeriesView.vue` |
 | 文件选择与可调弹窗 | `webui/src/components/FilePickerDialog.vue`、`webui/src/components/ResizableModal.vue` |
-| 播放页面与剧集窗格 | `webui/src/components/PlaybackView.vue` |
+| 播放页面与选集窗格 | `webui/src/components/PlaybackView.vue` |
 | 媒体缩略图组件 | `webui/src/components/MediaThumbnail.vue` |
 | 页面路由与导航 | `webui/src/router.ts`、`webui/src/App.vue` |

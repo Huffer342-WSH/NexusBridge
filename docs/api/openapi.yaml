@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: 健康检查
+  - name: logs
+    description: 当前进程最近日志和实时推送
   - name: session
     description: 本地会话
   - name: sites
@@ -42,6 +44,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /api/logs:
+    get:
+      tags: [logs]
+      summary: 获取当前进程最近日志
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        "200":
+          description: 按时间从旧到新排列的日志快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogSnapshot"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/logs/stream:
+    get:
+      tags: [logs]
+      summary: 实时订阅当前进程日志
+      description: 先发送 snapshot 事件，再发送后续 log 事件；服务端定期发送 SSE 注释保持连接。
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        "200":
+          description: Server-Sent Events 日志流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/Error"
   /api/session:
     get:
       tags: [session]
@@ -1940,6 +1987,43 @@ components:
           type: string
         addr:
           type: string
+    LogEntry:
+      type: object
+      required: [timestamp, level, module, message, fields, text]
+      properties:
+        timestamp:
+          type: string
+          description: 使用服务端本地时区格式化的 YYYY/MM/DD HH:mm:ss。
+        level:
+          type: string
+          description: slog 日志等级，例如 DEBUG、INFO、WARN 或 ERROR。
+        module:
+          type: string
+        message:
+          type: string
+        fields:
+          type: array
+          items:
+            type: string
+        text:
+          type: string
+          description: 已按 [时间][等级][模块] 内容组合的单行文本。
+    LogSnapshot:
+      type: object
+      required: [items, total, capacity]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+        total:
+          type: integer
+          minimum: 0
+          description: 当前环形缓冲区内的日志数量。
+        capacity:
+          type: integer
+          minimum: 0
+          description: 当前进程日志缓冲区容量。
     Session:
       type: object
       required: [mode, requires_login]
@@ -2247,16 +2331,30 @@ components:
         size: { type: integer, format: int64 }
         modified_at: { type: string, format: date-time }
         available: { type: boolean }
+        episode_number:
+          type: integer
+          minimum: 0
+          description: 高置信识别得到的集数；未识别时省略。
+        episode_version:
+          type: integer
+          minimum: 0
+          description: 集数后的 v2 等修订版本；没有修订时省略。
+        episode_label:
+          type: string
+          description: 已格式化的集数与可选修订版标签。
         thumbnail_url:
           type: string
           description: 仅当前可读取的视频存在。
     SeriesSummary:
       type: object
       required:
-        [id, name, directories, video_count, available_video_count, scan_errors, created_at, updated_at]
+        [id, name, episode_number_detection, directories, video_count, available_video_count, scan_errors, created_at, updated_at]
       properties:
         id: { type: string }
         name: { type: string }
+        episode_number_detection:
+          type: boolean
+          description: 是否为该剧集启用保守的文件名集数识别。
         directories:
           type: array
           items:
@@ -2287,9 +2385,11 @@ components:
                 $ref: "#/components/schemas/SeriesVideo"
     SeriesSaveRequest:
       type: object
-      required: [name, directories]
+      required: [name, directories, episode_number_detection]
       properties:
         name: { type: string }
+        episode_number_detection:
+          type: boolean
         directories:
           type: array
           minItems: 1
