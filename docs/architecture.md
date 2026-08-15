@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)、[媒体缩略图](modules/video-thumbnails.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[媒体库目录](modules/media-library.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)、[媒体缩略图](modules/video-thumbnails.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
@@ -286,18 +286,18 @@ flowchart LR
 | 业务域 | 主要文件 |
 | --- | --- |
 | 应用组装 | `app.go`、`services.go`、`converters.go`、`helpers.go` |
-| 站点、种子、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`series.go`、`series_episode.go`、`playback.go`、`video_thumbnails.go`、`covers.go`、`cover_images.go` |
+| 站点、种子、媒体库、剧集与播放 | `site_catalog.go`、`site_requests.go`、`site_attendance.go`、`site_fetch.go`、`scheduler.go`、`torrent_*.go`、`media_libraries.go`、`series.go`、`series_episode.go`、`playback.go`、`video_thumbnails.go`、`covers.go`、`cover_images.go` |
 | 规则与订阅 | `rule_*.go`、`filter.go`、`title_expression.go`、`subscriptions.go`、`subscription_*.go` |
 | 下载与 qB | `download_plan.go`、`batch_download.go`、`qb.go`、`qb_catalog.go`、`qb_poll.go`、`qb_sync.go` |
 | 文件与恢复 | `file_manager.go`、`torrent_size_index.go`、`recovery*.go` |
 | 任务与可选能力 | `task_service.go`、`mihomo.go`、`network.go` |
-| 领域模型 | `models_site.go`、`models_torrent.go`、`models_series.go`、`models_playback.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
+| 领域模型 | `models_site.go`、`models_torrent.go`、`models_media_library.go`、`models_series.go`、`models_playback.go`、`models_subscription.go`、`models_qb_catalog.go`、`models_download.go`、`models_recovery.go`、`models_tasks.go` |
 
 ### 5.3 基础设施包
 
 | 包 | 职责与主要文件 |
 | --- | --- |
-| `internal/storage` | `sqlite.go` 管理 WAL、单写者和双数据库，`schema.go` 定义完整新库；其余文件按 torrent、剧集、搜索/恢复索引、rule、subscription、task、qB 稳定关联、credential 和 cover cache 分域持久化。 |
+| `internal/storage` | `sqlite.go` 管理 WAL、单写者和双数据库，`schema.go` 定义完整新库；其余文件按 torrent、媒体库/剧集、搜索/恢复索引、rule、subscription、task、qB 稳定关联、credential 和 cover cache 分域持久化。 |
 | `internal/parser` | `definitions.go` 加载站点定义，`parser.go` 提供解析入口，`search_form.go`、`torrent_rows.go`、`pagination.go` 分解页面解析。 |
 | `internal/fetcher` | HTTP 请求、重定向和 curl 输入解析。 |
 | `internal/requestpolicy` | 域名规则、Cookie 白名单和请求决策。 |
@@ -314,9 +314,9 @@ flowchart LR
 | 区域 | 主要路径 |
 | --- | --- |
 | WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
-| 业务界面 | `webui/src/components/MediaView.vue`、`SeriesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`LogsView.vue`、`TasksView.vue`、`Settings*.vue` |
+| 业务界面 | `webui/src/components/MediaView.vue`、`MediaLibrariesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`LogsView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
-| 前端行为文档 | `docs/frontend.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md` |
+| 前端行为文档 | `docs/frontend.md`、`docs/modules/media-library.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |
 | 桌面构建 | `Taskfile.yml`、`desktop/tasks/`、`desktop/resources/` |
 | 发布流水线 | `.github/workflows/build-release.yml`、`publish-release.yml`、`build-docker.yml` |

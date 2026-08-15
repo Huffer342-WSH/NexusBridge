@@ -12,11 +12,18 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'media', title: '媒体库' },
   },
   {
-    path: '/series',
-    name: 'series',
-    component: () => import('./components/SeriesView.vue'),
-    meta: { page: 'series', title: '剧集' },
+    path: '/libraries',
+    name: 'libraries',
+    component: () => import('./components/MediaLibrariesView.vue'),
+    meta: { page: 'libraries', title: '媒体库目录' },
   },
+  {
+    path: '/libraries/:library_id',
+    name: 'library-detail',
+    component: () => import('./components/MediaLibraryDetailView.vue'),
+    meta: { page: 'libraries', title: '媒体库内容' },
+  },
+  { path: '/series', redirect: { name: 'libraries' } },
   {
     path: '/play/series/:series_id',
     name: 'playback-series',

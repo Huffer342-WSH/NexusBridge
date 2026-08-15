@@ -146,16 +146,16 @@ flowchart LR
 
 这些表用于 qB 离线时返回最近一次分类和标签结果，不保存 torrent 的实时运行状态。
 
-### 4.5 本地剧集
+### 4.5 媒体库与本地剧集
 
 | 表 | 主键 | 主要内容 |
 | --- | --- | --- |
-| `series` | `id` | 大小写不敏感唯一名称、最后选集和最近扫描时间 |
+| `series` | `id` | 媒体库类型、父节点、设置覆盖、大小写不敏感唯一名称、最后选集和最近扫描时间 |
 | `series_options` | `series_id` | 是否为该剧集启用保守的集数识别 |
 | `series_directories` | `(series_id, path)` | 有序绝对根目录、可用状态、扫描错误和时间 |
 | `series_videos` | `(series_id, path)` | 根目录归属、相对路径、大小、修改时间和可用状态 |
 
-剧集视频表只是可重扫缓存，不复制媒体内容。可读目录的缓存按目录事务替换；目录暂时不可读时保留旧行并将其标为不可用。集数、修订版本和显示标题由读取缓存时按视频文件名派生，不写入 `series_videos`。外键只用于删除剧集或移除目录时级联删除对应缓存，任何操作都不会删除源文件。
+为兼容已有数据库，统一媒体库雏形继续复用 `series` 命名的表：`kind=collection` 表示集合，`kind=series` 表示可扫描剧集，`parent_id` 表示逻辑父节点，`settings_json` 保存本地继承覆盖。剧集视频表只是可重扫缓存，不复制媒体内容。可读目录的缓存按目录事务替换；目录暂时不可读时保留旧行并将其标为不可用。集数、修订版本和显示标题由读取缓存时按视频文件名派生，不写入 `series_videos`。外键只用于删除媒体库或移除目录时级联删除对应缓存，任何操作都不会删除源文件。
 
 ## 5. 派生索引库表
 
@@ -259,11 +259,12 @@ erDiagram
     subscriptions ||--o{ subscription_runs : "subscription_id"
     subscriptions ||--o{ download_tasks : "subscription_id"
     download_tasks ||--o| organize_tasks : "download_task_id"
+    series ||--o{ series : "parent_id"
     series ||--o{ series_directories : "series_id"
     series_directories ||--o{ series_videos : "series_id + path"
 ```
 
-种子、规则和任务连线表示应用层关系；剧集两条连线同时由数据库 `FOREIGN KEY` 约束。
+种子、规则、任务和媒体库父子连线表示应用层关系；媒体库到目录、目录到视频的连线同时由数据库 `FOREIGN KEY` 约束。
 
 ## 9. 代码入口
 

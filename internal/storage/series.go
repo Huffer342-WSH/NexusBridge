@@ -12,6 +12,9 @@ import (
 type SeriesRecord struct {
 	ID                     string
 	Name                   string
+	Kind                   string
+	ParentID               string
+	SettingsJSON           string
 	EpisodeNumberDetection bool
 	LastSelectedPath       string
 	LastScannedAt          time.Time
@@ -52,12 +55,14 @@ type SeriesBundleRecord struct {
 func (s *SQLiteStore) SaveSeries(ctx context.Context, record SeriesRecord, directories []SeriesDirectoryRecord) error {
 	return s.withWriteTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO series (id, name, created_at, updated_at)
-VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+INSERT INTO series (id, name, kind, settings_json, created_at, updated_at)
+VALUES (?, ?, 'series', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT(id) DO UPDATE SET
 	name = excluded.name,
+	kind = 'series',
+	settings_json = excluded.settings_json,
 	updated_at = CURRENT_TIMESTAMP
-`, record.ID, record.Name); err != nil {
+`, record.ID, record.Name, record.SettingsJSON); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -98,9 +103,11 @@ ON CONFLICT(series_id, path) DO UPDATE SET
 func (s *SQLiteStore) ListSeries(ctx context.Context) ([]SeriesBundleRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT s.id, s.name, COALESCE(o.episode_number_detection, 0),
+	s.kind, s.parent_id, s.settings_json,
 	s.last_selected_path, s.last_scanned_at, s.created_at, s.updated_at
 FROM series s
 LEFT JOIN series_options o ON o.series_id = s.id
+WHERE s.kind = 'series'
 ORDER BY s.name COLLATE NOCASE, s.id
 `)
 	if err != nil {
@@ -135,10 +142,11 @@ ORDER BY s.name COLLATE NOCASE, s.id
 func (s *SQLiteStore) GetSeries(ctx context.Context, id string) (SeriesBundleRecord, bool, error) {
 	record, err := scanSeries(s.db.QueryRowContext(ctx, `
 SELECT s.id, s.name, COALESCE(o.episode_number_detection, 0),
+	s.kind, s.parent_id, s.settings_json,
 	s.last_selected_path, s.last_scanned_at, s.created_at, s.updated_at
 FROM series s
 LEFT JOIN series_options o ON o.series_id = s.id
-WHERE s.id = ?
+WHERE s.id = ? AND s.kind = 'series'
 `, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -332,7 +340,8 @@ func scanSeries(scanner rowScanner) (SeriesRecord, error) {
 	var episodeNumberDetection int
 	var lastScannedAt, createdAt, updatedAt string
 	if err := scanner.Scan(
-		&record.ID, &record.Name, &episodeNumberDetection, &record.LastSelectedPath,
+		&record.ID, &record.Name, &episodeNumberDetection,
+		&record.Kind, &record.ParentID, &record.SettingsJSON, &record.LastSelectedPath,
 		&lastScannedAt, &createdAt, &updatedAt,
 	); err != nil {
 		return SeriesRecord{}, err

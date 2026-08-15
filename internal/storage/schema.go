@@ -2,6 +2,9 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"strings"
 )
 
 // InitializeSchema 创建当前版本完整且独立的数据库结构。
@@ -315,6 +318,9 @@ CREATE TABLE IF NOT EXISTS organize_tasks (
 CREATE TABLE IF NOT EXISTS series (
 	id TEXT PRIMARY KEY,
 	name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	kind TEXT NOT NULL DEFAULT 'series',
+	parent_id TEXT NOT NULL DEFAULT '',
+	settings_json TEXT NOT NULL DEFAULT '{}',
 	last_selected_path TEXT NOT NULL DEFAULT '',
 	last_scanned_at TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -359,6 +365,15 @@ CREATE INDEX IF NOT EXISTS idx_torrent_files_info_hash_v1 ON torrent_files (info
 	if err != nil {
 		return err
 	}
+	if err := ensureMetadataColumn(ctx, s.db, "series", "kind", "TEXT NOT NULL DEFAULT 'series'"); err != nil {
+		return err
+	}
+	if err := ensureMetadataColumn(ctx, s.db, "series", "parent_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureMetadataColumn(ctx, s.db, "series", "settings_json", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `
 CREATE INDEX IF NOT EXISTS idx_torrents_site_source_order ON torrents (site_id, source_order, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_torrents_published ON torrents (published_at DESC, site_id, torrent_id);
@@ -374,6 +389,7 @@ CREATE INDEX IF NOT EXISTS idx_subscription_runs_subscription ON subscription_ru
 CREATE INDEX IF NOT EXISTS idx_download_tasks_subscription_status ON download_tasks (subscription_id, status, sent_at);
 CREATE INDEX IF NOT EXISTS idx_series_directories_order ON series_directories (series_id, source_order, path);
 CREATE INDEX IF NOT EXISTS idx_series_videos_directory ON series_videos (series_id, directory_path, relative_path);
+CREATE INDEX IF NOT EXISTS idx_series_parent ON series (parent_id, name COLLATE NOCASE, id);
 CREATE TRIGGER IF NOT EXISTS prevent_duplicate_download_task_rule
 BEFORE INSERT ON download_tasks
 WHEN EXISTS (
@@ -462,4 +478,34 @@ PRAGMA user_version = 2;
 PRAGMA optimize = 0x10002;
 `)
 	return err
+}
+
+func ensureMetadataColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if strings.EqualFold(name, column) {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+definition); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
+	}
+	return nil
 }

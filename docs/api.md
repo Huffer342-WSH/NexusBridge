@@ -139,11 +139,37 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 读取本机媒体文件，并按规范化路径精确匹配实时 qB 文件清单。匹配后自动提升为数据库种子或 qB-only 上下文；未匹配时返回 `source=file` 的单文件上下文。上下文中的 `current_path`、`current_directory` 和目录文件路径均可能是本机绝对路径。
 
-### 本地剧集
+### 媒体库目录
+
+`GET|POST /api/media-libraries`
+
+`GET|PUT|DELETE /api/media-libraries/{library_id}`
+
+媒体库使用 `collection` 或 `series` 类型组成父子树。创建或更新接收名称、不可变类型、可选 `parent_id`、一个或多个本机绝对目录和本地设置覆盖：
+
+```json
+{
+  "name": "彻夜之歌 第二季",
+  "kind": "series",
+  "parent_id": "parent-library-id",
+  "directories": ["E:/Users/WuShe/Videos/彻夜之歌 第二季"],
+  "settings": {
+    "episode_number_detection": true
+  }
+}
+```
+
+省略 `settings` 中的字段表示继承；响应同时返回本地 `settings` 和沿父链合并的 `effective_settings`。`collection` 可以作为父节点，`series` 是不能拥有下级的叶子剧集；子节点目录必须严格位于父节点的目录内，有子节点的媒体库不能删除。所有节点保存后都会扫描自身目录，并排除由直接子媒体库管理的目录树。
+
+`POST /api/media-libraries/{library_id}/scan`
+
+显式重扫任意媒体库节点。扫描递归识别可播放视频，但跳过直接子媒体库负责的目录树；目录监控和自动发现子剧集尚未启用。
+
+### 本地剧集兼容 API
 
 `GET /api/series`
 
-返回持久化剧集摘要和上次扫描状态，不扫描磁盘。摘要包含有序目录、视频总数、可用数、最后选集、最近扫描时间和目录错误。
+返回全部 `series` 类型媒体库的持久化摘要和上次扫描状态，不扫描磁盘。摘要包含有序目录、视频总数、可用数、最后选集、最近扫描时间和目录错误。
 
 `POST /api/series`
 

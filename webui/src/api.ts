@@ -59,6 +59,9 @@ import type {
   SeriesSaveRequest,
   SeriesSelectionRequest,
   SeriesSummary,
+  MediaLibraryDetail,
+  MediaLibrarySaveRequest,
+  MediaLibrarySummary,
 } from './types';
 
 /** 发送 API 请求并统一解析错误响应。 */
@@ -150,6 +153,22 @@ export const api = {
     const params = new URLSearchParams({ path });
     return request<PlaybackContext>(`/api/playback/file?${params.toString()}`);
   },
+  getMediaLibraries: () => request<MediaLibrarySummary[]>('/api/media-libraries'),
+  getMediaLibrary: (id: string) => request<MediaLibraryDetail>(`/api/media-libraries/${encodeURIComponent(id)}`),
+  createMediaLibrary: (payload: MediaLibrarySaveRequest) =>
+    request<MediaLibraryDetail>('/api/media-libraries', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateMediaLibrary: (id: string, payload: MediaLibrarySaveRequest) =>
+    request<MediaLibraryDetail>(`/api/media-libraries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteMediaLibrary: (id: string) =>
+    request<DeletedResult>(`/api/media-libraries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  scanMediaLibrary: (id: string) =>
+    request<MediaLibraryDetail>(`/api/media-libraries/${encodeURIComponent(id)}/scan`, { method: 'POST' }),
   getSeries: () => request<SeriesSummary[]>('/api/series'),
   getSeriesDetail: (id: string) => request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}`),
   createSeries: (payload: SeriesSaveRequest) =>

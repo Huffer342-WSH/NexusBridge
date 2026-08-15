@@ -120,6 +120,7 @@ func writeSeriesError(w http.ResponseWriter, err error) {
 	case errors.Is(err, core.ErrSeriesNotFound), errors.Is(err, core.ErrPlaybackNotFound):
 		writeError(w, http.StatusNotFound, err)
 	case errors.Is(err, core.ErrSeriesNoPlayableVideo),
+		errors.Is(err, core.ErrMediaLibraryHasChildren),
 		errors.Is(err, core.ErrPlaybackNotAdded),
 		errors.Is(err, core.ErrPlaybackNoData):
 		writeError(w, http.StatusConflict, err)

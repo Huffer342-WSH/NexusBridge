@@ -20,6 +20,8 @@ tags:
     description: 本地种子缓存和手动下载
   - name: series
     description: 本地剧集配置、扫描和播放
+  - name: media-libraries
+    description: 统一媒体库层级、目录与继承设置
   - name: rules
     description: 筛选规则
   - name: subscriptions
@@ -525,6 +527,111 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "503":
+          $ref: "#/components/responses/Error"
+  /api/media-libraries:
+    get:
+      tags: [media-libraries]
+      summary: 获取全部媒体库节点
+      responses:
+        "200":
+          description: 使用 parent_id 组成层级的媒体库摘要；不触发磁盘扫描。
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MediaLibrarySummary"
+    post:
+      tags: [media-libraries]
+      summary: 创建媒体库节点
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaLibrarySaveRequest"
+      responses:
+        "201":
+          description: 创建后的媒体库及首次扫描结果。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaLibraryDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/media-libraries/{library_id}:
+    parameters:
+      - name: library_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [media-libraries]
+      summary: 获取媒体库缓存详情
+      responses:
+        "200":
+          description: 媒体库详情；不触发磁盘扫描。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaLibraryDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [media-libraries]
+      summary: 更新媒体库层级、目录和本地设置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MediaLibrarySaveRequest"
+      responses:
+        "200":
+          description: 更新后的媒体库及扫描结果。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaLibraryDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [media-libraries]
+      summary: 删除叶子媒体库配置和缓存
+      description: 有子媒体库时返回 409；不删除目录或任何源文件。
+      responses:
+        "200":
+          description: 删除结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/media-libraries/{library_id}/scan:
+    parameters:
+      - name: library_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [media-libraries]
+      summary: 手动重扫媒体库
+      description: 递归扫描当前节点目录，并跳过直接子媒体库负责的目录树。
+      responses:
+        "200":
+          description: 更新后的媒体库详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaLibraryDetail"
+        "404":
           $ref: "#/components/responses/Error"
   /api/series:
     get:
@@ -2400,6 +2507,73 @@ components:
       required: [path]
       properties:
         path: { type: string }
+    MediaLibrarySettingsOverride:
+      type: object
+      description: 省略字段表示继承父媒体库。
+      properties:
+        episode_number_detection: { type: boolean }
+        auto_detect_series: { type: boolean }
+    MediaLibrarySettings:
+      type: object
+      required: [episode_number_detection, auto_detect_series]
+      properties:
+        episode_number_detection: { type: boolean }
+        auto_detect_series: { type: boolean }
+    MediaLibrarySummary:
+      type: object
+      required:
+        [id, name, kind, directories, settings, effective_settings, video_count, available_video_count, scan_errors, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind:
+          type: string
+          enum: [collection, series]
+        parent_id: { type: string }
+        directories:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeriesDirectory"
+        settings:
+          $ref: "#/components/schemas/MediaLibrarySettingsOverride"
+        effective_settings:
+          $ref: "#/components/schemas/MediaLibrarySettings"
+        video_count: { type: integer, minimum: 0 }
+        available_video_count: { type: integer, minimum: 0 }
+        last_scanned_at: { type: string, format: date-time }
+        scan_errors:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    MediaLibraryDetail:
+      allOf:
+        - $ref: "#/components/schemas/MediaLibrarySummary"
+        - type: object
+          required: [videos]
+          properties:
+            videos:
+              type: array
+              items:
+                $ref: "#/components/schemas/SeriesVideo"
+    MediaLibrarySaveRequest:
+      type: object
+      required: [name, kind, parent_id, directories, settings]
+      properties:
+        name: { type: string }
+        kind:
+          type: string
+          enum: [collection, series]
+          description: collection 可以包含下级；series 是不能作为父节点的叶子剧集。
+        parent_id:
+          type: string
+          description: 空字符串表示根媒体库；指定的父节点必须为 collection，且目录必须包含当前节点目录。
+        directories:
+          type: array
+          minItems: 1
+          items: { type: string }
+        settings:
+          $ref: "#/components/schemas/MediaLibrarySettingsOverride"
     PlaybackContext:
       type: object
       required: [source, title, current_path, current_directory, files, directory_files]

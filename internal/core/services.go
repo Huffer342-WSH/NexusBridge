@@ -48,6 +48,15 @@ type SeriesService interface {
 	GetSeriesPlayback(ctx context.Context, id, path string) (PlaybackContext, error)
 }
 
+// MediaLibraryService 提供统一媒体库层级、继承设置和媒体扫描。
+type MediaLibraryService interface {
+	ListMediaLibraries(ctx context.Context) ([]MediaLibrarySummary, error)
+	GetMediaLibrary(ctx context.Context, id string) (MediaLibraryDetail, error)
+	SaveMediaLibrary(ctx context.Context, id string, request MediaLibrarySaveRequest) (MediaLibraryDetail, error)
+	DeleteMediaLibrary(ctx context.Context, id string) (bool, error)
+	ScanMediaLibrary(ctx context.Context, id string) (MediaLibraryDetail, error)
+}
+
 type FetchService interface {
 	StartSiteFetch(ctx context.Context, siteID, trigger string, request SiteFetchRequest) (SiteFetchJob, error)
 	ListSiteFetchJobs(ctx context.Context, siteID string, limit int) ([]SiteFetchJob, error)

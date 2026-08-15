@@ -339,6 +339,46 @@ export type SeriesSelectionRequest = {
   path: string;
 };
 
+export type MediaLibraryKind = 'collection' | 'series';
+
+export type MediaLibrarySettingsOverride = {
+  episode_number_detection?: boolean;
+  auto_detect_series?: boolean;
+};
+
+export type MediaLibrarySettings = {
+  episode_number_detection: boolean;
+  auto_detect_series: boolean;
+};
+
+export type MediaLibrarySummary = {
+  id: string;
+  name: string;
+  kind: MediaLibraryKind;
+  parent_id?: string;
+  directories: SeriesDirectory[];
+  settings: MediaLibrarySettingsOverride;
+  effective_settings: MediaLibrarySettings;
+  video_count: number;
+  available_video_count: number;
+  last_scanned_at?: string;
+  scan_errors: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type MediaLibraryDetail = MediaLibrarySummary & {
+  videos: SeriesVideo[];
+};
+
+export type MediaLibrarySaveRequest = {
+  name: string;
+  kind: MediaLibraryKind;
+  parent_id: string;
+  directories: string[];
+  settings: MediaLibrarySettingsOverride;
+};
+
 export type PlaybackContext = {
   source: 'torrent' | 'qb' | 'file';
   title: string;

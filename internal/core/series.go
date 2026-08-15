@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"nexusbridge/internal/storage"
 )
@@ -31,8 +30,18 @@ func (a *App) ListSeries(ctx context.Context) ([]SeriesSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	all, err := a.store.ListMediaLibraries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolver := newMediaLibrarySettingsResolver(all)
 	result := make([]SeriesSummary, 0, len(records))
 	for _, record := range records {
+		effective, err := resolver.resolve(record.Series.ID)
+		if err != nil {
+			return nil, err
+		}
+		record.Series.EpisodeNumberDetection = effective.EpisodeNumberDetection
 		result = append(result, seriesDetailFromRecord(record).SeriesSummary)
 	}
 	return result, nil
@@ -47,6 +56,15 @@ func (a *App) GetSeries(ctx context.Context, id string) (SeriesDetail, error) {
 	if !ok {
 		return SeriesDetail{}, ErrSeriesNotFound
 	}
+	all, err := a.store.ListMediaLibraries(ctx)
+	if err != nil {
+		return SeriesDetail{}, err
+	}
+	effective, err := newMediaLibrarySettingsResolver(all).resolve(record.Series.ID)
+	if err != nil {
+		return SeriesDetail{}, err
+	}
+	record.Series.EpisodeNumberDetection = effective.EpisodeNumberDetection
 	return seriesDetailFromRecord(record), nil
 }
 
@@ -68,18 +86,19 @@ func (a *App) SaveSeries(ctx context.Context, id string, request SeriesSaveReque
 			return SeriesDetail{}, err
 		}
 	}
-	lock := a.seriesMutex(id)
-	if err := lock.Lock(ctx); err != nil {
+	unlock, err := a.lockMediaLibraryMutation(ctx, id)
+	if err != nil {
 		return SeriesDetail{}, err
 	}
-	defer lock.Unlock()
+	defer unlock()
 
-	if _, ok, err := a.store.GetSeries(ctx, id); err != nil {
+	current, exists, err := a.store.GetSeries(ctx, id)
+	if err != nil {
 		return SeriesDetail{}, err
-	} else if !creating && !ok {
+	} else if !creating && !exists {
 		return SeriesDetail{}, ErrSeriesNotFound
 	}
-	all, err := a.store.ListSeries(ctx)
+	all, err := a.store.ListMediaLibraries(ctx)
 	if err != nil {
 		return SeriesDetail{}, err
 	}
@@ -88,14 +107,39 @@ func (a *App) SaveSeries(ctx context.Context, id string, request SeriesSaveReque
 			return SeriesDetail{}, fmt.Errorf("%w: series name %q already exists", ErrSeriesInvalid, name)
 		}
 	}
+	if !creating && current.Series.ParentID != "" {
+		var parent *storage.SeriesBundleRecord
+		for index := range all {
+			if all[index].Series.ID == current.Series.ParentID {
+				parent = &all[index]
+				break
+			}
+		}
+		if parent == nil || !mediaLibraryDirectoriesWithinParent(directories, parent.Directories) {
+			return SeriesDetail{}, fmt.Errorf("%w: series directories must remain inside the parent media library", ErrSeriesInvalid)
+		}
+	}
+	for _, child := range all {
+		if child.Series.ParentID == id && !mediaLibraryDirectoriesWithinParent(
+			mediaLibraryDirectoryPaths(child.Directories), directoryRecordsFromPaths(directories),
+		) {
+			return SeriesDetail{}, fmt.Errorf("%w: updated directories would move a child media library outside this series", ErrSeriesInvalid)
+		}
+	}
 	records := make([]storage.SeriesDirectoryRecord, 0, len(directories))
 	for index, directory := range directories {
 		records = append(records, storage.SeriesDirectoryRecord{
 			SeriesID: id, Path: directory, SourceOrder: index,
 		})
 	}
+	setting := request.EpisodeNumberDetection
+	settingsJSON, err := encodeMediaLibrarySettings(MediaLibrarySettingsOverride{EpisodeNumberDetection: &setting})
+	if err != nil {
+		return SeriesDetail{}, err
+	}
 	if err := a.store.SaveSeries(ctx, storage.SeriesRecord{
-		ID: id, Name: name, EpisodeNumberDetection: request.EpisodeNumberDetection,
+		ID: id, Name: name, Kind: string(MediaLibrarySeries), SettingsJSON: settingsJSON,
+		EpisodeNumberDetection: request.EpisodeNumberDetection,
 	}, records); err != nil {
 		return SeriesDetail{}, err
 	}
@@ -108,12 +152,11 @@ func (a *App) DeleteSeries(ctx context.Context, id string) (bool, error) {
 	if id == "" {
 		return false, ErrSeriesNotFound
 	}
-	lock := a.seriesMutex(id)
-	if err := lock.Lock(ctx); err != nil {
-		return false, err
+	deleted, err := a.DeleteMediaLibrary(ctx, id)
+	if errors.Is(err, ErrMediaLibraryNotFound) {
+		return false, ErrSeriesNotFound
 	}
-	defer lock.Unlock()
-	return a.store.DeleteSeries(ctx, id)
+	return deleted, err
 }
 
 // ScanSeries 串行重扫一个剧集的全部目录。
@@ -128,35 +171,15 @@ func (a *App) ScanSeries(ctx context.Context, id string) (SeriesDetail, error) {
 }
 
 func (a *App) scanSeriesLocked(ctx context.Context, id string) (SeriesDetail, error) {
-	record, ok, err := a.store.GetSeries(ctx, id)
+	detail, err := a.scanMediaLibraryLocked(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrMediaLibraryNotFound) {
+			return SeriesDetail{}, ErrSeriesNotFound
+		}
 		return SeriesDetail{}, err
 	}
-	if !ok {
+	if detail.Kind != MediaLibrarySeries {
 		return SeriesDetail{}, ErrSeriesNotFound
-	}
-	scannedAt := time.Now()
-	for _, directory := range record.Directories {
-		videos, scanErr := scanSeriesDirectory(ctx, id, directory.Path)
-		if scanErr != nil {
-			if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
-				return SeriesDetail{}, scanErr
-			}
-			if err := a.store.MarkSeriesDirectoryUnavailable(
-				ctx, id, directory.Path, scanErr.Error(), scannedAt,
-			); err != nil {
-				return SeriesDetail{}, err
-			}
-			continue
-		}
-		if err := a.store.ReplaceSeriesDirectoryVideos(
-			ctx, id, directory.Path, videos, scannedAt,
-		); err != nil {
-			return SeriesDetail{}, err
-		}
-	}
-	if err := a.store.FinalizeSeriesScan(ctx, id, scannedAt); err != nil {
-		return SeriesDetail{}, err
 	}
 	return a.GetSeries(ctx, id)
 }
@@ -294,6 +317,7 @@ func normalizeSeriesDirectories(values []string) ([]string, error) {
 func scanSeriesDirectory(
 	ctx context.Context,
 	seriesID, root string,
+	excludedRoots []string,
 ) ([]storage.SeriesVideoRecord, error) {
 	info, err := os.Stat(root)
 	if err != nil {
@@ -312,6 +336,13 @@ func scanSeriesDirectory(
 		}
 		if path == root {
 			return nil
+		}
+		if entry.IsDir() {
+			for _, excluded := range excludedRoots {
+				if sameFilesystemPath(path, excluded) || filesystemPathWithinRoot(path, excluded) {
+					return filepath.SkipDir
+				}
+			}
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			if entry.IsDir() {

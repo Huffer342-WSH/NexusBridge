@@ -15,23 +15,24 @@ import (
 )
 
 type Server struct {
-	cfg           config.Config
-	sites         core.SiteService
-	torrents      core.TorrentService
-	playback      core.PlaybackService
-	series        core.SeriesService
-	fetcher       core.FetchService
-	rules         core.RuleService
-	subscriptions core.SubscriptionService
-	qbCatalog     core.QBCatalogService
-	recovery      core.RecoveryService
-	batch         core.BatchDownloadService
-	downloads     core.DownloadTaskService
-	organizer     core.OrganizeTaskService
-	settings      settingsService
-	actions       torrentActionService
-	static        string
-	staticFS      fs.FS
+	cfg            config.Config
+	sites          core.SiteService
+	torrents       core.TorrentService
+	playback       core.PlaybackService
+	mediaLibraries core.MediaLibraryService
+	series         core.SeriesService
+	fetcher        core.FetchService
+	rules          core.RuleService
+	subscriptions  core.SubscriptionService
+	qbCatalog      core.QBCatalogService
+	recovery       core.RecoveryService
+	batch          core.BatchDownloadService
+	downloads      core.DownloadTaskService
+	organizer      core.OrganizeTaskService
+	settings       settingsService
+	actions        torrentActionService
+	static         string
+	staticFS       fs.FS
 }
 
 type settingsService interface {
@@ -56,6 +57,7 @@ func New(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.MediaLibraryService
 	core.SeriesService
 	core.FetchService
 	core.RuleService
@@ -76,6 +78,7 @@ func NewWithAssets(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.MediaLibraryService
 	core.SeriesService
 	core.FetchService
 	core.RuleService
@@ -96,6 +99,7 @@ func newServer(cfg config.Config, app interface {
 	core.SiteService
 	core.TorrentService
 	core.PlaybackService
+	core.MediaLibraryService
 	core.SeriesService
 	core.FetchService
 	core.RuleService
@@ -109,23 +113,24 @@ func newServer(cfg config.Config, app interface {
 	torrentActionService
 }, staticDir string, assets fs.FS) *Server {
 	return &Server{
-		cfg:           cfg,
-		sites:         app,
-		torrents:      app,
-		playback:      app,
-		series:        app,
-		fetcher:       app,
-		rules:         app,
-		subscriptions: app,
-		qbCatalog:     app,
-		recovery:      app,
-		batch:         app,
-		downloads:     app,
-		organizer:     app,
-		settings:      app,
-		actions:       app,
-		static:        staticDir,
-		staticFS:      assets,
+		cfg:            cfg,
+		sites:          app,
+		torrents:       app,
+		playback:       app,
+		mediaLibraries: app,
+		series:         app,
+		fetcher:        app,
+		rules:          app,
+		subscriptions:  app,
+		qbCatalog:      app,
+		recovery:       app,
+		batch:          app,
+		downloads:      app,
+		organizer:      app,
+		settings:       app,
+		actions:        app,
+		static:         staticDir,
+		staticFS:       assets,
 	}
 }
 
@@ -147,6 +152,12 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/torrents", s.handleTorrents)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/cover", s.handleTorrentCover)
 	r.Get("/api/torrents/{site_id}/{torrent_id}/playback", s.handleTorrentPlayback)
+	r.Get("/api/media-libraries", s.handleMediaLibraries)
+	r.Post("/api/media-libraries", s.handleCreateMediaLibrary)
+	r.Get("/api/media-libraries/{library_id}", s.handleGetMediaLibrary)
+	r.Put("/api/media-libraries/{library_id}", s.handleUpdateMediaLibrary)
+	r.Delete("/api/media-libraries/{library_id}", s.handleDeleteMediaLibrary)
+	r.Post("/api/media-libraries/{library_id}/scan", s.handleScanMediaLibrary)
 	r.Get("/api/series", s.handleSeries)
 	r.Post("/api/series", s.handleCreateSeries)
 	r.Get("/api/series/{series_id}", s.handleGetSeries)

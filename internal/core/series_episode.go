@@ -43,24 +43,41 @@ type episodeDetectionResult struct {
 // detectSeriesEpisodeNumbers 只为高相似且数字近连续的文件组补充集数标签。
 func detectSeriesEpisodeNumbers(videos []SeriesVideo) {
 	groups := make(map[string][]int)
+	rootGroups := make(map[string][]int)
 	for index, video := range videos {
+		root := normalizedFilesystemPath(video.DirectoryPath)
 		parent := seriesEpisodeGroupParent(video)
-		key := normalizedFilesystemPath(video.DirectoryPath) + "\x00" + normalizedFilesystemPath(parent)
+		key := root + "\x00" + normalizedFilesystemPath(parent)
 		groups[key] = append(groups[key], index)
+		rootGroups[root] = append(rootGroups[root], index)
 	}
 	for _, indexes := range groups {
 		if len(indexes) < minimumEpisodeGroupSize {
 			continue
 		}
-		result := detectEpisodeGroup(videos, indexes)
-		for videoIndex, match := range result.matches {
-			number := match.number
-			videos[videoIndex].EpisodeNumber = &number
-			videos[videoIndex].EpisodeVersion = match.version
-			videos[videoIndex].EpisodeLabel = "第 " + match.rawNumber + " 集"
-			if match.version > 0 {
-				videos[videoIndex].EpisodeLabel += " · v" + strconv.Itoa(match.version)
-			}
+		applyEpisodeDetectionResult(videos, detectEpisodeGroup(videos, indexes), false)
+	}
+	// 下载任务可能把连续的少量剧集放入 07-08 之类的批次子目录。
+	// 先按目录识别以隔离普通文件夹，再以媒体库根目录补齐这些不足三个文件的小组。
+	for _, indexes := range rootGroups {
+		if len(indexes) < minimumEpisodeGroupSize {
+			continue
+		}
+		applyEpisodeDetectionResult(videos, detectEpisodeGroup(videos, indexes), true)
+	}
+}
+
+func applyEpisodeDetectionResult(videos []SeriesVideo, result episodeDetectionResult, onlyMissing bool) {
+	for videoIndex, match := range result.matches {
+		if onlyMissing && videos[videoIndex].EpisodeNumber != nil {
+			continue
+		}
+		number := match.number
+		videos[videoIndex].EpisodeNumber = &number
+		videos[videoIndex].EpisodeVersion = match.version
+		videos[videoIndex].EpisodeLabel = "第 " + match.rawNumber + " 集"
+		if match.version > 0 {
+			videos[videoIndex].EpisodeLabel += " · v" + strconv.Itoa(match.version)
 		}
 	}
 }
