@@ -62,6 +62,7 @@ import type {
   MediaLibraryDetail,
   MediaLibrarySaveRequest,
   MediaLibrarySummary,
+  SubtitleScanSettings,
 } from './types';
 
 /** 发送 API 请求并统一解析错误响应。 */
@@ -153,6 +154,15 @@ export const api = {
     const params = new URLSearchParams({ path });
     return request<PlaybackContext>(`/api/playback/file?${params.toString()}`);
   },
+  savePlaybackExternalSubtitle: (videoPath: string, subtitlePath: string) =>
+    request('/api/playback/external-subtitle', {
+      method: 'PUT',
+      body: JSON.stringify({ video_path: videoPath, subtitle_path: subtitlePath }),
+    }),
+  deletePlaybackExternalSubtitle: (videoPath: string) => {
+    const params = new URLSearchParams({ path: videoPath });
+    return request<void>(`/api/playback/external-subtitle?${params.toString()}`, { method: 'DELETE' });
+  },
   getMediaLibraries: () => request<MediaLibrarySummary[]>('/api/media-libraries'),
   getMediaLibrary: (id: string) => request<MediaLibraryDetail>(`/api/media-libraries/${encodeURIComponent(id)}`),
   createMediaLibrary: (payload: MediaLibrarySaveRequest) =>
@@ -169,6 +179,12 @@ export const api = {
     request<DeletedResult>(`/api/media-libraries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   scanMediaLibrary: (id: string) =>
     request<MediaLibraryDetail>(`/api/media-libraries/${encodeURIComponent(id)}/scan`, { method: 'POST' }),
+  getSubtitleScanSettings: () => request<SubtitleScanSettings>('/api/settings/media-libraries'),
+  saveSubtitleScanSettings: (settings: SubtitleScanSettings) =>
+    request<SubtitleScanSettings>('/api/settings/media-libraries', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
   getSeries: () => request<SeriesSummary[]>('/api/series'),
   getSeriesDetail: (id: string) => request<SeriesDetail>(`/api/series/${encodeURIComponent(id)}`),
   createSeries: (payload: SeriesSaveRequest) =>

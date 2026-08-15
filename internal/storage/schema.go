@@ -358,6 +358,13 @@ CREATE TABLE IF NOT EXISTS series_videos (
 		REFERENCES series_directories(series_id, path) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS playback_external_subtitles (
+	video_path TEXT PRIMARY KEY COLLATE NOCASE,
+	subtitle_path TEXT NOT NULL,
+	created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_download_tasks_site_torrent ON download_tasks (site_id, torrent_id);
 CREATE INDEX IF NOT EXISTS idx_download_tasks_qb_hash ON download_tasks (qb_hash);
 CREATE INDEX IF NOT EXISTS idx_torrent_files_info_hash_v1 ON torrent_files (info_hash_v1 COLLATE NOCASE);

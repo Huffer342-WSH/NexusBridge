@@ -84,11 +84,9 @@ flowchart LR
 
 配置位于 `webui/src/config/mediaPlayer.ts`。WAV 通过正确 MIME 和带扩展名的流地址交给浏览器原生音频解码。图片查看器初始等比例适应画布，支持缩放、拖动、重置和全屏。
 
-### MKV 内嵌字幕
+### 视频字幕
 
-播放清单只对当前 MKV 文件读取容器头部，列出可转换的内嵌文本字幕轨。支持 `S_TEXT/UTF8`、`S_TEXT/WEBVTT`、`S_TEXT/ASS` 和 `S_TEXT/SSA`；PGS、VobSub 等图片字幕不做 OCR 或转换。
-
-字幕接口按播放来源重新解析受控源文件和轨道 ID，将文本轨导出为 WebVTT。单条响应最大 32 MiB，不生成持久字幕文件，也不读取或转换音视频轨。Artplayer 默认选择 forced 轨、default 轨或第一条文本轨，并在设置面板提供多字幕切换和时间偏移；原生视频播放器使用标准 `<track>` 元素。
+MKV 内嵌文本轨和普通视频手动外挂字幕共用 `PlaybackMedia.subtitles`、磁盘产物缓存及浏览器回退链路。已配置媒体库按全局可配置周期自动扫描并预热 MKV 文本字幕；ASS/SSA 优先由 JASSUB/libass 渲染，失败时切回同轨 WebVTT。图片字幕明确不开发，字体附件和目录自动匹配尚未实现。完整格式范围、路径关联、缓存生命周期和接口统一见[视频字幕](subtitles.md)。
 
 ## 源文件传输与边界
 
@@ -98,7 +96,7 @@ flowchart LR
 | qB 任务 | `GET\|HEAD /api/playback/qb/{hash}/media/{file_index}` |
 | 本机文件 | `GET\|HEAD /api/playback/file/media?path=...` |
 
-字幕 URL 由当前媒体的 `subtitles[].stream_url` 提供，三类来源分别使用数据库种子、qB hash 或绝对文件路径重新定位同一个 MKV。
+字幕 VTT URL 由当前媒体的 `subtitles[].stream_url` 提供，ASS/SSA 的富字幕 URL 由可选 `subtitles[].rich_url` 提供；三类来源分别使用数据库种子、qB hash 或绝对文件路径重新定位同一个 MKV。
 
 qB 接口每次都按 hash 和文件索引重新读取实时清单，不信任客户端提交的相对路径。qB 文件先拒绝绝对相对名、`.`、`..` 和字面越界，再解析符号链接并确认最终普通文件仍在实际 `save_path` 内；目录内的符号链接可直接使用。
 

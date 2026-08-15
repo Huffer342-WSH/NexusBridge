@@ -2,6 +2,11 @@ package core
 
 import "time"
 
+// SubtitleScanSettings 表示所有媒体库共用的 MKV 字幕周期扫描设置。
+type SubtitleScanSettings struct {
+	IntervalMinutes int `json:"interval_minutes"`
+}
+
 // MediaLibraryKind 表示媒体库节点的业务形态。
 type MediaLibraryKind string
 

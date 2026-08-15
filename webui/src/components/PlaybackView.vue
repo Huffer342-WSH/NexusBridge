@@ -1,8 +1,8 @@
 <!-- 播放视图负责实时选集、媒体画布、简介和其他可播放种子。 -->
 <script setup lang="ts">
-import { ExternalLink, File, Film, Folder, Image, Music2, Play, RefreshCw, Trash2 } from '@lucide/vue';
+import { ExternalLink, File, Film, Folder, Image, Music2, Paperclip, Play, RefreshCw, Trash2 } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { NAlert, NButton, NCard, NEmpty, NIcon, NResult, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
+import { NAlert, NButton, NCard, NEmpty, NIcon, NResult, NSpace, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import type {
@@ -18,6 +18,7 @@ import { formatByteSize } from '../utils/format';
 import QBDeleteDialog from './QBDeleteDialog.vue';
 import MediaThumbnail from './MediaThumbnail.vue';
 import MediaCanvas from './player/MediaCanvas.vue';
+import FilePickerDialog from './FilePickerDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -38,6 +39,9 @@ const deleteDialogOpen = ref(false);
 const deleteLoading = ref(false);
 const deleteError = ref('');
 const deletedQB = ref<{ deleteFiles: boolean } | null>(null);
+const subtitlePickerOpen = ref(false);
+const subtitleSaving = ref(false);
+const subtitleError = ref('');
 let generation = 0;
 let pollTimer: number | undefined;
 let skipNextRouteLoad = false;
@@ -406,6 +410,37 @@ async function openOther(torrent: PlaybackTorrent) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+async function selectExternalSubtitle(path: string) {
+  const videoPath = playback.value?.current_path ?? '';
+  if (!videoPath || subtitleSaving.value) return;
+  subtitleSaving.value = true;
+  subtitleError.value = '';
+  try {
+    await api.savePlaybackExternalSubtitle(videoPath, path);
+    subtitlePickerOpen.value = false;
+    await refreshManifest(generation, true, true);
+  } catch (reason) {
+    subtitleError.value = reason instanceof Error ? reason.message : '外挂字幕保存失败';
+  } finally {
+    subtitleSaving.value = false;
+  }
+}
+
+async function removeExternalSubtitle() {
+  const videoPath = playback.value?.current_path ?? '';
+  if (!videoPath || subtitleSaving.value) return;
+  subtitleSaving.value = true;
+  subtitleError.value = '';
+  try {
+    await api.deletePlaybackExternalSubtitle(videoPath);
+    await refreshManifest(generation, true, true);
+  } catch (reason) {
+    subtitleError.value = reason instanceof Error ? reason.message : '外挂字幕关联删除失败';
+  } finally {
+    subtitleSaving.value = false;
+  }
+}
+
 /** 打开当前播放内容对应 qB 任务的删除确认框。 */
 function openDeleteDialog() {
   deleteError.value = '';
@@ -546,10 +581,53 @@ onBeforeUnmount(() => {
                 {{ mediaLabel(currentFile.media_type) }} · {{ formatByteSize(currentFile.size) }}
               </NTag>
               <NTag v-if="currentFile?.subtitles?.length" type="info">
-                内嵌字幕 · {{ currentFile.subtitles.length }}
+                字幕 · {{ currentFile.subtitles.length }}
               </NTag>
             </div>
             <p v-if="currentFile" class="current-media-name">{{ currentFile.name }}</p>
+            <div v-if="currentFile?.media_type === 'video'" class="external-subtitle-row">
+              <div class="external-subtitle-copy">
+                <NIcon :component="Paperclip" />
+                <span v-if="playback.external_subtitle" :title="playback.external_subtitle.subtitle_path">
+                  {{ playback.external_subtitle.subtitle_path }}
+                  <small v-if="!playback.external_subtitle.available"> · 文件暂不可用</small>
+                </span>
+                <span v-else class="muted">未指定外挂字幕</span>
+              </div>
+              <NSpace>
+                <NButton size="small" secondary :loading="subtitleSaving" @click="subtitlePickerOpen = true">
+                  {{ playback.external_subtitle ? '更换字幕' : '选择字幕' }}
+                </NButton>
+                <NButton
+                  v-if="playback.external_subtitle"
+                  size="small"
+                  tertiary
+                  type="error"
+                  :loading="subtitleSaving"
+                  @click="removeExternalSubtitle"
+                >
+                  移除关联
+                </NButton>
+              </NSpace>
+            </div>
+            <div v-if="currentFile?.subtitles?.length" class="subtitle-management-list">
+              <div
+                v-for="subtitle in currentFile.subtitles"
+                :key="`${subtitle.external ? 'external' : 'embedded'}:${subtitle.track_id}`"
+                class="subtitle-management-item"
+              >
+                <span :title="subtitle.label">{{ subtitle.label }}</span>
+                <NSpace size="small">
+                  <NTag size="small" :type="subtitle.external ? 'success' : 'info'">
+                    {{ subtitle.external ? '外挂' : 'MKV 内嵌' }}
+                  </NTag>
+                  <NTag size="small">{{ subtitle.codec.toUpperCase() }}</NTag>
+                  <NTag v-if="subtitle.rich_url" size="small" type="warning">ASS 富样式</NTag>
+                </NSpace>
+              </div>
+              <small class="muted">播放时可在播放器设置中的“字幕”切换轨道、关闭字幕或调整时间偏移。</small>
+            </div>
+            <NAlert v-if="subtitleError" type="error" :bordered="false">{{ subtitleError }}</NAlert>
             <p v-if="playback.source !== 'file'" class="playback-summary">{{ description }}</p>
           </NCard>
         </div>
@@ -748,6 +826,13 @@ onBeforeUnmount(() => {
       :loading="deleteLoading"
       :error="deleteError"
       @confirm="deleteQBTask"
+    />
+    <FilePickerDialog
+      v-model:show="subtitlePickerOpen"
+      mode="file"
+      title="选择外挂字幕（ASS、SSA、SRT、VTT）"
+      :initial-path="playback?.current_directory || ''"
+      @select="selectExternalSubtitle"
     />
   </section>
 </template>

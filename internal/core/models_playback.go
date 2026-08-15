@@ -48,36 +48,54 @@ type PlaybackSubtitle struct {
 	Default   bool   `json:"default"`
 	Forced    bool   `json:"forced"`
 	StreamURL string `json:"stream_url"`
+	RichURL   string `json:"rich_url,omitempty"`
+	External  bool   `json:"external,omitempty"`
+}
+
+// PlaybackExternalSubtitle 表示当前视频已经保存的外挂字幕路径及其可用状态。
+type PlaybackExternalSubtitle struct {
+	VideoPath    string `json:"video_path"`
+	SubtitlePath string `json:"subtitle_path"`
+	Available    bool   `json:"available"`
+}
+
+// PlaybackSubtitleArtifact 表示已经提取完成、可直接响应的字幕产物。
+type PlaybackSubtitleArtifact struct {
+	Content []byte
+	Format  string
+	ETag    string
+	Cached  bool
 }
 
 // PlaybackDirectoryFile 表示当前媒体所在目录中的一个普通文件。
 type PlaybackDirectoryFile struct {
-	Name       string            `json:"name"`
-	Path       string            `json:"path"`
-	Size       int64             `json:"size"`
-	ModifiedAt time.Time         `json:"modified_at"`
-	MediaType  PlaybackMediaType `json:"media_type,omitempty"`
-	MIMEType   string            `json:"mime_type,omitempty"`
-	ThumbnailURL string          `json:"thumbnail_url,omitempty"`
-	Playable   bool              `json:"playable"`
-	Current    bool              `json:"current"`
+	Name         string            `json:"name"`
+	Path         string            `json:"path"`
+	Size         int64             `json:"size"`
+	ModifiedAt   time.Time         `json:"modified_at"`
+	MediaType    PlaybackMediaType `json:"media_type,omitempty"`
+	MIMEType     string            `json:"mime_type,omitempty"`
+	ThumbnailURL string            `json:"thumbnail_url,omitempty"`
+	Playable     bool              `json:"playable"`
+	Current      bool              `json:"current"`
 }
 
 // PlaybackContext 返回播放页统一使用的来源、详情、选集和目录文件。
 type PlaybackContext struct {
-	Source           PlaybackSourceType      `json:"source"`
-	Title            string                  `json:"title"`
-	CurrentPath      string                  `json:"current_path"`
-	CurrentDirectory string                  `json:"current_directory"`
-	Torrent          *Torrent                `json:"torrent,omitempty"`
-	QBStatus         *QBTorrentStatus        `json:"qb_status,omitempty"`
-	QBHash           string                  `json:"qb_hash,omitempty"`
-	Files            []PlaybackMedia         `json:"files"`
-	DirectoryFiles   []PlaybackDirectoryFile `json:"directory_files"`
-	DefaultFileIndex *int                    `json:"default_file_index,omitempty"`
-	CurrentFileIndex *int                    `json:"current_file_index,omitempty"`
-	Series           *SeriesSummary          `json:"series,omitempty"`
-	SeriesFiles      []SeriesVideo           `json:"series_files,omitempty"`
+	Source           PlaybackSourceType        `json:"source"`
+	Title            string                    `json:"title"`
+	CurrentPath      string                    `json:"current_path"`
+	CurrentDirectory string                    `json:"current_directory"`
+	Torrent          *Torrent                  `json:"torrent,omitempty"`
+	QBStatus         *QBTorrentStatus          `json:"qb_status,omitempty"`
+	QBHash           string                    `json:"qb_hash,omitempty"`
+	Files            []PlaybackMedia           `json:"files"`
+	DirectoryFiles   []PlaybackDirectoryFile   `json:"directory_files"`
+	DefaultFileIndex *int                      `json:"default_file_index,omitempty"`
+	CurrentFileIndex *int                      `json:"current_file_index,omitempty"`
+	Series           *SeriesSummary            `json:"series,omitempty"`
+	SeriesFiles      []SeriesVideo             `json:"series_files,omitempty"`
+	ExternalSubtitle *PlaybackExternalSubtitle `json:"external_subtitle,omitempty"`
 }
 
 // PlaybackTorrent 表示播放页右侧可跳转的其他种子。

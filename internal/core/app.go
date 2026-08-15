@@ -10,6 +10,7 @@ import (
 
 	"nexusbridge/internal/config"
 	"nexusbridge/internal/core/covercache"
+	"nexusbridge/internal/core/subtitleartifact"
 	"nexusbridge/internal/core/videothumbnail"
 	"nexusbridge/internal/parser"
 	"nexusbridge/internal/qbittorrent"
@@ -18,45 +19,51 @@ import (
 
 // App 组合持久化、站点抓取、订阅执行和外部服务适配。
 type App struct {
-	cfg                config.Config
-	store              *storage.SQLiteStore
-	ctx                context.Context
-	cancel             context.CancelFunc
-	qbMu               sync.Mutex
-	qbConfigMu         sync.RWMutex
-	qbPollMu           sync.Mutex
-	qbPollRID          int
-	qbPollRevision     int
-	qbPollLastAt       time.Time
-	qbRuntimeMu        sync.RWMutex
-	qbRuntime          map[storage.TorrentKey]storage.QBSnapshotRecord
-	qbRuntimeReady     bool
-	pinnedMu           sync.RWMutex
-	pinnedBySite       map[string]map[storage.TorrentKey]int
-	mihomoMu           sync.Mutex
-	qbCached           *qbittorrent.Client
-	qbCacheKey         string
-	coverCache         *covercache.Service
-	videoThumbnail     *videothumbnail.Service
-	sites              map[string]runtimeSite
-	siteIDs            []string
-	automationOnce     sync.Once
-	automationWake     chan struct{}
-	automationMu       sync.Mutex
-	automationCancel   context.CancelFunc
-	automationWG       sync.WaitGroup
-	maintenanceWG      sync.WaitGroup
-	siteLockMu         sync.Mutex
-	siteLocks          map[string]*contextMutex
-	subscriptionLockMu sync.Mutex
-	subscriptionLocks  map[string]*contextMutex
-	hashLockMu         sync.Mutex
-	hashLocks          map[string]*contextMutex
-	seriesLockMu       sync.Mutex
-	seriesLocks        map[string]*contextMutex
-	fetchMu            sync.Mutex
-	activeFetches      map[string]*activeSiteFetch
-	fetchWG            sync.WaitGroup
+	cfg                  config.Config
+	store                *storage.SQLiteStore
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	qbMu                 sync.Mutex
+	qbConfigMu           sync.RWMutex
+	qbPollMu             sync.Mutex
+	qbPollRID            int
+	qbPollRevision       int
+	qbPollLastAt         time.Time
+	qbRuntimeMu          sync.RWMutex
+	qbRuntime            map[storage.TorrentKey]storage.QBSnapshotRecord
+	qbRuntimeReady       bool
+	pinnedMu             sync.RWMutex
+	pinnedBySite         map[string]map[storage.TorrentKey]int
+	mihomoMu             sync.Mutex
+	qbCached             *qbittorrent.Client
+	qbCacheKey           string
+	coverCache           *covercache.Service
+	videoThumbnail       *videothumbnail.Service
+	subtitleArtifact     *subtitleartifact.Service
+	subtitlePrewarm      chan struct{}
+	subtitleQueueMu      sync.Mutex
+	subtitleQueued       map[string]struct{}
+	subtitleWG           sync.WaitGroup
+	subtitleSettingsWake chan struct{}
+	sites                map[string]runtimeSite
+	siteIDs              []string
+	automationOnce       sync.Once
+	automationWake       chan struct{}
+	automationMu         sync.Mutex
+	automationCancel     context.CancelFunc
+	automationWG         sync.WaitGroup
+	maintenanceWG        sync.WaitGroup
+	siteLockMu           sync.Mutex
+	siteLocks            map[string]*contextMutex
+	subscriptionLockMu   sync.Mutex
+	subscriptionLocks    map[string]*contextMutex
+	hashLockMu           sync.Mutex
+	hashLocks            map[string]*contextMutex
+	seriesLockMu         sync.Mutex
+	seriesLocks          map[string]*contextMutex
+	fetchMu              sync.Mutex
+	activeFetches        map[string]*activeSiteFetch
+	fetchWG              sync.WaitGroup
 }
 
 type runtimeSite struct {
@@ -92,7 +99,10 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		pinnedBySite:   map[string]map[storage.TorrentKey]int{},
 		automationWake: make(chan struct{}, 1), siteLocks: map[string]*contextMutex{}, subscriptionLocks: map[string]*contextMutex{},
 		hashLocks: map[string]*contextMutex{}, seriesLocks: map[string]*contextMutex{},
-		activeFetches: map[string]*activeSiteFetch{},
+		subtitlePrewarm:      make(chan struct{}, 2),
+		subtitleQueued:       map[string]struct{}{},
+		subtitleSettingsWake: make(chan struct{}, 1),
+		activeFetches:        map[string]*activeSiteFetch{},
 	}
 	coverCache, err := covercache.New(store, coverDownloader{app: app}, filepath.Join(filepath.Dir(cfg.Storage.Path), "covers"))
 	if err != nil {
@@ -111,6 +121,13 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	app.videoThumbnail = videoThumbnail
+	subtitleArtifact, err := subtitleartifact.New(filepath.Join(filepath.Dir(cfg.Storage.Path), "subtitles"))
+	if err != nil {
+		cancel()
+		_ = store.Close()
+		return nil, err
+	}
+	app.subtitleArtifact = subtitleArtifact
 	if err := app.initializeQBConfig(ctx); err != nil {
 		cancel()
 		_ = store.Close()
@@ -152,6 +169,7 @@ func NewApp(ctx context.Context, cfg config.Config) (*App, error) {
 		}
 	}
 	app.startStorageMaintenance()
+	app.startSubtitleAutomation()
 	return app, nil
 }
 
@@ -184,5 +202,6 @@ func (a *App) Close() error {
 	a.automationWG.Wait()
 	a.fetchWG.Wait()
 	a.maintenanceWG.Wait()
+	a.subtitleWG.Wait()
 	return a.store.Close()
 }

@@ -32,9 +32,12 @@ type PlaybackService interface {
 	GetTorrentVideoThumbnail(ctx context.Context, siteID, torrentID string, fileIndex int) (VideoThumbnail, error)
 	GetQBVideoThumbnail(ctx context.Context, hash string, fileIndex int) (VideoThumbnail, error)
 	GetFileVideoThumbnail(ctx context.Context, path string) (VideoThumbnail, error)
-	GetTorrentSubtitle(ctx context.Context, siteID, torrentID string, fileIndex int, trackID uint64) ([]byte, error)
-	GetQBSubtitle(ctx context.Context, hash string, fileIndex int, trackID uint64) ([]byte, error)
-	GetFileSubtitle(ctx context.Context, path string, trackID uint64) ([]byte, error)
+	GetTorrentSubtitle(ctx context.Context, siteID, torrentID string, fileIndex int, trackID uint64, format string) (PlaybackSubtitleArtifact, error)
+	GetQBSubtitle(ctx context.Context, hash string, fileIndex int, trackID uint64, format string) (PlaybackSubtitleArtifact, error)
+	GetFileSubtitle(ctx context.Context, path string, trackID uint64, format string) (PlaybackSubtitleArtifact, error)
+	SavePlaybackExternalSubtitle(ctx context.Context, videoPath, subtitlePath string) (PlaybackExternalSubtitle, error)
+	DeletePlaybackExternalSubtitle(ctx context.Context, videoPath string) error
+	GetPlaybackExternalSubtitleArtifact(ctx context.Context, videoPath, format string) (PlaybackSubtitleArtifact, error)
 }
 
 // SeriesService 提供本地剧集配置、访问时扫描和剧集播放上下文。
@@ -55,6 +58,8 @@ type MediaLibraryService interface {
 	SaveMediaLibrary(ctx context.Context, id string, request MediaLibrarySaveRequest) (MediaLibraryDetail, error)
 	DeleteMediaLibrary(ctx context.Context, id string) (bool, error)
 	ScanMediaLibrary(ctx context.Context, id string) (MediaLibraryDetail, error)
+	GetSubtitleScanSettings(ctx context.Context) (SubtitleScanSettings, error)
+	SaveSubtitleScanSettings(ctx context.Context, settings SubtitleScanSettings) (SubtitleScanSettings, error)
 }
 
 type FetchService interface {

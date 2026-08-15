@@ -355,6 +355,7 @@ func (s *Server) handleTorrentSubtitle(w http.ResponseWriter, r *http.Request) {
 		chi.URLParam(r, "torrent_id"),
 		fileIndex,
 		trackID,
+		r.URL.Query().Get("format"),
 	)
 	if err != nil {
 		writePlaybackError(w, err)
@@ -373,7 +374,9 @@ func (s *Server) handleQBSubtitle(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	content, err := s.playback.GetQBSubtitle(r.Context(), chi.URLParam(r, "hash"), fileIndex, trackID)
+	content, err := s.playback.GetQBSubtitle(
+		r.Context(), chi.URLParam(r, "hash"), fileIndex, trackID, r.URL.Query().Get("format"),
+	)
 	if err != nil {
 		writePlaybackError(w, err)
 		return
@@ -391,7 +394,9 @@ func (s *Server) handleFileSubtitle(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	content, err := s.playback.GetFileSubtitle(r.Context(), r.URL.Query().Get("path"), trackID)
+	content, err := s.playback.GetFileSubtitle(
+		r.Context(), r.URL.Query().Get("path"), trackID, r.URL.Query().Get("format"),
+	)
 	if err != nil {
 		writePlaybackError(w, err)
 		return
@@ -419,14 +424,65 @@ func playbackSubtitleTrackID(w http.ResponseWriter, r *http.Request) (uint64, bo
 	return trackID, true
 }
 
-// servePlaybackSubtitle 返回 Artplayer 可直接加载的 WebVTT 文本字幕。
-func servePlaybackSubtitle(w http.ResponseWriter, content []byte) {
-	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
-	w.Header().Set("Content-Disposition", `inline; filename="subtitle.vtt"`)
+// servePlaybackSubtitle 返回 Artplayer 或 JASSUB 可直接加载的持久化字幕产物。
+func servePlaybackSubtitle(w http.ResponseWriter, artifact core.PlaybackSubtitleArtifact) {
+	contentType := "text/vtt; charset=utf-8"
+	fileName := "subtitle.vtt"
+	if artifact.Format == "ass" {
+		contentType = "text/x-ssa; charset=utf-8"
+		fileName = "subtitle.ass"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, fileName))
 	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("ETag", `"`+artifact.ETag+`"`)
+	if artifact.Cached {
+		w.Header().Set("X-NexusBridge-Subtitle-Cache", "persistent")
+	} else {
+		w.Header().Set("X-NexusBridge-Subtitle-Cache", "memory")
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(content)
+	_, _ = w.Write(artifact.Content)
+}
+
+type playbackExternalSubtitleRequest struct {
+	VideoPath    string `json:"video_path"`
+	SubtitlePath string `json:"subtitle_path"`
+}
+
+// handleSavePlaybackExternalSubtitle 保存或替换当前视频的外挂字幕关联。
+func (s *Server) handleSavePlaybackExternalSubtitle(w http.ResponseWriter, r *http.Request) {
+	var request playbackExternalSubtitleRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	result, err := s.playback.SavePlaybackExternalSubtitle(r.Context(), request.VideoPath, request.SubtitlePath)
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleDeletePlaybackExternalSubtitle 删除关联但保留源字幕文件。
+func (s *Server) handleDeletePlaybackExternalSubtitle(w http.ResponseWriter, r *http.Request) {
+	if err := s.playback.DeletePlaybackExternalSubtitle(r.Context(), r.URL.Query().Get("path")); err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePlaybackExternalSubtitle 返回当前视频已经关联的外挂字幕产物。
+func (s *Server) handlePlaybackExternalSubtitle(w http.ResponseWriter, r *http.Request) {
+	content, err := s.playback.GetPlaybackExternalSubtitleArtifact(r.Context(), r.URL.Query().Get("path"), r.URL.Query().Get("format"))
+	if err != nil {
+		writePlaybackError(w, err)
+		return
+	}
+	servePlaybackSubtitle(w, content)
 }
 
 // servePlaybackSource 使用统一响应头和 Range 语义传输已经打开的媒体源。

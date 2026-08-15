@@ -85,6 +85,31 @@ func (s *Server) handleScanMediaLibrary(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, result)
 }
 
+// handleGetSubtitleScanSettings 返回所有媒体库共用的字幕扫描周期。
+func (s *Server) handleGetSubtitleScanSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.mediaLibraries.GetSubtitleScanSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+// handleSaveSubtitleScanSettings 保存全局字幕扫描周期并立即生效。
+func (s *Server) handleSaveSubtitleScanSettings(w http.ResponseWriter, r *http.Request) {
+	var settings core.SubtitleScanSettings
+	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	saved, err := s.mediaLibraries.SaveSubtitleScanSettings(r.Context(), settings)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
+}
+
 func writeMediaLibraryError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrMediaLibraryNotFound), errors.Is(err, core.ErrSeriesNotFound):

@@ -1,6 +1,6 @@
 # 架构与代码导航
 
-本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[媒体库目录](modules/media-library.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)、[媒体缩略图](modules/video-thumbnails.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
+本文从系统边界逐层下钻到后端分层、核心业务域和关键运行流程，最后给出代码入口。业务细节继续查看[站点抓取](modules/site.md)、[订阅](modules/subscriptions.md)、[媒体筛选](modules/media-filtering.md)、[媒体库目录](modules/media-library.md)、[本地剧集](modules/series.md)、[媒体播放](modules/playback.md)、[视频字幕](modules/subtitles.md)、[媒体缩略图](modules/video-thumbnails.md)和[任务恢复](modules/recovery.md)；前端 URL、HTTP API、运行配置、存储设计和测试边界分别见 [WebUI 路由](frontend.md)、[API](api.md)、[配置](config.md)、[存储与数据库](storage.md)和[测试](testing.md)。
 
 ## 1. 系统全景
 
@@ -262,7 +262,7 @@ flowchart LR
     ThumbnailFiles --> Browser
 ```
 
-播放入口可来自数据库种子、文件管理器或本地剧集。剧集只保存名称、有序目录、扫描缓存和最后选集；保存、手动重扫和进入剧集播放页时才递归扫描，不运行目录 watcher 或定时任务。选中的文件仍先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流和缩略图请求都会重新验证下载根目录与文件索引；普通文件沿用文件管理器的本机访问边界。视频只在浏览器请求 `thumbnail_url` 时以 FFprobe/FFmpeg CLI 生成并保存到数据库同级文件缓存，最多两路并发，不写数据库或失败状态；文件浏览器和 qB 选集中的图片直接复用各自受控原文件接口，不创建图片缓存。MKV 文本字幕轨按需导出为 WebVTT，音视频响应仍使用标准字节范围传输；两者都不转码、不调整下载优先级。剧集完整结构见[本地剧集](modules/series.md)，通用播放流程见[媒体播放](modules/playback.md)，缩略图缓存与部署边界见[媒体缩略图](modules/video-thumbnails.md)。
+播放入口可来自数据库种子、文件管理器或本地剧集。剧集保存名称、有序目录、扫描缓存和最后选集；字幕维护器按所有媒体库共用的全局周期扫描已经配置的媒体库并预热 MKV 文本字幕，但不自动发现或创建子媒体库。选中的文件仍先与实时 qB 文件清单精确匹配，再按 hash 补充数据库详情；因此数据库种子、qB-only 任务和普通本机文件共享一个播放上下文。qB 流和缩略图请求都会重新验证下载根目录与文件索引；普通文件沿用文件管理器的本机访问边界。视频只在浏览器请求 `thumbnail_url` 时以 FFprobe/FFmpeg CLI 生成并保存到数据库同级文件缓存，最多两路并发，不写数据库或失败状态；文件浏览器和 qB 选集中的图片直接复用各自受控原文件接口，不创建图片缓存。MKV 内嵌文本轨与普通视频外挂字幕共用持久产物缓存和浏览器回退链路，外挂字幕路径关联保存在 SQLite。音视频响应仍使用标准字节范围传输；字幕与媒体都不转码、不调整下载优先级。剧集完整结构见[本地剧集](modules/series.md)，通用播放流程见[媒体播放](modules/playback.md)，字幕方案见[视频字幕](modules/subtitles.md)，缩略图缓存与部署边界见[媒体缩略图](modules/video-thumbnails.md)。
 
 ## 5. 代码导航
 
@@ -316,7 +316,7 @@ flowchart LR
 | WebUI 入口 | `webui/src/main.ts`、`router.ts`、`App.vue`、`api.ts`、`types.ts` |
 | 业务界面 | `webui/src/components/MediaView.vue`、`MediaLibrariesView.vue`、`FilePickerDialog.vue`、`ResizableModal.vue`、`PlaybackView.vue`、`components/player/`、`SubscriptionsView.vue`、`FileManagerView.vue`、`LogsView.vue`、`TasksView.vue`、`Settings*.vue` |
 | 前端状态与工具 | `webui/src/composables/`、`webui/src/utils/`、`webui/src/config/` |
-| 前端行为文档 | `docs/frontend.md`、`docs/modules/media-library.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md` |
+| 前端行为文档 | `docs/frontend.md`、`docs/modules/media-library.md`、`docs/modules/media-filtering.md`、`docs/modules/playback.md`、`docs/modules/subtitles.md` |
 | WebUI 构建 | `webui/package.json`、`vite.config.ts`、`pnpm-lock.yaml` |
 | 桌面构建 | `Taskfile.yml`、`desktop/tasks/`、`desktop/resources/` |
 | 发布流水线 | `.github/workflows/build-release.yml`、`publish-release.yml`、`build-docker.yml` |

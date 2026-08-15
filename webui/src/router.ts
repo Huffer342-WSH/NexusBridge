@@ -80,6 +80,12 @@ const routes: RouteRecordRaw[] = [
     meta: { page: 'settings', settingsPage: 'sites', title: '设置 / 站点' },
   },
   {
+    path: '/settings/media-libraries',
+    name: 'settings-media-libraries',
+    component: () => import('./components/SettingsMediaLibraries.vue'),
+    meta: { page: 'settings', settingsPage: 'media-libraries', title: '设置 / 媒体库' },
+  },
+  {
     path: '/settings/network',
     name: 'settings-network',
     component: () => import('./components/SettingsNetwork.vue'),

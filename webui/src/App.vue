@@ -62,7 +62,7 @@ import type {
 } from './types';
 
 type PageKey = 'media' | 'libraries' | 'files' | 'subscriptions' | 'tasks' | 'logs' | 'settings';
-type SettingsPageKey = 'sites' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
+type SettingsPageKey = 'sites' | 'media-libraries' | 'network' | 'llm' | 'qbittorrent' | 'mihomo';
 type SiteCredentialDraft = { user_agent: string; cookie: string };
 
 const themeOverrides: GlobalThemeOverrides = {
@@ -92,6 +92,7 @@ const navItems: Array<{ key: PageKey; label: string; icon: typeof CloudDownload;
 
 const settingsItems: Array<{ key: SettingsPageKey; label: string; icon: typeof KeyRound; to: string }> = [
   { key: 'sites', label: '站点', icon: KeyRound, to: '/settings/sites' },
+  { key: 'media-libraries', label: '媒体库', icon: Film, to: '/settings/media-libraries' },
   { key: 'network', label: '网络代理', icon: Network, to: '/settings/network' },
   { key: 'llm', label: 'LLM', icon: Bot, to: '/settings/llm' },
   { key: 'qbittorrent', label: 'qBittorrent', icon: Database, to: '/settings/qbittorrent' },

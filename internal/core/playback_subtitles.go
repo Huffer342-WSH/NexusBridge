@@ -1,16 +1,16 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 
+	"nexusbridge/internal/core/subtitleartifact"
+
 	"github.com/gravity-zero/mkvgo/matroska"
 )
-
-const maxPlaybackSubtitleBytes = 32 << 20
 
 var playbackTextSubtitleCodecs = map[string]struct{}{
 	"s_text/utf8":   {},
@@ -49,30 +49,40 @@ func discoverMKVSubtitles(ctx context.Context, filePath string, streamURL func(u
 		result = append(result, PlaybackSubtitle{
 			TrackID: track.ID, Label: label, Language: language, Codec: track.Codec,
 			Default: track.IsDefault, Forced: track.IsForced, StreamURL: streamURL(track.ID),
+			RichURL: richSubtitleURL(track.Codec, streamURL(track.ID)),
 		})
 	}
 	return result
 }
 
-// extractMKVSubtitle 将指定 MKV 内嵌文本字幕轨导出为浏览器可加载的 WebVTT。
-func extractMKVSubtitle(ctx context.Context, filePath string, trackID uint64) ([]byte, error) {
+// extractMKVSubtitle 确保指定 MKV 内嵌文本字幕轨存在持久化产物并返回内容。
+func (a *App) extractMKVSubtitle(
+	ctx context.Context,
+	filePath string,
+	trackID uint64,
+	format string,
+) (PlaybackSubtitleArtifact, error) {
 	tracks := discoverMKVSubtitles(ctx, filePath, func(uint64) string { return "" })
-	found := false
+	codec := ""
 	for _, track := range tracks {
 		if track.TrackID == trackID {
-			found = true
+			codec = track.Codec
 			break
 		}
 	}
-	if !found {
-		return nil, ErrPlaybackNotFound
+	if codec == "" {
+		return PlaybackSubtitleArtifact{}, ErrPlaybackNotFound
 	}
-	var output bytes.Buffer
-	writer := &playbackSubtitleWriter{buffer: &output, remaining: maxPlaybackSubtitleBytes}
-	if err := matroska.ExtractSubtitleWebVTT(ctx, filePath, trackID, writer); err != nil {
-		return nil, fmt.Errorf("%w: extract MKV subtitle: %v", ErrPlaybackUnavailable, err)
+	result, err := a.subtitleArtifact.Ensure(ctx, filePath, trackID, codec, format)
+	if err != nil {
+		return PlaybackSubtitleArtifact{}, fmt.Errorf("%w: %v", ErrPlaybackUnavailable, err)
 	}
-	return output.Bytes(), nil
+	return PlaybackSubtitleArtifact{
+		Content: result.Content,
+		Format:  result.Format,
+		ETag:    result.ETag,
+		Cached:  result.Cached,
+	}, nil
 }
 
 // isPlaybackTextSubtitleCodec 判断 MKV 字幕编码是否能安全转换为文本 WebVTT。
@@ -81,19 +91,19 @@ func isPlaybackTextSubtitleCodec(codec string) bool {
 	return ok
 }
 
-type playbackSubtitleWriter struct {
-	buffer    *bytes.Buffer
-	remaining int
-}
-
-// Write 限制单条字幕响应的最大内存占用。
-func (w *playbackSubtitleWriter) Write(value []byte) (int, error) {
-	if len(value) > w.remaining {
-		return 0, fmt.Errorf("subtitle exceeds %d bytes", maxPlaybackSubtitleBytes)
+func richSubtitleURL(codec, streamURL string) string {
+	codec = strings.ToLower(strings.TrimSpace(codec))
+	if codec != "ass" && codec != "ssa" {
+		return ""
 	}
-	n, err := w.buffer.Write(value)
-	w.remaining -= n
-	return n, err
+	parsed, err := url.Parse(streamURL)
+	if err != nil {
+		return ""
+	}
+	query := parsed.Query()
+	query.Set("format", subtitleartifact.FormatASS)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 // GetTorrentSubtitle 从数据库种子关联的 MKV 文件导出内嵌文本字幕。
@@ -102,31 +112,107 @@ func (a *App) GetTorrentSubtitle(
 	siteID, torrentID string,
 	fileIndex int,
 	trackID uint64,
-) ([]byte, error) {
+	format string,
+) (PlaybackSubtitleArtifact, error) {
 	source, err := a.OpenTorrentMedia(ctx, siteID, torrentID, fileIndex)
 	if err != nil {
-		return nil, err
+		return PlaybackSubtitleArtifact{}, err
 	}
 	_ = source.File.Close()
-	return extractMKVSubtitle(ctx, source.Path, trackID)
+	return a.extractMKVSubtitle(ctx, source.Path, trackID, format)
 }
 
 // GetQBSubtitle 从 qB 任务的 MKV 文件导出内嵌文本字幕。
-func (a *App) GetQBSubtitle(ctx context.Context, hash string, fileIndex int, trackID uint64) ([]byte, error) {
+func (a *App) GetQBSubtitle(
+	ctx context.Context,
+	hash string,
+	fileIndex int,
+	trackID uint64,
+	format string,
+) (PlaybackSubtitleArtifact, error) {
 	source, err := a.OpenQBMedia(ctx, hash, fileIndex)
 	if err != nil {
-		return nil, err
+		return PlaybackSubtitleArtifact{}, err
 	}
 	_ = source.File.Close()
-	return extractMKVSubtitle(ctx, source.Path, trackID)
+	return a.extractMKVSubtitle(ctx, source.Path, trackID, format)
 }
 
 // GetFileSubtitle 从文件管理器选择的 MKV 文件导出内嵌文本字幕。
-func (a *App) GetFileSubtitle(ctx context.Context, filePath string, trackID uint64) ([]byte, error) {
+func (a *App) GetFileSubtitle(
+	ctx context.Context,
+	filePath string,
+	trackID uint64,
+	format string,
+) (PlaybackSubtitleArtifact, error) {
 	source, err := a.OpenFileMedia(ctx, filePath)
 	if err != nil {
-		return nil, err
+		return PlaybackSubtitleArtifact{}, err
 	}
 	_ = source.File.Close()
-	return extractMKVSubtitle(ctx, source.Path, trackID)
+	return a.extractMKVSubtitle(ctx, source.Path, trackID, format)
+}
+
+// scheduleSubtitlePrewarm 在媒体库扫描完成后低并发预生成 MKV 文本字幕产物。
+func (a *App) scheduleSubtitlePrewarm(videos []SeriesVideo) {
+	paths := make([]string, 0, len(videos))
+	for _, video := range videos {
+		if video.Available && strings.EqualFold(filepath.Ext(video.Path), ".mkv") {
+			path := filepath.Clean(video.Path)
+			key := normalizedFilesystemPath(path)
+			a.subtitleQueueMu.Lock()
+			if _, queued := a.subtitleQueued[key]; !queued {
+				a.subtitleQueued[key] = struct{}{}
+				paths = append(paths, path)
+			}
+			a.subtitleQueueMu.Unlock()
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	a.subtitleWG.Add(1)
+	go func() {
+		defer a.subtitleWG.Done()
+		defer func() {
+			for _, path := range paths {
+				a.finishSubtitleQueueItem(normalizedFilesystemPath(path))
+			}
+		}()
+		for _, path := range paths {
+			key := normalizedFilesystemPath(path)
+			select {
+			case <-a.ctx.Done():
+				a.finishSubtitleQueueItem(key)
+				return
+			case a.subtitlePrewarm <- struct{}{}:
+			}
+			a.prewarmSubtitleFile(path)
+			<-a.subtitlePrewarm
+			a.finishSubtitleQueueItem(key)
+		}
+	}()
+}
+
+func (a *App) finishSubtitleQueueItem(key string) {
+	a.subtitleQueueMu.Lock()
+	delete(a.subtitleQueued, key)
+	a.subtitleQueueMu.Unlock()
+}
+
+func (a *App) prewarmSubtitleFile(path string) {
+	tracks := discoverMKVSubtitles(a.ctx, path, func(uint64) string { return "" })
+	for _, track := range tracks {
+		if a.ctx.Err() != nil {
+			return
+		}
+		_, _ = a.subtitleArtifact.Ensure(
+			a.ctx, path, track.TrackID, track.Codec, subtitleartifact.FormatWebVTT,
+		)
+		if track.RichURL != "" || strings.EqualFold(track.Codec, "ass") || strings.EqualFold(track.Codec, "ssa") {
+			_, _ = a.subtitleArtifact.Ensure(
+				a.ctx, path, track.TrackID, track.Codec, subtitleartifact.FormatASS,
+			)
+		}
+	}
 }

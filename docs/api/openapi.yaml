@@ -815,6 +815,39 @@ paths:
           $ref: "#/components/responses/Error"
         "404":
           $ref: "#/components/responses/Error"
+  /api/playback/external-subtitle:
+    get:
+      tags: [files]
+      summary: 返回视频关联的外挂字幕产物
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+        - { name: format, in: query, required: false, schema: { type: string, enum: [vtt, ass] } }
+      responses:
+        "200": { description: WebVTT 或 ASS 字幕内容 }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [files]
+      summary: 保存或替换视频的外挂字幕关联
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaybackExternalSubtitleRequest"
+      responses:
+        "200":
+          description: 已保存的关联
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackExternalSubtitle" }
+        "400": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [files]
+      summary: 删除视频的外挂字幕关联但保留源文件
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: 已删除关联 }
   /api/torrents/{site_id}/{torrent_id}/media/{file_index}:
     parameters:
       - $ref: "#/components/parameters/SiteID"
@@ -1064,14 +1097,21 @@ paths:
         in: path
         required: true
         schema: { type: integer, minimum: 1, format: int64 }
+      - name: format
+        in: query
+        required: false
+        description: ASS/SSA 轨道传 ass 返回保留样式的 ASS；默认返回 WebVTT。
+        schema: { type: string, enum: [vtt, ass], default: vtt }
     get:
       tags: [torrents, qbittorrent]
       summary: 导出数据库种子 MKV 文件的内嵌文本字幕
       responses:
         "200":
-          description: WebVTT 字幕
+          description: 持久化 WebVTT 或 ASS 字幕产物
           content:
             text/vtt:
+              schema: { type: string }
+            text/x-ssa:
               schema: { type: string }
         "404":
           $ref: "#/components/responses/Error"
@@ -1093,14 +1133,21 @@ paths:
         in: path
         required: true
         schema: { type: integer, minimum: 1, format: int64 }
+      - name: format
+        in: query
+        required: false
+        description: ASS/SSA 轨道传 ass 返回保留样式的 ASS；默认返回 WebVTT。
+        schema: { type: string, enum: [vtt, ass], default: vtt }
     get:
       tags: [qbittorrent]
       summary: 导出 qB 任务 MKV 文件的内嵌文本字幕
       responses:
         "200":
-          description: WebVTT 字幕
+          description: 持久化 WebVTT 或 ASS 字幕产物
           content:
             text/vtt:
+              schema: { type: string }
+            text/x-ssa:
               schema: { type: string }
         "404":
           $ref: "#/components/responses/Error"
@@ -1122,11 +1169,18 @@ paths:
           in: query
           required: true
           schema: { type: string }
+        - name: format
+          in: query
+          required: false
+          description: ASS/SSA 轨道传 ass 返回保留样式的 ASS；默认返回 WebVTT。
+          schema: { type: string, enum: [vtt, ass], default: vtt }
       responses:
         "200":
-          description: WebVTT 字幕
+          description: 持久化 WebVTT 或 ASS 字幕产物
           content:
             text/vtt:
+              schema: { type: string }
+            text/x-ssa:
               schema: { type: string }
         "400":
           $ref: "#/components/responses/Error"
@@ -1507,6 +1561,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FetchSettings"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/settings/media-libraries:
+    get:
+      tags: [settings, media-libraries]
+      summary: 获取所有媒体库共用的字幕扫描设置
+      responses:
+        "200":
+          description: 当前设置，未保存时返回默认值
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubtitleScanSettings"
+        "500":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [settings, media-libraries]
+      summary: 保存全局字幕扫描设置
+      description: 保存后立即重排后台计时器，无需重启服务。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubtitleScanSettings"
+      responses:
+        "200":
+          description: 已保存设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubtitleScanSettings"
         "400":
           $ref: "#/components/responses/Error"
   /api/settings/qbittorrent:
@@ -2383,7 +2469,7 @@ components:
       properties:
         track_id:
           type: integer
-          minimum: 1
+          minimum: 0
           format: int64
         label: { type: string }
         language: { type: string }
@@ -2391,6 +2477,25 @@ components:
         default: { type: boolean }
         forced: { type: boolean }
         stream_url: { type: string }
+        rich_url:
+          type: string
+          description: 仅 ASS/SSA 文本轨提供，指向 format=ass 的富字幕产物。
+        external:
+          type: boolean
+          description: true 表示手动关联的外挂字幕；其 track_id 为 0。
+    PlaybackExternalSubtitleRequest:
+      type: object
+      required: [video_path, subtitle_path]
+      properties:
+        video_path: { type: string }
+        subtitle_path: { type: string }
+    PlaybackExternalSubtitle:
+      type: object
+      required: [video_path, subtitle_path, available]
+      properties:
+        video_path: { type: string }
+        subtitle_path: { type: string }
+        available: { type: boolean }
     PlaybackDirectoryFile:
       type: object
       required: [name, path, size, modified_at, playable, current]
@@ -2613,6 +2718,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SeriesVideo"
+        external_subtitle:
+          $ref: "#/components/schemas/PlaybackExternalSubtitle"
     PlaybackTorrent:
       type: object
       required: [id, site_id, title]
@@ -2684,6 +2791,16 @@ components:
           minimum: 1
           maximum: 100
           default: 3
+    SubtitleScanSettings:
+      type: object
+      required: [interval_minutes]
+      properties:
+        interval_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          default: 360
+          description: 所有媒体库共用；0 只关闭周期扫描。
     SiteFetchRequest:
       type: object
       properties:

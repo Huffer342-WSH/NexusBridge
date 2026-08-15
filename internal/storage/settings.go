@@ -17,6 +17,8 @@ const (
 	FetchSettingKey = "fetch"
 	// MihomoSettingKey 是 Mihomo 配置目录偏好的存储键。
 	MihomoSettingKey = "mihomo"
+	// SubtitleScanSettingKey 是所有媒体库共用的字幕扫描设置存储键。
+	SubtitleScanSettingKey = "subtitle_scan"
 )
 
 // SaveSetting 将 JSON 设置按键新增或更新。

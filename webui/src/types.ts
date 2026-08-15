@@ -275,6 +275,14 @@ export type PlaybackSubtitle = {
   default: boolean;
   forced: boolean;
   stream_url: string;
+  rich_url?: string;
+  external?: boolean;
+};
+
+export type PlaybackExternalSubtitle = {
+  video_path: string;
+  subtitle_path: string;
+  available: boolean;
 };
 
 export type PlaybackDirectoryFile = {
@@ -379,6 +387,10 @@ export type MediaLibrarySaveRequest = {
   settings: MediaLibrarySettingsOverride;
 };
 
+export type SubtitleScanSettings = {
+  interval_minutes: number;
+};
+
 export type PlaybackContext = {
   source: 'torrent' | 'qb' | 'file';
   title: string;
@@ -393,6 +405,7 @@ export type PlaybackContext = {
   current_file_index?: number;
   series?: SeriesSummary;
   series_files?: SeriesVideo[];
+  external_subtitle?: PlaybackExternalSubtitle;
 };
 
 export type PlaybackTorrent = {

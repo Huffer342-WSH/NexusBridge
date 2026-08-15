@@ -165,6 +165,10 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 显式重扫任意媒体库节点。扫描递归识别可播放视频，但跳过直接子媒体库负责的目录树；目录监控和自动发现子剧集尚未启用。
 
+`GET|PUT /api/settings/media-libraries`
+
+读取或保存所有媒体库共用的 MKV 字幕扫描周期：`{ "interval_minutes": 360 }`。默认 6 小时，允许 `0` 至 `1440` 分钟；`0` 只关闭周期扫描，启动扫描、人工重扫和播放时按需生成不受影响。保存后立即重排后台计时器，无需重启服务。
+
 ### 本地剧集兼容 API
 
 `GET /api/series`
@@ -223,7 +227,21 @@ pnpm dlx openapi-typescript ../docs/api/openapi.yaml -o src/generated/api-types.
 
 `GET /api/playback/file/subtitles/{track_id}?path={absolute_path}`
 
-从对应 MKV 源文件导出指定内嵌文本字幕轨并返回 `text/vtt`。支持 SubRip/SRT、WebVTT、ASS 和 SSA；ASS/SSA 会扁平化为 WebVTT 文本，PGS、VobSub 等图片字幕不返回。该过程只解析容器和字幕数据，不转码或解码音视频。
+从对应 MKV 源文件返回指定内嵌文本字幕轨。默认返回 `text/vtt`；ASS/SSA 轨道可追加 `format=ass` 返回 `text/x-ssa` 原样式产物。播放清单中的 `stream_url` 始终指向 VTT 降级产物，ASS/SSA 轨道额外提供 `rich_url`。PGS、VobSub 等图片字幕不返回。
+
+产物按规范源路径、大小、修改时间和轨道 ID 生成指纹，写入元数据库同级 `subtitles/`；同一进程内的相同产物只生成一次。媒体库手动扫描完成后以最多两路并发后台预生成，播放请求缓存未命中时仍使用 MKVGo 即时生成并等待相同在途任务。持久化写入失败不影响本次内存响应。响应包含 ETag 和 `X-NexusBridge-Subtitle-Cache: persistent|memory`。该过程只解析容器和字幕数据，不转码或解码音视频。
+
+### `PUT /api/playback/external-subtitle`
+
+保存或替换当前视频的外挂字幕路径。JSON 正文包含 `video_path` 和 `subtitle_path`；字幕只接受 ASS、SSA、SRT、VTT，两个路径都必须是当前可读的本机普通文件。
+
+### `DELETE /api/playback/external-subtitle?path=...`
+
+删除视频的外挂字幕关联，不删除源字幕文件。
+
+### `GET /api/playback/external-subtitle?path=...&format=ass`
+
+返回视频当前关联的字幕产物。默认返回 WebVTT；ASS/SSA 可用 `format=ass` 获取 JASSUB 富样式原文。
 
 `GET /api/torrents/{site_id}/{torrent_id}/cover`
 

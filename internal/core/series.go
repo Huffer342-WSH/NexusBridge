@@ -171,7 +171,7 @@ func (a *App) ScanSeries(ctx context.Context, id string) (SeriesDetail, error) {
 }
 
 func (a *App) scanSeriesLocked(ctx context.Context, id string) (SeriesDetail, error) {
-	detail, err := a.scanMediaLibraryLocked(ctx, id)
+	detail, err := a.scanMediaLibraryLocked(ctx, id, true)
 	if err != nil {
 		if errors.Is(err, ErrMediaLibraryNotFound) {
 			return SeriesDetail{}, ErrSeriesNotFound

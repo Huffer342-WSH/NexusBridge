@@ -68,7 +68,7 @@ func (a *App) GetTorrentPlayback(ctx context.Context, siteID, torrentID, fileNam
 		return PlaybackContext{}, err
 	}
 	streamBase := fmt.Sprintf("/api/torrents/%s/%s/media", url.PathEscape(siteID), url.PathEscape(torrentID))
-	return buildQBPlaybackContext(ctx, &torrent, qbTorrent, contents, fileName, streamBase)
+	return a.buildQBPlaybackContext(ctx, &torrent, qbTorrent, contents, fileName, streamBase)
 }
 
 // GetQBPlayback 实时读取未必关联数据库种子的 qB 文件清单。
@@ -79,7 +79,7 @@ func (a *App) GetQBPlayback(ctx context.Context, hash, fileName string) (Playbac
 	}
 	torrent, _ := a.findTorrentByQBHash(ctx, qbTorrent.Hash)
 	streamBase := fmt.Sprintf("/api/playback/qb/%s/media", url.PathEscape(qbTorrent.Hash))
-	return buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, fileName, streamBase)
+	return a.buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, fileName, streamBase)
 }
 
 // GetFilePlayback 从本机文件建立播放上下文，并优先提升为数据库种子或 qB 任务上下文。
@@ -97,7 +97,7 @@ func (a *App) GetFilePlayback(ctx context.Context, filePath string) (PlaybackCon
 	if qbTorrent, contents, matchedName, found := a.matchQBFile(ctx, resolved); found {
 		torrent, _ := a.findTorrentByQBHash(ctx, qbTorrent.Hash)
 		streamBase := fmt.Sprintf("/api/playback/qb/%s/media", url.PathEscape(qbTorrent.Hash))
-		return buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, matchedName, streamBase)
+		return a.buildQBPlaybackContext(ctx, torrent, qbTorrent, contents, matchedName, streamBase)
 	}
 	index := 0
 	files := []PlaybackMedia{{
@@ -111,12 +111,14 @@ func (a *App) GetFilePlayback(ctx context.Context, filePath string) (PlaybackCon
 	files[0].Subtitles = discoverMKVSubtitles(ctx, resolved, func(trackID uint64) string {
 		return fmt.Sprintf("/api/playback/file/subtitles/%d?path=%s", trackID, url.QueryEscape(resolved))
 	})
-	return PlaybackContext{
+	result := PlaybackContext{
 		Source: PlaybackSourceFile, Title: filepath.Base(resolved), CurrentPath: resolved,
 		CurrentDirectory: filepath.Dir(resolved),
 		Files:            files, DirectoryFiles: playbackDirectoryFiles(resolved),
 		DefaultFileIndex: &index, CurrentFileIndex: &index,
-	}, nil
+	}
+	a.attachExternalSubtitle(ctx, &result)
+	return result, nil
 }
 
 // OpenTorrentMedia 按 qB 文件索引打开经过路径边界校验的源文件。
@@ -318,7 +320,7 @@ func (a *App) playbackQBContents(ctx context.Context, hash string) (qbittorrent.
 }
 
 // buildQBPlaybackContext 将 qB 任务转换为数据库种子和纯 qB 共用的播放上下文。
-func buildQBPlaybackContext(
+func (a *App) buildQBPlaybackContext(
 	ctx context.Context,
 	torrent *Torrent,
 	qbTorrent qbittorrent.TorrentInfo,
@@ -369,6 +371,7 @@ func buildQBPlaybackContext(
 		}
 		break
 	}
+	a.attachExternalSubtitle(ctx, &result)
 	return result, nil
 }
 

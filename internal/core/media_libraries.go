@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,7 +186,7 @@ func (a *App) SaveMediaLibrary(
 	if err := a.store.SaveMediaLibrary(ctx, newRecord.Series, directoryRecords); err != nil {
 		return MediaLibraryDetail{}, err
 	}
-	detail, err := a.scanMediaLibraryLocked(ctx, id)
+	detail, err := a.scanMediaLibraryLocked(ctx, id, true)
 	if err != nil {
 		return MediaLibraryDetail{}, err
 	}
@@ -224,10 +225,10 @@ func (a *App) ScanMediaLibrary(ctx context.Context, id string) (MediaLibraryDeta
 		return MediaLibraryDetail{}, err
 	}
 	defer unlock()
-	return a.scanMediaLibraryLocked(ctx, id)
+	return a.scanMediaLibraryLocked(ctx, id, true)
 }
 
-func (a *App) scanMediaLibraryLocked(ctx context.Context, id string) (MediaLibraryDetail, error) {
+func (a *App) scanMediaLibraryLocked(ctx context.Context, id string, prewarmAll bool) (MediaLibraryDetail, error) {
 	record, ok, err := a.store.GetMediaLibrary(ctx, id)
 	if err != nil {
 		return MediaLibraryDetail{}, err
@@ -235,6 +236,12 @@ func (a *App) scanMediaLibraryLocked(ctx context.Context, id string) (MediaLibra
 	if !ok {
 		return MediaLibraryDetail{}, ErrMediaLibraryNotFound
 	}
+	previousVideos := make(map[string]storage.SeriesVideoRecord, len(record.Videos))
+	for _, video := range record.Videos {
+		previousVideos[normalizedFilesystemPath(video.Path)] = video
+	}
+	changedMKVPaths := map[string]struct{}{}
+	removedVideoPaths := []string{}
 	all, err := a.store.ListMediaLibraries(ctx)
 	if err != nil {
 		return MediaLibraryDetail{}, err
@@ -259,6 +266,27 @@ func (a *App) scanMediaLibraryLocked(ctx context.Context, id string) (MediaLibra
 			}
 			continue
 		}
+		for _, video := range videos {
+			if !strings.EqualFold(filepath.Ext(video.Path), ".mkv") {
+				continue
+			}
+			previous, exists := previousVideos[normalizedFilesystemPath(video.Path)]
+			if !exists || previous.ByteSize != video.ByteSize || !previous.ModifiedAt.Equal(video.ModifiedAt) {
+				changedMKVPaths[normalizedFilesystemPath(video.Path)] = struct{}{}
+			}
+		}
+		currentPaths := make(map[string]struct{}, len(videos))
+		for _, video := range videos {
+			currentPaths[normalizedFilesystemPath(video.Path)] = struct{}{}
+		}
+		for _, previous := range record.Videos {
+			if !sameFilesystemPath(previous.DirectoryPath, directory.Path) {
+				continue
+			}
+			if _, exists := currentPaths[normalizedFilesystemPath(previous.Path)]; !exists {
+				removedVideoPaths = append(removedVideoPaths, previous.Path)
+			}
+		}
 		if err := a.store.ReplaceSeriesDirectoryVideos(
 			ctx, id, directory.Path, videos, scannedAt,
 		); err != nil {
@@ -268,7 +296,33 @@ func (a *App) scanMediaLibraryLocked(ctx context.Context, id string) (MediaLibra
 	if err := a.store.FinalizeSeriesScan(ctx, id, scannedAt); err != nil {
 		return MediaLibraryDetail{}, err
 	}
-	return a.GetMediaLibrary(ctx, id)
+	if removed, cleanupErr := a.subtitleArtifact.CleanupVideos(removedVideoPaths); cleanupErr != nil {
+		slog.Warn("清理丢失视频的字幕缓存失败", "library", record.Series.Name, "error", cleanupErr)
+	} else if removed > 0 {
+		slog.Info("已清理丢失视频的字幕缓存", "library", record.Series.Name, "count", removed)
+	}
+	detail, err := a.GetMediaLibrary(ctx, id)
+	if err == nil {
+		changed := make([]SeriesVideo, 0, len(changedMKVPaths))
+		for _, video := range detail.Videos {
+			_, modified := changedMKVPaths[normalizedFilesystemPath(video.Path)]
+			if (prewarmAll && strings.EqualFold(filepath.Ext(video.Path), ".mkv")) || modified {
+				changed = append(changed, video)
+			}
+		}
+		a.scheduleSubtitlePrewarm(changed)
+	}
+	return detail, err
+}
+
+func (a *App) scanMediaLibraryChanges(ctx context.Context, id string) (MediaLibraryDetail, error) {
+	id = strings.TrimSpace(id)
+	unlock, err := a.lockMediaLibraryMutation(ctx, id)
+	if err != nil {
+		return MediaLibraryDetail{}, err
+	}
+	defer unlock()
+	return a.scanMediaLibraryLocked(ctx, id, false)
 }
 
 type mediaLibrarySettingsResolver struct {
