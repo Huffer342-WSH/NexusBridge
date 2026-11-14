@@ -1233,6 +1233,51 @@ paths:
                 $ref: "#/components/schemas/QBTorrentStatus"
         "400":
           $ref: "#/components/responses/Error"
+  /api/qb/torrents/{hash}/manage:
+    post:
+      summary: 提交任务分类或保存目录变更
+      parameters:
+        - in: path
+          name: hash
+          required: true
+          schema:
+            type: string
+            pattern: '^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [category]
+                  additionalProperties: false
+                  properties:
+                    category:
+                      type: string
+                - type: object
+                  required: [location]
+                  additionalProperties: false
+                  properties:
+                    location:
+                      type: string
+                      minLength: 1
+      responses:
+        "202":
+          description: 已提交，文件可能仍在移动
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
   /api/qb/torrents/{hash}:
     parameters:
       - name: hash
@@ -3297,6 +3342,9 @@ components:
       type: object
       required: [items, stale, connected]
       properties:
+        default_save_path:
+          type: string
+          description: 成功刷新时读取的 qB 默认保存目录，读取失败时省略
         items:
           type: array
           items:

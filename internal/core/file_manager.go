@@ -19,12 +19,16 @@ const (
 	maxRecoveryScanLimit     = 500
 )
 
-// BrowseFiles 返回本机目录内容，并从 qB 任务的唯一内容根开始标记归属。
+// BrowseFiles 返回本机目录内容，并根据 qB 文件清单标记文件及目录的归属。
 func (a *App) BrowseFiles(ctx context.Context, request FileBrowseRequest) (FileBrowseResult, error) {
 	qbTasks, qbConnected, qbError := a.fileManagerQBTorrents(ctx)
 	if strings.TrimSpace(request.Path) == "" {
 		entries := filesystemRootEntries()
-		attachQBTasks(entries, qbTasks)
+		if qbConnected {
+			if err := a.attachExactQBTasks(ctx, entries, qbTasks); err != nil {
+				qbConnected, qbError = false, err.Error()
+			}
+		}
 		return FileBrowseResult{
 			IsRoot: true, QBConnected: qbConnected, QBError: qbError, Entries: entries,
 		}, nil
@@ -65,7 +69,11 @@ func (a *App) BrowseFiles(ctx context.Context, request FileBrowseRequest) (FileB
 		entries = append(entries, item)
 	}
 	sortFileEntries(entries)
-	attachQBTasks(entries, qbTasks)
+	if qbConnected {
+		if err := a.attachExactQBTasks(ctx, entries, qbTasks); err != nil {
+			qbConnected, qbError = false, err.Error()
+		}
+	}
 	parent := filepath.Dir(target)
 	if sameFilesystemPath(parent, target) {
 		parent = ""
@@ -261,33 +269,66 @@ func (a *App) fileManagerQBTorrents(ctx context.Context) ([]qbittorrent.TorrentI
 	return torrents, true, ""
 }
 
-func attachQBTasks(entries []FileEntry, torrents []qbittorrent.TorrentInfo) {
-	type managedTask struct {
-		root string
-		task FileQBTask
+// attachExactQBTasks 按已存在的实际文件匹配任务，目录仅关联其包含的任务文件。
+func (a *App) attachExactQBTasks(ctx context.Context, entries []FileEntry, torrents []qbittorrent.TorrentInfo) error {
+	qb, err := a.qbClient(ctx)
+	if err != nil {
+		return err
 	}
-	managed := make([]managedTask, 0, len(torrents))
+	paths := make([]string, len(entries))
+	matches := make([][]FileQBTask, len(entries))
+	for i, entry := range entries {
+		resolved, err := filepath.EvalSymlinks(entry.Path)
+		if err == nil {
+			paths[i] = normalizedFilesystemPath(resolved)
+		}
+	}
 	for _, torrent := range torrents {
-		root := qbTorrentManagedRoot(torrent)
-		if root == "" {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		root, err := filepath.EvalSymlinks(torrent.SavePath)
+		if err != nil {
 			continue
 		}
-		managed = append(managed, managedTask{
-			root: root,
-			task: FileQBTask{
-				Hash: torrent.Hash, Name: torrent.Name, State: torrent.State, Category: torrent.Category,
-				SavePath: torrent.SavePath, ContentPath: torrent.ContentPath,
-			},
-		})
-	}
-	for index := range entries {
-		entryPath := normalizedFilesystemPath(entries[index].Path)
-		for _, item := range managed {
-			if filesystemPathWithinRoot(entryPath, item.root) {
-				entries[index].QBTasks = append(entries[index].QBTasks, item.task)
+		root = normalizedFilesystemPath(root)
+		relevant := false
+		for _, p := range paths {
+			if filesystemPathWithinRoot(p, root) || filesystemPathWithinRoot(root, p) {
+				relevant = true
+				break
+			}
+		}
+		if !relevant {
+			continue
+		}
+		contents, err := qb.GetTorrentContents(ctx, torrent.Hash, nil)
+		if err != nil {
+			return fmt.Errorf("无法读取 qB 任务 %s 的文件清单: %w", torrent.Hash, err)
+		}
+		matched := make([]bool, len(entries))
+		for _, content := range contents {
+			resolved, _, err := resolvePlaybackFile(torrent.SavePath, content.Name)
+			if err != nil {
+				continue
+			}
+			resolved = normalizedFilesystemPath(resolved)
+			for i, entry := range entries {
+				if paths[i] != "" && (paths[i] == resolved || (entry.IsDir && filesystemPathWithinRoot(resolved, paths[i]))) {
+					matched[i] = true
+				}
+			}
+		}
+		for i, found := range matched {
+			if found {
+				matches[i] = append(matches[i], FileQBTask{Hash: torrent.Hash, Name: torrent.Name, State: torrent.State, Category: torrent.Category, SavePath: torrent.SavePath, ContentPath: torrent.ContentPath})
 			}
 		}
 	}
+	for i := range entries {
+		entries[i].QBTasks = append([]FileQBTask{}, matches[i]...)
+	}
+	return nil
 }
 
 // qbTorrentManagedRoot 返回 save_path 下属于任务的第一个文件或目录。

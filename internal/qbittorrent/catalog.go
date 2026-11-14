@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -98,4 +99,14 @@ func (c *Client) CreateTags(ctx context.Context, tags []string) error {
 // DeleteTags 删除一个或多个 qBittorrent 标签。
 func (c *Client) DeleteTags(ctx context.Context, tags []string) error {
 	return c.postForm(ctx, "/api/v2/torrents/deleteTags", url.Values{"tags": {strings.Join(nonEmptyStrings(tags), ",")}}, "torrents/deleteTags")
+}
+
+// SetTorrentAutoManagement 设置任务是否按分类自动管理保存目录。
+func (c *Client) SetTorrentAutoManagement(ctx context.Context, hash string, enabled bool) error {
+	return c.postForm(ctx, "/api/v2/torrents/setAutoManagement", url.Values{"hashes": {hash}, "enable": {strconv.FormatBool(enabled)}}, "torrents/setAutoManagement")
+}
+
+// SetTorrentLocation 请求 qB 移动整个任务的保存目录。
+func (c *Client) SetTorrentLocation(ctx context.Context, hash, location string) error {
+	return c.postForm(ctx, "/api/v2/torrents/setLocation", url.Values{"hashes": {hash}, "location": {location}}, "torrents/setLocation")
 }

@@ -475,3 +475,14 @@ preview 每次重新计算最终下载计划且不写状态；execute 会再次�
 
 预留 RSS 生成接口。当前骨架返回 `501 Not Implemented`。
 
+
+
+### qB 任务分类与目录管理
+
+`POST /api/qb/torrents/{hash}/manage`
+
+接收 `{ "category": "影视/动画" }` 或 `{ "location": "/downloads/animation" }`，两字段必须且只能提供一个。分类必须已存在；空分类表示取消分类。设置分类后启用该任务自动管理，由 qB 解析保存路径。指定目录时先切换为手动管理，目录必须为 qB 主机的绝对路径。仅接受单个 40 或 64 位十六进制 hash。
+
+返回 HTTP 202 `{ "accepted": true }` 仅表示请求已提交，不代表搬运完成；部分成功后的失败会在错误中说明管理模式或分类已发生的变化。无效输入返回 400，任务不存在返回 404，qB 错误返回 502。
+
+`GET /api/qb/categories?refresh=true` 成功刷新时额外返回可选 `default_save_path`，供默认及继承目录预览；默认目录读取失败或返回缓存时可能省略。预览不替代 qB 的实际路径。

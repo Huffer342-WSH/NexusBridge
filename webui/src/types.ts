@@ -661,6 +661,7 @@ export type QBCategory = {
 };
 
 export type QBCategoriesResult = {
+  default_save_path?: string;
   items: QBCategory[];
   stale: boolean;
   connected: boolean;

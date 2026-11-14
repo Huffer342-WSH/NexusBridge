@@ -617,3 +617,23 @@ func (s *Server) handleSiteFetchJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, items)
 }
+
+// handleManageQBTorrent 提交单个任务的分类或目录变更。
+func (s *Server) handleManageQBTorrent(w http.ResponseWriter, r *http.Request) {
+	var body core.QBManagementRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	err := s.torrents.ManageQBTorrent(r.Context(), chi.URLParam(r, "hash"), body)
+	switch {
+	case errors.Is(err, core.ErrInvalidQBTorrentHash), errors.Is(err, core.ErrInvalidQBManagement):
+		writeError(w, http.StatusBadRequest, err)
+	case errors.Is(err, core.ErrQBTorrentNotFound):
+		writeError(w, http.StatusNotFound, err)
+	case err != nil:
+		writeError(w, http.StatusBadGateway, err)
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+	}
+}

@@ -398,6 +398,11 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ delete_files: deleteFiles }),
     }),
+  manageQBTorrent: (hash: string, body: { category?: string; location?: string }) =>
+    request<{ accepted: boolean }>(`/api/qb/torrents/${encodeURIComponent(hash)}/manage`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   syncQB: () => request<QBSyncResult>('/api/qb/sync', { method: 'POST' }),
   pollQB: (rid: number) => request<QBPollResult>(`/api/qb/poll?rid=${Math.max(0, Math.trunc(rid))}`),
   downloadTasks: () => request<DownloadTask[]>('/api/download-tasks'),

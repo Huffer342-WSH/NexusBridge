@@ -1,6 +1,6 @@
 <!-- 媒体视图负责种子筛选、自适应卡片布局和 qB 状态展示。 -->
 <script setup lang="ts">
-import { ChevronDown, Film, ListFilter, Play, RadioTower, RefreshCw, RotateCcw, Search, Trash2 } from '@lucide/vue';
+import { ChevronDown, Film, ListFilter, Play, RadioTower, RefreshCw, RotateCcw, Search } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import {
   NAlert,
@@ -24,7 +24,7 @@ import { useMediaDisplaySettings } from '../composables/useMediaDisplaySettings'
 import type { MediaFilterOptions, Site, Torrent, TorrentPageQuery } from '../types';
 import { formatByteSize, formatByteSpeed } from '../utils/format';
 import MediaQuickSettings from './MediaQuickSettings.vue';
-import QBDeleteDialog from './QBDeleteDialog.vue';
+import QBDeleteButton from './QBDeleteButton.vue';
 import TorrentStatusControl from './TorrentStatusControl.vue';
 
 const props = defineProps<{
@@ -70,7 +70,6 @@ const mediaFilterOptions = ref<MediaFilterOptions>({
 const page = ref(1);
 const pageSize = ref(50);
 const failedCovers = ref(new Set<string>());
-const deleteDialogOpen = ref(false);
 const deleteTarget = ref<Torrent | null>(null);
 const deletingHash = ref('');
 const deleteError = ref('');
@@ -490,11 +489,11 @@ function qbTags(torrent: Torrent) {
     .filter(Boolean);
 }
 
-/** 打开删除确认框并默认保留已下载文件。 */
-function openDeleteDialog(torrent: Torrent) {
+/** 删除选中卡片的任务，执行期间不切换目标。 */
+function deleteTorrent(torrent: Torrent, deleteFiles: boolean) {
+  if (deletingHash.value) return;
   deleteTarget.value = torrent;
-  deleteError.value = '';
-  deleteDialogOpen.value = true;
+  void deleteQBTask(deleteFiles);
 }
 
 /** 删除当前卡片关联的 qB 任务，并立即更新卡片状态。 */
@@ -523,7 +522,6 @@ async function deleteQBTask(deleteFiles: boolean) {
       };
     }
     deleteNotice.value = deleteFiles ? 'qB 任务及已下载文件已删除。' : 'qB 任务已删除，已下载文件保留。';
-    deleteDialogOpen.value = false;
   } catch (reason) {
     deleteError.value = reason instanceof Error ? reason.message : '删除 qB 任务失败';
   } finally {
@@ -808,16 +806,11 @@ async function deleteQBTask(deleteFiles: boolean) {
                 <span v-if="torrent.qb_status.fetched_at" class="muted">{{
                   formatDate(torrent.qb_status.fetched_at)
                 }}</span>
-                <NButton
-                  quaternary
-                  type="error"
-                  size="tiny"
-                  :loading="deletingHash === torrent.qb_status.hash"
-                  @click.stop="openDeleteDialog(torrent)"
-                >
-                  <template #icon><NIcon :component="Trash2" /></template>
-                  删除任务
-                </NButton>
+                <QBDeleteButton
+                  :loading="Boolean(deletingHash)"
+                  :error="deleteTarget === torrent ? deleteError : undefined"
+                  @confirm="(deleteFiles) => deleteTorrent(torrent, deleteFiles)"
+                />
               </NSpace>
             </div>
             <NSpace v-if="torrent.qb_status?.added" size="small" class="qb-status-tags">
@@ -859,12 +852,5 @@ async function deleteQBTask(deleteFiles: boolean) {
     </NCard>
 
     <MediaQuickSettings v-model="displaySettings" />
-    <QBDeleteDialog
-      v-model:show="deleteDialogOpen"
-      :title="deleteTarget?.title ?? ''"
-      :loading="Boolean(deletingHash)"
-      :error="deleteError"
-      @confirm="deleteQBTask"
-    />
   </section>
 </template>

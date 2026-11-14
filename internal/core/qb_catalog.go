@@ -56,7 +56,9 @@ func (a *App) GetQBCategories(ctx context.Context, refresh bool) (QBCategoriesRe
 	if err := a.store.ReplaceQBCategories(ctx, records, syncedAt); err != nil {
 		return QBCategoriesResult{}, err
 	}
-	return categoriesFromRecords(records, storage.QBCacheStateRecord{SyncedAt: syncedAt}, false), nil
+	result := categoriesFromRecords(records, storage.QBCacheStateRecord{SyncedAt: syncedAt}, false)
+	result.DefaultSavePath, _ = qb.GetDefaultSavePath(ctx)
+	return result, nil
 }
 
 // CreateQBCategory 在 qB 中创建完整分类名称并刷新本地快照。

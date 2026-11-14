@@ -189,6 +189,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/torrents/{site_id}/{torrent_id}/qb-status", s.handleTorrentQBStatus)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/qb-control", s.handleTorrentQBControl)
 	r.Delete("/api/qb/torrents/{hash}", s.handleDeleteQBTorrent)
+	r.Post("/api/qb/torrents/{hash}/manage", s.handleManageQBTorrent)
 	r.Post("/api/sites/{site_id}/fetch", s.handleFetchSite)
 	r.Get("/api/site-fetch-jobs", s.handleSiteFetchJobs)
 	r.Post("/api/torrents/{site_id}/{torrent_id}/download/preview", s.handlePreviewTorrentDownload)

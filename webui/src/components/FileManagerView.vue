@@ -13,7 +13,7 @@ import {
   RotateCcw,
   Search,
 } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   NAlert,
   NButton,
@@ -39,6 +39,7 @@ import { api } from '../api';
 import type {
   FileBrowseResult,
   FileEntry,
+  FileQBTask,
   QBCategory,
   RecoveryMatch,
   RecoveryBatchItemResult,
@@ -52,6 +53,9 @@ import type {
   TorrentSizeIndexStatus,
 } from '../types';
 import MediaThumbnail from './MediaThumbnail.vue';
+import QBDeleteButton from './QBDeleteButton.vue';
+import FilePickerDialog from './FilePickerDialog.vue';
+import HelpHint from './HelpHint.vue';
 
 const props = defineProps<{ sites: Site[] }>();
 const emit = defineEmits<{ message: [value: string] }>();
@@ -64,6 +68,173 @@ const browser = ref<FileBrowseResult>({ path: '', is_root: true, qb_connected: f
 const pathDraft = ref('');
 const browsing = ref(false);
 const browseError = ref('');
+const managedEntry = ref<FileEntry | null>(null);
+const taskDialogOpen = ref(false);
+const manageTarget = ref<FileQBTask | null>(null);
+const manageMode = ref<'category' | 'location'>('category');
+const manageValue = ref('');
+const manageBusy = ref(false);
+const manageError = ref('');
+const manageNotice = ref('');
+const manageCategories = ref<QBCategory[]>([]);
+const manageLoading = ref(false);
+const manageReady = ref(false);
+const defaultQBPath = ref('');
+const newCategory = ref(false);
+const newCategoryName = ref('');
+const newCategoryPath = ref('');
+const inheritCategoryPath = ref(true);
+const directoryPickerOpen = ref(false);
+const directoryPickerTarget = ref<'location' | 'category'>('location');
+const directoryPickerStart = ref('');
+
+function browseTaskDirectory(target: 'location' | 'category') {
+  directoryPickerTarget.value = target;
+  directoryPickerStart.value = target === 'location' ? manageValue.value : newCategoryPath.value;
+  if (!directoryPickerStart.value) directoryPickerStart.value = manageTarget.value?.save_path || '';
+  directoryPickerOpen.value = true;
+}
+
+function selectTaskDirectory(path: string) {
+  if (directoryPickerTarget.value === 'location') manageValue.value = path;
+  else {
+    newCategoryPath.value = path;
+    inheritCategoryPath.value = false;
+  }
+  directoryPickerOpen.value = false;
+}
+function resolvedCategoryPath(name: string, explicit?: string): string {
+  const base = defaultQBPath.value;
+  const join = (root: string, part: string) => {
+    if (!root) return '';
+    const windows = root.includes('\\') || /^[A-Za-z]:/.test(root);
+    return root.replace(/[\\/]+$/, '') + (windows ? '\\' : '/') + part.replace(/[\\/]/g, windows ? '\\' : '/');
+  };
+  if (!name) return base;
+  const configured = explicit ?? manageCategories.value.find((c) => c.name === name)?.save_path ?? '';
+  if (configured) return /^(?:[A-Za-z]:[\\/]|[\\/])/.test(configured) ? configured : join(base, configured);
+  const split = name.lastIndexOf('/');
+  const parent = split < 0 ? '' : name.slice(0, split);
+  return join(resolvedCategoryPath(parent), name.slice(split + 1));
+}
+const categoryChoices = computed(() => [
+  { label: '无分类', value: '', inherited: true, path: defaultQBPath.value },
+  ...manageCategories.value.map((c) => ({
+    label: c.name,
+    value: c.name,
+    inherited: !c.save_path,
+    path: resolvedCategoryPath(c.name),
+  })),
+]);
+function renderCategoryLabel(option: { label?: string | number; path?: string; inherited?: boolean }) {
+  return h('div', [
+    h('div', String(option.label ?? '')),
+    h(
+      'div',
+      { style: { fontSize: '12px', color: option.inherited ? '#9ca3af' : '#667085', overflowWrap: 'anywhere' } },
+      `${option.path || '路径暂不可用'}${option.inherited ? '（默认 / 继承）' : ''}`,
+    ),
+  ]);
+}
+const categoryPreview = computed(() =>
+  newCategory.value
+    ? resolvedCategoryPath(newCategoryName.value.trim(), inheritCategoryPath.value ? '' : newCategoryPath.value.trim())
+    : resolvedCategoryPath(manageValue.value),
+);
+const managementInvalid = computed(() =>
+  manageMode.value === 'category'
+    ? !manageReady.value ||
+      (newCategory.value &&
+        (!newCategoryName.value.trim() ||
+          manageCategories.value.some((c) => c.name === newCategoryName.value.trim()) ||
+          (!inheritCategoryPath.value && !newCategoryPath.value.trim())))
+    : !manageValue.value.trim(),
+);
+
+async function editTask(task: FileQBTask, mode: 'category' | 'location') {
+  if (manageBusy.value) return;
+  manageTarget.value = task;
+  manageMode.value = mode;
+  manageValue.value = mode === 'category' ? task.category || '' : task.save_path || '';
+  manageError.value = '';
+  manageNotice.value = '';
+  manageCategories.value = [];
+  manageReady.value = false;
+  defaultQBPath.value = '';
+  newCategory.value = false;
+  newCategoryName.value = '';
+  newCategoryPath.value = '';
+  inheritCategoryPath.value = true;
+  if (mode === 'category') {
+    manageLoading.value = true;
+    try {
+      const result = await api.getQBCategories(true);
+      if (result.stale) throw new Error('分类刷新失败，请稍后重试');
+      manageCategories.value = result.items;
+      defaultQBPath.value = result.default_save_path || '';
+      manageReady.value = true;
+    } catch (error) {
+      manageError.value = error instanceof Error ? error.message : '分类加载失败';
+    } finally {
+      manageLoading.value = false;
+    }
+  }
+}
+async function saveTaskManagement() {
+  if (!manageTarget.value || manageBusy.value || manageLoading.value || managementInvalid.value) return;
+  manageBusy.value = true;
+  manageError.value = '';
+  try {
+    if (manageMode.value === 'category' && newCategory.value) {
+      const name = newCategoryName.value.trim();
+      await api.createQBCategory(name, inheritCategoryPath.value ? '' : newCategoryPath.value.trim());
+      manageValue.value = name;
+      newCategory.value = false;
+      manageCategories.value.push({
+        name,
+        save_path: inheritCategoryPath.value ? '' : newCategoryPath.value.trim(),
+        path_segments: name.split('/'),
+      });
+      manageNotice.value = '分类已创建；若后续应用失败，可选择此分类重试。';
+    }
+    await api.manageQBTorrent(manageTarget.value.hash, { [manageMode.value]: manageValue.value });
+    manageNotice.value = '已提交给 qB；目录搬运可能仍在进行，请刷新查看实际路径和状态。';
+    manageTarget.value = null;
+    taskDialogOpen.value = false;
+    await browse(browser.value.path, false);
+  } catch (error) {
+    manageError.value = error instanceof Error ? error.message : '操作失败';
+  } finally {
+    manageBusy.value = false;
+  }
+}
+
+const deleteTask = ref<FileQBTask | null>(null);
+const deletingTask = ref(false);
+const deleteTaskError = ref('');
+
+function openTaskManager(entry: FileEntry) {
+  managedEntry.value = entry;
+  taskDialogOpen.value = true;
+}
+
+async function deleteManagedTask(task: FileQBTask, deleteFiles: boolean) {
+  if (deletingTask.value) return;
+  deleteTask.value = task;
+  deletingTask.value = true;
+  deleteTaskError.value = '';
+  try {
+    await api.deleteQBTorrent(deleteTask.value.hash, deleteFiles);
+    deleteTask.value = null;
+    taskDialogOpen.value = false;
+    emit('message', deleteFiles ? '已请求 qB 删除整个任务及其下载文件' : '已删除 qB 任务，保留下载文件');
+    await browse(browser.value.path, false);
+  } catch (error) {
+    deleteTaskError.value = error instanceof Error ? error.message : '删除任务失败';
+  } finally {
+    deletingTask.value = false;
+  }
+}
 const menuVisible = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
@@ -283,6 +454,8 @@ function handleContextAction(key: string) {
     void browse(entry.path);
   } else if (key === 'play') {
     openPlayback(entry);
+  } else if (key === 'manage') {
+    openTaskManager(entry);
   } else if (key === 'recover') {
     void openRecovery(entry);
   }
@@ -573,7 +746,9 @@ onBeforeUnmount(() => {
           Torrent 大小索引 {{ sizeIndex.indexed }}/{{ sizeIndex.total }}
           <span v-if="sizeIndex.pending">，还有 {{ sizeIndex.pending }} 个待处理</span>
           <span v-if="sizeIndex.failed">，其中 {{ sizeIndex.failed }} 个解析失败</span>。
-          旧数据只需手动重建一次，之后保存和删除 torrent 时会自动维护。
+          <HelpHint label="Torrent 大小索引说明"
+            >旧数据只需手动重建一次，之后保存和删除 torrent 时会自动维护。</HelpHint
+          >
         </span>
         <NButton size="small" :loading="sizeIndexLoading" @click="rebuildSizeIndex">手动重建</NButton>
       </NSpace>
@@ -615,9 +790,14 @@ onBeforeUnmount(() => {
           <span>{{ entry.is_dir ? '—' : formatBytes(entry.size) }}</span>
           <span>{{ formatDate(entry.modified_at) }}</span>
           <div class="qb-badges">
-            <NTag v-if="!entry.qb_tasks.length" size="small" :bordered="false">未关联</NTag>
-            <NTag v-for="task in entry.qb_tasks" :key="task.hash" size="small" type="success">
-              {{ task.category || '无分类' }} · {{ task.state }}
+            <NTag v-if="!browser.qb_connected" size="small" :bordered="false">关联未知</NTag>
+            <NTag v-else-if="!entry.qb_tasks.length" size="small" :bordered="false">未关联</NTag>
+            <NTag v-else-if="entry.qb_tasks.length > 1" size="small" type="success">
+              {{ entry.is_dir ? '目录包含' : '关联' }} {{ entry.qb_tasks.length }} 个任务
+            </NTag>
+            <NTag v-else size="small" type="success">
+              {{ entry.is_dir ? '目录包含' : '文件匹配' }} · {{ entry.qb_tasks[0].category || '无分类' }} ·
+              {{ entry.qb_tasks[0].state }}
             </NTag>
           </div>
           <NSpace class="file-actions" :size="4" :wrap="false">
@@ -632,6 +812,143 @@ onBeforeUnmount(() => {
       </NSpin>
     </NCard>
 
+    <NModal
+      v-model:show="taskDialogOpen"
+      preset="card"
+      title="关联 qB 任务"
+      class="recovery-modal"
+      style="width: min(720px, calc(100vw - 32px))"
+    >
+      <NSpace align="center" :wrap="false" style="margin-bottom: 12px">
+        <span style="overflow-wrap: anywhere">当前路径：{{ managedEntry?.path }}</span>
+        <HelpHint label="任务关联与操作范围说明">
+          通过 qB
+          文件清单与实际路径匹配任务，目录展示其中包含的任务。删除或移动作用于整个任务，可能包含整季视频；删除共享文件也会影响其他任务。
+        </HelpHint>
+      </NSpace>
+      <NSpace vertical>
+        <NCard v-for="task in managedEntry?.qb_tasks" :key="task.hash" size="small">
+          <div style="overflow-wrap: anywhere">
+            <strong>{{ task.name }}</strong>
+            <p>{{ task.category || '无分类' }} · {{ task.state }}</p>
+            <p>内容路径：{{ task.content_path }}</p>
+            <p>保存路径：{{ task.save_path }}</p>
+            <p>Hash：{{ task.hash }}</p>
+          </div>
+          <NSpace style="margin-bottom: 12px">
+            <NButton @click="editTask(task, 'location')">移动任务目录</NButton>
+            <NButton @click="editTask(task, 'category')">设置分类并移动</NButton>
+          </NSpace>
+          <QBDeleteButton
+            :loading="deletingTask"
+            :error="deleteTask?.hash === task.hash ? deleteTaskError : undefined"
+            @confirm="(deleteFiles) => deleteManagedTask(task, deleteFiles)"
+          />
+        </NCard>
+      </NSpace>
+    </NModal>
+
+    <NAlert v-if="manageNotice" type="info" :bordered="false">{{ manageNotice }}</NAlert>
+    <NModal
+      :show="!!manageTarget"
+      preset="card"
+      :title="manageMode === 'category' ? '设置分类并移动' : '移动任务目录'"
+      class="recovery-modal"
+      style="width: min(720px, calc(100vw - 32px))"
+      :closable="!manageBusy"
+      :mask-closable="!manageBusy"
+      @update:show="
+        (show) => {
+          if (!show && !manageBusy) manageTarget = null;
+        }
+      "
+    >
+      <p style="overflow-wrap: anywhere">任务：{{ manageTarget?.name }}</p>
+      <p style="overflow-wrap: anywhere">当前保存目录：{{ manageTarget?.save_path }}</p>
+      <HelpHint label="分类与移动行为说明">
+        {{
+          manageMode === 'category'
+            ? '将启用此任务的自动管理，由 qB 按分类路径移动文件。空路径由 qB 根据默认目录和分类继承规则解析。'
+            : '将切换此任务为手动管理，并由 qB 移动到指定保存目录。请输入 qB 所在机器上的绝对路径。'
+        }}
+        操作影响整个任务的所有文件，可能包含多集视频。
+      </HelpHint>
+      <NSpace v-if="manageMode === 'category'" vertical>
+        <NRadioGroup v-model:value="newCategory" :disabled="manageBusy || manageLoading">
+          <NRadioButton :value="false">已有分类</NRadioButton><NRadioButton :value="true">新建分类</NRadioButton>
+        </NRadioGroup>
+        <NSelect
+          v-if="!newCategory"
+          v-model:value="manageValue"
+          filterable
+          :loading="manageLoading"
+          :disabled="manageBusy || manageLoading"
+          :options="categoryChoices"
+          :render-label="renderCategoryLabel"
+        />
+        <template v-else>
+          <NInput v-model:value="newCategoryName" :disabled="manageBusy" placeholder="分类名称，例如 影视/动画" />
+          <NSpace align="center"
+            ><NSwitch v-model:value="inheritCategoryPath" :disabled="manageBusy" />继承默认保存目录</NSpace
+          >
+          <NSpace v-if="!inheritCategoryPath" vertical>
+            <NInput
+              v-model:value="newCategoryPath"
+              :disabled="manageBusy"
+              placeholder="保存目录（绝对路径或相对 qB 默认目录）"
+            />
+            <NButton :disabled="manageBusy" @click="browseTaskDirectory('category')">
+              <template #icon><NIcon :component="FolderOpen" /></template>浏览目录
+            </NButton>
+          </NSpace>
+          <NAlert v-if="manageCategories.some((c) => c.name === newCategoryName.trim())" type="warning"
+            >分类已存在，请选择已有分类。</NAlert
+          >
+        </template>
+        <p
+          :style="{
+            color: (
+              newCategory ? inheritCategoryPath : !manageCategories.find((c) => c.name === manageValue)?.save_path
+            )
+              ? '#9ca3af'
+              : 'inherit',
+            overflowWrap: 'anywhere',
+          }"
+        >
+          保存目录预览：{{ categoryPreview || '暂无法获取默认目录，最终路径由 qB 决定' }}
+        </p>
+        <HelpHint label="分类路径继承说明"
+          >继承时使用父分类目录并追加子分类名；显式相对路径以 qB 默认目录为基准。实际路径以 qB 为准。</HelpHint
+        >
+      </NSpace>
+      <NSpace v-else vertical>
+        <NInput v-model:value="manageValue" :disabled="manageBusy" placeholder="qB 保存目录的绝对路径" />
+        <NButton :disabled="manageBusy" @click="browseTaskDirectory('location')">
+          <template #icon><NIcon :component="FolderOpen" /></template>浏览目录
+        </NButton>
+        <HelpHint label="可浏览目录的范围">浏览 NexusBridge 所在机器的目录；远程 qB 请手动填写它的保存路径。</HelpHint>
+      </NSpace>
+      <NAlert v-if="manageError" type="error" :bordered="false">{{ manageError }}</NAlert>
+      <template #footer
+        ><NSpace justify="end">
+          <NButton :disabled="manageBusy" @click="manageTarget = null">取消</NButton>
+          <NButton
+            type="primary"
+            :loading="manageBusy"
+            :disabled="manageBusy || manageLoading || managementInvalid"
+            @click="saveTaskManagement"
+            >{{ newCategory && manageMode === 'category' ? '创建分类并应用' : '提交移动' }}</NButton
+          >
+        </NSpace></template
+      >
+    </NModal>
+    <FilePickerDialog
+      v-model:show="directoryPickerOpen"
+      mode="directory"
+      title="选择目标保存目录"
+      :initial-path="directoryPickerStart"
+      @select="selectTaskDirectory"
+    />
     <NDropdown
       trigger="manual"
       :show="menuVisible"
@@ -640,13 +957,20 @@ onBeforeUnmount(() => {
       :options="[
         { label: '打开目录', key: 'open', disabled: !contextEntry?.is_dir },
         { label: '播放', key: 'play', disabled: !contextEntry?.media_type },
+        { label: '管理 qB 任务', key: 'manage', disabled: !contextEntry?.qb_tasks.length },
         { label: '尝试恢复 qB 任务', key: 'recover', disabled: !!contextEntry?.qb_tasks.length },
       ]"
       @clickoutside="menuVisible = false"
       @select="handleContextAction"
     />
 
-    <NModal v-model:show="recoveryOpen" preset="card" title="尝试恢复 qB 任务" class="recovery-modal">
+    <NModal
+      v-model:show="recoveryOpen"
+      preset="card"
+      title="尝试恢复 qB 任务"
+      class="recovery-modal"
+      style="width: min(720px, calc(100vw - 32px))"
+    >
       <NAlert type="info" :bordered="false" class="modal-alert">
         目标：{{ recoveryTarget?.path }}。预览只读取目录和 torrent；点击“确认恢复”后才会写入 qB。
       </NAlert>
@@ -742,7 +1066,13 @@ onBeforeUnmount(() => {
       </template>
     </NModal>
 
-    <NModal v-model:show="scanOpen" preset="card" title="扫描可能丢失的任务" class="scan-modal">
+    <NModal
+      v-model:show="scanOpen"
+      preset="card"
+      title="扫描可能丢失的任务"
+      class="scan-modal"
+      style="width: min(860px, calc(100vw - 32px))"
+    >
       <div class="scan-toolbar">
         <span>递归深度</span>
         <NInputNumber v-model:value="scanDepth" :min="1" :max="5" />

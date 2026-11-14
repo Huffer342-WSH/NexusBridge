@@ -1,6 +1,6 @@
 <!-- 播放视图负责实时选集、媒体画布、简介和其他可播放种子。 -->
 <script setup lang="ts">
-import { ExternalLink, File, Film, Folder, Image, Music2, Paperclip, Play, RefreshCw, Trash2 } from '@lucide/vue';
+import { ExternalLink, File, Film, Folder, Image, Music2, Paperclip, Play, RefreshCw } from '@lucide/vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { NAlert, NButton, NCard, NEmpty, NIcon, NResult, NSpace, NSpin, NTabPane, NTabs, NTag } from 'naive-ui';
 import { useRoute, useRouter } from 'vue-router';
@@ -15,7 +15,7 @@ import type {
   SeriesVideo,
 } from '../types';
 import { formatByteSize } from '../utils/format';
-import QBDeleteDialog from './QBDeleteDialog.vue';
+import QBDeleteButton from './QBDeleteButton.vue';
 import MediaThumbnail from './MediaThumbnail.vue';
 import MediaCanvas from './player/MediaCanvas.vue';
 import FilePickerDialog from './FilePickerDialog.vue';
@@ -35,7 +35,6 @@ const mediaTab = ref('episodes');
 const directory = ref<FileBrowseResult | null>(null);
 const directoryLoading = ref(false);
 const directoryError = ref('');
-const deleteDialogOpen = ref(false);
 const deleteLoading = ref(false);
 const deleteError = ref('');
 const deletedQB = ref<{ deleteFiles: boolean } | null>(null);
@@ -441,12 +440,6 @@ async function removeExternalSubtitle() {
   }
 }
 
-/** 打开当前播放内容对应 qB 任务的删除确认框。 */
-function openDeleteDialog() {
-  deleteError.value = '';
-  deleteDialogOpen.value = true;
-}
-
 /** 删除当前播放内容对应的 qB 任务，并停止继续读取已经失效的播放清单。 */
 async function deleteQBTask(deleteFiles: boolean) {
   const hash = playback.value?.qb_hash?.trim() ?? '';
@@ -461,7 +454,6 @@ async function deleteQBTask(deleteFiles: boolean) {
     generation++;
     if (pollTimer) window.clearTimeout(pollTimer);
     deletedQB.value = { deleteFiles };
-    deleteDialogOpen.value = false;
   } catch (reason) {
     deleteError.value = reason instanceof Error ? reason.message : '删除 qB 任务失败';
   } finally {
@@ -568,10 +560,12 @@ onBeforeUnmount(() => {
                   <template #icon><NIcon :component="ExternalLink" /></template>
                   查看来源
                 </NButton>
-                <NButton v-if="playback.qb_hash" type="error" secondary @click="openDeleteDialog">
-                  <template #icon><NIcon :component="Trash2" /></template>
-                  删除 qB 任务
-                </NButton>
+                <QBDeleteButton
+                  v-if="playback.qb_hash"
+                  :loading="deleteLoading"
+                  :error="deleteError"
+                  @confirm="deleteQBTask"
+                />
               </NSpace>
             </div>
             <div class="playback-meta">
@@ -580,9 +574,7 @@ onBeforeUnmount(() => {
               <NTag v-if="currentFile" :type="currentFile.complete ? 'success' : 'warning'">
                 {{ mediaLabel(currentFile.media_type) }} · {{ formatByteSize(currentFile.size) }}
               </NTag>
-              <NTag v-if="currentFile?.subtitles?.length" type="info">
-                字幕 · {{ currentFile.subtitles.length }}
-              </NTag>
+              <NTag v-if="currentFile?.subtitles?.length" type="info"> 字幕 · {{ currentFile.subtitles.length }} </NTag>
             </div>
             <p v-if="currentFile" class="current-media-name">{{ currentFile.name }}</p>
             <div v-if="currentFile?.media_type === 'video'" class="external-subtitle-row">
@@ -820,13 +812,6 @@ onBeforeUnmount(() => {
       </main>
     </template>
 
-    <QBDeleteDialog
-      v-model:show="deleteDialogOpen"
-      :title="playback?.title ?? ''"
-      :loading="deleteLoading"
-      :error="deleteError"
-      @confirm="deleteQBTask"
-    />
     <FilePickerDialog
       v-model:show="subtitlePickerOpen"
       mode="file"

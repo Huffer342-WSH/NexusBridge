@@ -12,11 +12,12 @@ type QBCategory struct {
 
 // QBCategoriesResult 返回 qB 分类快照和连接状态。
 type QBCategoriesResult struct {
-	Items     []QBCategory `json:"items"`
-	Stale     bool         `json:"stale"`
-	Connected bool         `json:"connected"`
-	Error     string       `json:"error,omitempty"`
-	SyncedAt  *time.Time   `json:"synced_at,omitempty"`
+	DefaultSavePath string       `json:"default_save_path,omitempty"`
+	Items           []QBCategory `json:"items"`
+	Stale           bool         `json:"stale"`
+	Connected       bool         `json:"connected"`
+	Error           string       `json:"error,omitempty"`
+	SyncedAt        *time.Time   `json:"synced_at,omitempty"`
 }
 
 // QBTagsResult 返回 qB 标签快照和连接状态。
